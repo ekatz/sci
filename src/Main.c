@@ -1,0 +1,200 @@
+#include "Dialog.h"
+#include "Display.h"
+#include "ErrMsg.h"
+#include "Event.h"
+#include "Graphics.h"
+#include "Menu.h"
+#include "Mouse.h"
+#include "PMachine.h"
+#include "Palette.h"
+#include "Picture.h"
+#include "Resource.h"
+#include "Timer.h"
+#include "VolLoad.h"
+#include "Window.h"
+#include <GL/gl.h>
+
+HWND g_hWndMain = NULL;
+
+void Run()
+{
+    InitResource();
+    InitScripts();
+
+    CInitGraph();
+
+    InitEvent(16);
+
+    InitPalette();
+
+    InitWindow();
+
+    InitDialog(DoAlert);
+
+    // Load offsets to often used object properties.  (In script.c)
+    LoadPropOffsets();
+
+    // Open up a menu port.
+    ROpenPort(&g_menuPortStruc);
+    g_menuPort = &g_menuPortStruc;
+    InitMenu();
+
+    // Open up a picture window.
+    RSetFont(0);
+    g_picWind = RNewWindow(&g_picRect, "", NOBORDER | NOSAVE, 0, 1);
+    RSetPort(&g_picWind->port);
+    InitPicture();
+
+    // We return here on a restart.
+    // setjmp(restartBuf);
+
+    // Turn control over to the pseudo-machine.
+    PMachine();
+}
+
+static LRESULT CALLBACK WindowProc(HWND   hWnd,
+                                   UINT   uMsg,
+                                   WPARAM wParam,
+                                   LPARAM lParam)
+{
+    if (uMsg == WM_MOUSEMOVE) {
+        g_mousePosX = (int)(short)LOWORD(lParam);
+        g_mousePosY = (int)(short)HIWORD(lParam);
+        return 0;
+    }
+
+    if (uMsg == WM_LBUTTONDOWN) {
+        REventRecord event = { 0 };
+        g_buttonState      = 1;
+        event.type         = mouseDown;
+        event.when         = RTickCount();
+        event.where.h      = (short)LOWORD(lParam);
+        event.where.v      = (short)HIWORD(lParam);
+        RPostEvent(&event);
+    }
+
+    if (uMsg == WM_LBUTTONUP) {
+        REventRecord event = { 0 };
+        g_buttonState      = 0;
+        event.type         = mouseUp;
+        event.when         = RTickCount();
+        event.where.h      = (short)LOWORD(lParam);
+        event.where.v      = (short)HIWORD(lParam);
+        RPostEvent(&event);
+    }
+
+    if (uMsg == WM_DESTROY) {
+        PostQuitMessage(0);
+        return 0;
+    }
+
+    if (uMsg == WM_PAINT) {
+        HDC         hdc;
+        PAINTSTRUCT ps;
+
+        hdc = BeginPaint(hWnd, &ps);
+        if (g_vHndl != NULL) {
+            Display(0, 0, MAXHEIGHT, MAXWIDTH, g_vHndl, VMAP);
+        }
+        EndPaint(hWnd, &ps);
+        return 0;
+    }
+
+    return DefWindowProc(hWnd, uMsg, wParam, lParam);
+}
+
+int CALLBACK WinMain(_In_ HINSTANCE hInstance,
+                     _In_ HINSTANCE hPrevInstance,
+                     _In_ LPSTR     lpCmdLine,
+                     _In_ int       nCmdShow)
+{
+    WNDCLASSA             wndClass;
+    RECT                  rect;
+    const RRect          *bounds;
+    HWND                  hWnd;
+    GLuint                pixelFormat;
+    PIXELFORMATDESCRIPTOR pfd = // pfd Tells Windows How We Want Things To Be
+      {
+          sizeof(PIXELFORMATDESCRIPTOR), // Size Of This Pixel Format Descriptor
+          1,                             // Version Number
+          PFD_DRAW_TO_WINDOW |           // Format Must Support Window
+            PFD_SUPPORT_OPENGL |         // Format Must Support OpenGL
+            PFD_DOUBLEBUFFER,            // Must Support Double Buffering
+          PFD_TYPE_RGBA,                 // Request An RGBA Format
+          8,                             // Select Our Color Depth
+          0,
+          0,
+          0,
+          0,
+          0,
+          0, // Color Bits Ignored
+          0, // No Alpha Buffer
+          0, // Shift Bit Ignored
+          0, // No Accumulation Buffer
+          0,
+          0,
+          0,
+          0,              // Accumulation Bits Ignored
+          16,             // 16Bit Z-Buffer (Depth Buffer)
+          0,              // No Stencil Buffer
+          0,              // No Auxiliary Buffer
+          PFD_MAIN_PLANE, // Main Drawing Layer
+          0,              // Reserved
+          0,
+          0,
+          0 // Layer Masks Ignored
+      };
+
+    if (hPrevInstance != NULL) {
+        MessageBox(
+          GetFocus(), "Cannot run two copies of game!", "Sierra", MB_OK);
+        return 0;
+    }
+
+    wndClass.style         = CS_HREDRAW | CS_VREDRAW;
+    wndClass.lpfnWndProc   = WindowProc;
+    wndClass.cbClsExtra    = 0;
+    wndClass.cbWndExtra    = 0;
+    wndClass.hInstance     = hInstance;
+    wndClass.hIcon         = NULL;
+    wndClass.hCursor       = LoadCursor(NULL, IDC_ARROW);
+    wndClass.hbrBackground = GetStockObject(BLACK_BRUSH);
+    wndClass.lpszMenuName  = "SciWin";
+    wndClass.lpszClassName = "SciWin";
+
+    if (RegisterClassA(&wndClass) == 0) {
+        return 0;
+    }
+
+    bounds      = GetBounds();
+    rect.top    = bounds->top;
+    rect.left   = bounds->left;
+    rect.bottom = bounds->bottom;
+    rect.right  = bounds->right;
+    AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, TRUE);
+
+    hWnd = CreateWindow("SciWin",
+                        "Sierra On-Line",
+                        WS_CLIPCHILDREN | WS_OVERLAPPEDWINDOW,
+                        0,
+                        0,
+                        rect.right - rect.left,
+                        rect.bottom - rect.top + 1,
+                        NULL,
+                        NULL,
+                        hInstance,
+                        NULL);
+
+    g_hWndMain = hWnd;
+    g_hDcWnd   = GetDC(hWnd);
+
+    pixelFormat = ChoosePixelFormat(g_hDcWnd, &pfd);
+    SetPixelFormat(g_hDcWnd, pixelFormat, &pfd);
+    InitDisplay();
+
+    ShowWindow(hWnd, SW_SHOW);
+    UpdateWindow(hWnd);
+
+    Run();
+    return 0;
+}
