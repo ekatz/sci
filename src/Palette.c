@@ -1,8 +1,15 @@
 #include "Palette.h"
 #include "Graphics.h"
+#include "Kernel.h"
+#include "PMachine.h"
 #include "Picture.h"
 #include "Resource.h"
 #include "Timer.h"
+
+static struct PaletteCycleStruct {
+    uint   timestamp[MAXPALCYCLE];
+    int8_t start[MAXPALCYCLE];
+} s_palCycleTable;
 
 RPalette g_sysPalette = { 0 };
 
@@ -13,6 +20,15 @@ static void InsertPalette(RPalette *srcPal, RPalette *dstPal, int mode);
 
 // Given R/G/B values, returns the index of this color.
 static uint Match(const Guns *theGun, const RPalette *pal, int leastDist);
+
+static void ResetPaletteFlags(RPalette *pal,
+                              uint      first,
+                              uint      last,
+                              uint8_t   flags);
+static void SetPaletteFlags(RPalette *pal,
+                            uint      first,
+                            uint      last,
+                            uint8_t   flags);
 
 void InitPalette(void)
 {
@@ -142,4 +158,149 @@ static uint Match(const Guns *theGun, const RPalette *pal, int leastDist)
 {
     return FastMatch(
       pal, theGun->r, theGun->g, theGun->b, PAL_CLUT_SIZE, (uint)leastDist);
+}
+
+static void ResetPaletteFlags(RPalette *pal,
+                              uint      first,
+                              uint      last,
+                              uint8_t   flags)
+{
+    uint i;
+
+    for (i = first; i < last; i++) {
+        // **********************
+        // Don't know if this is true yet
+        // if (PAL_IN_USE & flags && pal->gun[i].flags & PAL_MATCHED)
+        //
+        pal->gun[i].flags &= ~flags;
+    }
+}
+
+static void SetPaletteFlags(RPalette *pal, uint first, uint last, uint8_t flags)
+{
+    uint i;
+
+    for (i = first; i < last; i++) {
+        pal->gun[i].flags |= flags;
+    }
+}
+
+void KPalette(argList)
+{
+#define ret(val) g_acc = ((uintptr_t)(val))
+
+    Guns      aGun;
+    RPalette *pal;
+    uint      count;
+    int       index, replace;
+    int8_t    start;
+    uint      ticks;
+
+    switch (arg(1)) {
+        // Gets a palette resource number.
+        case PALLoad:
+            SetResPalette((uint)arg(2), (int)arg(3));
+            break;
+
+            // Gets a start, end, & bits to set in sysPalette.
+        case PALSet:
+            SetPaletteFlags(
+              &g_sysPalette, (uint)arg(2), (uint)arg(3), (uint8_t)arg(4));
+            break;
+
+            // Gets a start, end, & bits to reset in sysPalette
+        case PALReset:
+            ResetPaletteFlags(
+              &g_sysPalette, (uint)arg(2), (uint)arg(3), (uint8_t)arg(4));
+            break;
+
+            // Gets a start, end and intensity.
+        case PALIntensity:
+            SetPalIntensity(
+              &g_sysPalette, (int)arg(2), (int)arg(3), (int)arg(4));
+            if (argCount < 5 || arg(5) == FALSE) {
+                SetCLUT(&g_sysPalette);
+            }
+            break;
+
+        // Given R/G/B values, returns the index of this color.
+        case PALMatch:
+            aGun.r = (uint8_t)arg(2);
+            aGun.g = (uint8_t)arg(3);
+            aGun.b = (uint8_t)arg(4);
+            ret(Match(&aGun, &g_sysPalette, -1));
+            break;
+
+        case PALCycle:
+            count = (uint)-1;
+            while ((count += 3) < argCount) {
+                start = (int8_t)arg(count);
+                // Is range passed already in palCycleTable?
+                for (index = 0; index < MAXPALCYCLE; index++) {
+                    if (s_palCycleTable.start[index] == start) {
+                        break;
+                    }
+                }
+                // No--replace oldest range with new range.
+                if (s_palCycleTable.start[index] != start) {
+                    ticks   = 0x7fffffff;
+                    replace = 0;
+                    for (index = 0; index < MAXPALCYCLE; index++) {
+                        if (s_palCycleTable.timestamp[index] < ticks) {
+                            ticks   = s_palCycleTable.timestamp[index];
+                            replace = index;
+                        }
+                    }
+                    index                        = replace;
+                    s_palCycleTable.start[index] = start;
+                }
+                // Is it time to cycle yet?
+                if ((RTickCount() - s_palCycleTable.timestamp[index]) >=
+                    (uint)abs((int)arg(count + 2))) {
+                    s_palCycleTable.timestamp[index] = RTickCount();
+                    if ((int)arg(count + 2) > 0) {
+                        // Cycle forward.
+                        index = start;
+                        aGun  = g_sysPalette.gun[index];
+                        for (index++; index < (int)arg(count + 1); index++) {
+                            g_sysPalette.gun[index - 1] =
+                              g_sysPalette.gun[index];
+                        }
+                        g_sysPalette.gun[index - 1] = aGun;
+                    } else {
+                        // Cycle reverse.
+                        index = (int)arg(count + 1) - 1;
+                        aGun  = g_sysPalette.gun[index];
+                        for (; index > (int)start; index--) {
+                            g_sysPalette.gun[index] =
+                              g_sysPalette.gun[index - 1];
+                        }
+                        g_sysPalette.gun[index] = aGun;
+                    }
+                }
+            }
+            // Actually set the palette.
+            SetCLUT(&g_sysPalette);
+            break;
+
+        // Copies systemPalette into a new pointer and returns pointer.
+        case PALSave:
+            pal = (RPalette *)malloc(sizeof(RPalette));
+            if (pal != NULL) {
+                memset(pal, 0, sizeof(RPalette));
+                GetCLUT(pal);
+            }
+            ret(pal);
+            break;
+
+        // Copies saved palette to systemPalette and disposes pointer.
+        case PALRestore:
+            pal = (RPalette *)arg(2);
+            if (pal != NULL) {
+                RSetPalette(pal, PAL_REPLACE);
+                free(pal);
+            }
+            ret(pal);
+            break;
+    }
 }

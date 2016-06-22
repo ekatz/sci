@@ -1,9 +1,13 @@
 #include "Graphics.h"
+#include "Animate.h"
 #include "Cels.h"
 #include "Display.h"
 #include "ErrMsg.h"
+#include "Kernel.h"
+#include "PMachine.h"
 #include "Picture.h"
 #include "Resource.h"
+#include "Window.h"
 
 #define BRUSHSIZE_MASK 7
 
@@ -277,6 +281,8 @@ static void FillLines(uint base, int left, int right);
 static uint SizeRect(const RRect *rect);
 static void SOffsetRect(RRect *rect, const RGrafPort *port);
 static void GetTheRect(const RRect *rect);
+static void StdChar(char cCode);
+static void ClearChar(char cCode);
 
 bool CInitGraph(void)
 {
@@ -355,6 +361,8 @@ void LoadBits(uint num)
 {
     RPalette *pal;
 
+    g_picNotValid = 1;
+    RHideCursor();
     pal = (RPalette *)ResLoad(RES_BITMAP, num);
     RSetPalette(pal, PAL_REPLACE);
     DrawBitMap(0, 0, false, (Cel *)((byte *)pal + PAL_FILE_SIZE), 0, pal);
@@ -408,6 +416,37 @@ void RMoveTo(int x, int y)
     g_rThePort->pnLoc.v = (int16_t)y;
 }
 
+void RMove(int x, int y)
+{
+    g_rThePort->pnLoc.h += (int16_t)x;
+    g_rThePort->pnLoc.v += (int16_t)y;
+}
+
+void RPenMode(uint8_t mode)
+{
+    g_rThePort->pnMode = mode;
+}
+
+void RTextFace(uint face)
+{
+    g_rThePort->txFace = face;
+}
+
+uint GetPointSize(void)
+{
+    return g_rThePort->fontSize;
+}
+
+void SetPointSize(uint size)
+{
+    g_rThePort->fontSize = size;
+}
+
+uint GetFont(void)
+{
+    return g_rThePort->fontNum;
+}
+
 void RSetFont(uint fontNum)
 {
     Font *font;
@@ -419,9 +458,144 @@ void RSetFont(uint fontNum)
     }
 }
 
+uint RTextWidth(const char *text, int first, uint count)
+{
+    Font *font;
+    uint  i;
+    uint  width = 0;
+
+    font = (Font *)ResLoad(RES_FONT, g_rThePort->fontNum);
+    text += first;
+    for (i = 0; i < count; ++i) {
+        char cCode = text[i];
+        width += *((uint8_t *)font + font->charRecs[(uint8_t)cCode]);
+    }
+    return width;
+}
+
+uint RCharWidth(char cCode)
+{
+    Font *font;
+
+    font = (Font *)ResLoad(RES_FONT, g_rThePort->fontNum);
+    return ((uint8_t *)font + font->charRecs[(uint8_t)cCode])[0];
+}
+
+uint CharHeight(char cCode)
+{
+    Font *font;
+
+    font = (Font *)ResLoad(RES_FONT, g_rThePort->fontNum);
+    return ((uint8_t *)font + font->charRecs[(uint8_t)cCode])[1];
+}
+
+void RDrawChar(char cCode)
+{
+    ClearChar(cCode);
+    StdChar(cCode);
+
+    g_rThePort->pnLoc.h += (int16_t)RCharWidth(cCode);
+}
+
+void ShowChar(char cCode)
+{
+    ClearChar(cCode);
+    StdChar(cCode);
+
+    g_theRect.left = g_rThePort->pnLoc.h;
+    g_rThePort->pnLoc.h += (int16_t)RCharWidth(cCode);
+    g_theRect.right  = g_rThePort->pnLoc.h;
+    g_theRect.top    = g_rThePort->pnLoc.v;
+    g_theRect.bottom = g_rThePort->pnLoc.v + (int16_t)CharHeight(cCode);
+    ShowBits(&g_theRect, VMAP);
+}
+
+// Draw the character.
+static void StdChar(char cCode)
+{
+    uint16_t theChar;
+    uint8_t  color;
+    uint     style;
+    Font    *font;
+    uint     base;
+
+    theChar = (uint16_t)(uint8_t)cCode;
+    color   = g_rThePort->fgColor;
+    style   = g_rThePort->txFace;
+
+    s_penY = g_rThePort->pnLoc.v + g_rThePort->origin.v;
+    s_penX = g_rThePort->pnLoc.h + g_rThePort->origin.h;
+    base   = (uint)g_baseTable[s_penY] + (uint)s_penX;
+
+    font = (Font *)ResLoad(RES_FONT, g_rThePort->fontNum);
+    if (font->lowChar <= theChar && theChar < font->highChar) {
+        uint8_t  cWide, cHigh, cDots, dimMask, pattern;
+        uint8_t *data;
+        uint8_t *charRecs = (uint8_t *)font + font->charRecs[(uint8_t)cCode];
+
+        cWide = *charRecs++;
+        cHigh = *charRecs++;
+
+        while (cHigh != 0) {
+            dimMask = 0xff;
+            if ((style & DIM) != 0) {
+                dimMask &= 0x55;
+                if ((s_penY & 1) != 0) {
+                    dimMask = ~dimMask;
+                }
+            }
+
+            pattern = *charRecs++;
+            pattern &= dimMask;
+
+            cDots = 0;
+            data  = &g_vHndl[base];
+            while (true) {
+                if ((int8_t)pattern < 0) {
+                    *data = color;
+                }
+                pattern <<=
+                  1; // we shift dots out the left and plot left to right.
+                data++;
+                cDots++;
+                if (cDots >= cWide) {
+                    break;
+                }
+
+                // Check for byte reload.
+                if ((cDots & 7) == 0) // 8 bits used?
+                {
+                    pattern = *charRecs++;
+                    pattern &= dimMask;
+                }
+            }
+
+            // Line of pattern done.
+            base += VROWBYTES;
+
+            // See if we have more lines to do.
+            s_penY++;
+            cHigh--;
+        }
+    }
+}
+
+// If pnMode is SRCCOPY we erase the rectangle (it will occupy width by
+// fontSize).
+static void ClearChar(char cCode)
+{
+    if (g_rThePort->pnMode == SRCCOPY) {
+        g_theRect.top    = g_rThePort->pnLoc.v;
+        g_theRect.bottom = g_theRect.top + (int16_t)g_rThePort->fontSize;
+        g_theRect.left   = g_rThePort->pnLoc.h;
+        g_theRect.right  = g_rThePort->pnLoc.h + (int16_t)RCharWidth(cCode);
+        REraseRect(&g_theRect);
+    }
+}
+
 void RPaintRect(RRect *rect)
 {
-    RFillRect(rect, VMAP, (uint8_t)g_rThePort->fgColor, 0, 0);
+    RFillRect(rect, VMAP, g_rThePort->fgColor, 0, 0);
 }
 
 void RFillRect(const RRect *rect,
@@ -524,6 +698,21 @@ void RFillRect(const RRect *rect,
             vMap += inter;
         }
     }
+}
+
+void RInvertRect(RRect *rect)
+{
+    uint8_t oldMode;
+
+    oldMode            = g_rThePort->pnMode;
+    g_rThePort->pnMode = srcInvert;
+    RFillRect(rect, VMAP, g_rThePort->fgColor, g_rThePort->bkColor, 0);
+    g_rThePort->pnMode = oldMode;
+}
+
+void REraseRect(RRect *rect)
+{
+    RFillRect(rect, VMAP, g_rThePort->bkColor, 0, 0);
 }
 
 Handle SaveBits(const RRect *rect, uint mapSet)
@@ -687,6 +876,11 @@ void PenColor(uint8_t color)
     g_rThePort->fgColor = color;
 }
 
+void RBackColor(uint8_t color)
+{
+    g_rThePort->bkColor = color;
+}
+
 void GetCLUT(RPalette *pal)
 {
     GetDisplayCLUT(pal);
@@ -705,6 +899,13 @@ bool RHideCursor(void)
 bool RShowCursor(void)
 {
     return DisplayCursor(true);
+}
+
+void ShakeScreen(int cnt, int dir)
+{
+#ifndef NOT_IMPL
+#error Not finished
+#endif
 }
 
 void ShiftScreen(int rtop, int rleft, int rbot, int rright, int dir){
@@ -1970,4 +2171,79 @@ bool RSectRect(const RRect *src, const RRect *clip, RRect *dst)
 
     // Test if the rectangle left is any good.
     return (dst->left < dst->right && dst->top < dst->bottom);
+}
+
+void KGraph(argList)
+{
+#define ret(val) g_acc = ((uintptr_t)(val))
+
+    switch ((int)arg(1)) {
+        case GLoadBits:
+            LoadBits((uint)arg(2));
+            break;
+
+        case GDetect:
+            ret(256);
+            break;
+
+        case GSetPalette:
+            // SetResPalette((uint)arg(2), (int)arg(3));
+            break;
+
+        case GDrawLine:
+            s_vColor = (uint8_t)arg(6);
+            s_pColor = (uint8_t)arg(7);
+            if ((uint)arg(7) != INVALIDPRI) {
+                s_pColor <<= 4;
+            }
+            s_cColor = (uint8_t)arg(8);
+            DrawLine((int)arg(3), (int)arg(2), (int)arg(5), (int)arg(4));
+            break;
+
+        case GReAnimate:
+            ReAnimate((RRect *)&arg(2));
+            break;
+
+        case GFillArea:
+            break;
+
+        case GDrawBrush:
+            s_vColor = (uint8_t)arg(5);
+            s_pColor = (uint8_t)arg(6);
+            s_pColor <<= 4;
+            s_cColor = (uint8_t)arg(7);
+            DrawBrush((int)arg(2), (int)arg(3), (uint)arg(4), (uint)arg(2));
+            break;
+
+        case GSaveBits:
+            ret(SaveBits((RRect *)&arg(2), (uint)arg(6)));
+            break;
+
+        case GRestoreBits:
+            RestoreBits((Handle)arg(2));
+            break;
+
+        case GEraseRect:
+            REraseRect((RRect *)&arg(2));
+            break;
+
+        case GPaintRect:
+            RPaintRect((RRect *)&arg(2));
+            break;
+
+        case GFillRect:
+            RFillRect((RRect *)&arg(2),
+                      (uint)arg(6),
+                      (uint8_t)arg(7),
+                      (uint8_t)arg(8),
+                      (uint8_t)arg(9));
+            break;
+
+        case GShowBits:
+            ShowBits((RRect *)&arg(2), (uint)arg(6));
+            break;
+
+        default:
+            break;
+    }
 }

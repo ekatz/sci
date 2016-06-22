@@ -7,7 +7,7 @@ typedef uintptr_t *kArgs;
 typedef void (*kFunc)(kArgs);
 
 #define arg(n)   (*(args + (n)))
-#define kArgc    arg(0)
+#define kArgc    ((uint)arg(0))
 #define argList  kArgs args
 #define argCount kArgc
 
@@ -33,8 +33,6 @@ void KDrawCel(argList);
 void KIsItSkip(argList);
 void KAnimate(argList);
 void KAddToPic(argList);
-void KPalette(argList);
-void KGraph(argList);
 void KShakeScreen(argList);
 void KShiftScreen(argList);
 void KDrawControl(argList);

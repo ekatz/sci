@@ -6,6 +6,21 @@
 #define PAL_FILE_SIZE 0x504
 #define PAL_CLUT_SIZE 256
 
+enum palFunc {
+    PALNULLENUM,
+    PALLoad,
+    PALSet,
+    PALReset,
+    PALIntensity,
+    PALMatch,
+    PALCycle,
+    PALSave,
+    PALRestore
+};
+
+// Maximum number of ranges for palette cycling.
+#define MAXPALCYCLE 16
+
 // Mode values.
 #define PAL_MATCH   1
 #define PAL_REPLACE 2
@@ -44,5 +59,8 @@ void RSetPalette(RPalette *srcPal, int mode);
 void SetResPalette(uint num, int mode);
 
 void SetPalIntensity(RPalette *palette, int first, int last, int intensity);
+
+// All SCRIPT palette functions dispatch through KPalette.
+void KPalette(uintptr_t *args);
 
 #endif // PALETTE_H
