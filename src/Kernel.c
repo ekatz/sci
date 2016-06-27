@@ -26,24 +26,33 @@
 #pragma warning(disable : 4100) // unreferenced formal parameter
 #endif
 
+// Pseudo selectors for SetMenu and Display.
+// Must be duplicated by (define)'s in SYSTEM.SH.
+#define p_at      100
+#define p_mode    101
+#define p_color   102
+#define p_back    103
+#define p_style   104
+#define p_font    105
+#define p_width   106
+#define p_save    107
+#define p_restore 108
+#define p_said    109
+#define p_text    110
+#define p_key     111
+#define p_state   112
+#define p_value   113
+#define p_dispose 114
+#define p_time    115
+#define p_title   116
+#define p_draw    117
+#define p_edit    118
+#define p_button  119
+#define p_icon    120
+#define p_noshow  121
+
 // Function code for PriCoord operation.
 #define PTopOfBand 1
-
-// KGraph function dispatch constants.
-#define GLoadBits    1
-#define GDetect      2
-#define GSetPalette  3
-#define GDrawLine    4
-#define GFillArea    5
-#define GDrawBrush   6
-#define GSaveBits    7
-#define GRestoreBits 8
-#define GEraseRect   9
-#define GPaintRect   10
-#define GFillRect    11
-#define GShowBits    12
-#define GReAnimate   13
-#define GInitPri     14
 
 // SortNode used in Sort
 typedef struct SortNode {
@@ -99,7 +108,7 @@ void KDisposeScript(argList)
         ret(arg(2));
     }
 
-    DisposeScript(arg(1));
+    DisposeScript((uint)arg(1));
 }
 
 void KClone(argList)
@@ -219,7 +228,7 @@ void KNumCels(argList)
     Obj *him = (Obj *)arg(1);
 
     numCels = GetNumCels((View *)ResLoad(RES_VIEW, GetProperty(him, s_view)),
-                         GetProperty(him, s_loop));
+                         (uint)GetProperty(him, s_loop));
     ret(numCels);
 }
 
@@ -283,72 +292,197 @@ void KAddToPic(argList)
     g_picNotValid = 2;
 }
 
-void KPalette(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
-void KGraph(argList)
-{
-    switch ((int)arg(1)) {
-        case GLoadBits:
-
-            //   LoadBits();
-        case GDetect:
-            ret(256);
-            break;
-    }
-}
-
 void KShakeScreen(argList)
 {
-#ifndef NOT_IMPL
-#error Not finished
-#endif
+    int dir = 1;
+
+    if (argCount == 2) {
+        dir = (int)arg(2);
+    }
+
+    ShakeScreen((int)arg(1), dir);
 }
 
 void KShiftScreen(argList)
 {
-#ifndef NOT_IMPL
-#error Not finished
-#endif
+    ShiftScreen(
+      (int)arg(1), (int)arg(2), (int)arg(3), (int)arg(4), (int)arg(5));
 }
 
 void KDrawControl(argList)
 {
-#ifndef NOT_IMPL
-#error Not finished
-#endif
+    DrawControl((Obj *)arg(1));
 }
 
 void KHiliteControl(argList)
 {
-#ifndef NOT_IMPL
-#error Not finished
-#endif
+    RHiliteControl((Obj *)arg(1));
 }
 
 void KEditControl(argList)
 {
-#ifndef NOT_IMPL
-#error Not finished
-#endif
+    ret(EditControl((Obj *)arg(1), (Obj *)arg(2)));
 }
 
 void KTextSize(argList)
 {
-#ifndef NOT_IMPL
-#error Not finished
-#endif
+    int def = 0;
+
+    if (argCount >= 4) {
+        def = (int)arg(4);
+    }
+
+    RTextSize((RRect *)arg(1), (char *)arg(2), (int)arg(3), def);
 }
 
 void KDisplay(argList)
 {
-#ifndef NOT_IMPL
-#error Not finished
-#endif
+    uintptr_t *lastArg;
+    int        mess;
+
+    // Default width to no wrap and only width of passed text.
+    int         width;
+    bool        saveIt;
+    int         colorIt;
+    uint        mode;
+    bool        showIt;
+    const char *text;
+    char        buffer[1000];
+    RRect       r;
+    RRect      *sRect;
+    Handle      bits;
+    uintptr_t   arg1;
+    RGrafPort   savePort;
+    RPoint      newPenLoc;
+
+    width = colorIt = -1;
+    mode            = TEJUSTLEFT;
+    saveIt          = false;
+    showIt          = true;
+
+    lastArg = (args + arg(0));
+
+    // Text string is first parameter.
+    // Uses technique documented in Format to handle far text.
+    arg1 = arg(1);
+    if (arg1 < 1000) {
+        text = GetFarText((uint)arg1, (uint)arg(2), buffer);
+        ++args;
+    } else {
+        text = (char *)arg1;
+    }
+    ++args;
+
+    // Save the contents of the current grafport.
+    savePort = *g_rThePort;
+
+    // Set all defaults.
+    RPenMode(SRCOR);
+    PenColor(0);
+    RTextFace(0);
+
+    // Check for and accommodate optional parameters.
+    while (args <= lastArg) {
+        mess = (int)*args;
+        ++args;
+        switch (mess) {
+            case p_at:
+                RMoveTo((int)*args, (int)*(args + 1));
+                args += 2;
+                break;
+
+            case p_mode:
+                mode = (uint)*args++;
+                break;
+
+            case p_color:
+                PenColor((uint8_t)*args++);
+                break;
+
+            case p_back:
+                // Set transfer mode to copy so it shows.
+                colorIt = (int)*args++;
+                break;
+
+            case p_style:
+                RTextFace((uint)*args++);
+                break;
+
+            case p_font:
+                RSetFont((uint)*args++);
+                break;
+
+            case p_width:
+                width = (int)*args++;
+                break;
+            case p_save:
+                saveIt = true;
+                break;
+
+            case p_noshow:
+                showIt = 0;
+                break;
+
+            case p_restore:
+                // Get the rectangle at the start of the save area.
+                if (FindResEntry(RES_MEM, *args) != NULL) {
+                    bits  = (Handle)*args++;
+                    sRect = (RRect *)bits;
+                    // This rectangle is in Global coords.
+                    r.top    = sRect->top;
+                    r.left   = sRect->left;
+                    r.bottom = sRect->bottom;
+                    r.right  = sRect->right;
+
+                    // Restore the virtual maps.
+                    RestoreBits(bits);
+
+                    // ReDraw this rectangle in Global coords.
+                    RGlobalToLocal((RPoint *)&r.top);
+                    RGlobalToLocal((RPoint *)&r.bottom);
+                    ReAnimate(&r);
+                }
+
+                // No further arguments accepted.
+                return;
+
+            default:
+                break;
+        }
+    }
+
+    // Get size of text rectangle.
+    RTextSize(&r, text, -1, width);
+
+    // Move the rectangle to current pen position.
+    MoveRect(&r, g_rThePort->pnLoc.h, g_rThePort->pnLoc.v);
+
+    // Keep rectangle within the screen.
+    RMove(r.right > MAXWIDTH ? MAXWIDTH - r.right : 0,
+          r.bottom > MAXHEIGHT ? MAXHEIGHT - r.bottom : 0);
+    MoveRect(&r, g_rThePort->pnLoc.h, g_rThePort->pnLoc.v); // reposition
+
+    if (saveIt) {
+        ret(SaveBits(&r, VMAP));
+    }
+
+    // Opaque background.
+    if (colorIt != -1) {
+        RFillRect(&r, VMAP, (uint8_t)colorIt, 0, 0);
+    }
+
+    // Now draw the text and show the rectangle it is in.
+    RTextBox(text, false, &r, mode, -1);
+
+    // Don't show if the picture is not valid.
+    if (g_picNotValid == 0 && showIt) {
+        ShowBits(&r, VMAP);
+    }
+
+    // Restore contents of the current port.
+    newPenLoc         = g_rThePort->pnLoc;
+    *g_rThePort       = savePort;
+    g_rThePort->pnLoc = newPenLoc;
 }
 
 void KGetEvent(argList)
@@ -398,8 +532,8 @@ void KNewWindow(argList)
       RNewWindow(&r, (const char *)arg(5), (uint)arg(6), (uint)arg(7), false);
 
     // Set port characteristics based on remainder of args.
-    g_rThePort->fgColor = (uint)arg(8);
-    g_rThePort->bkColor = (uint)arg(9);
+    g_rThePort->fgColor = (uint8_t)arg(8);
+    g_rThePort->bkColor = (uint8_t)arg(9);
     RDrawWindow(wind);
     ret(wind);
 }
@@ -824,11 +958,22 @@ void KWait(argList)
 
     ticks = (uint)arg(1);
 
+#if 1
     if (ticks != 0) {
         WaitUntil(ticks + s_lastTick);
     }
 
     sysTicks = RTickCount();
+#else
+    sysTicks = RTickCount();
+    if (ticks != 0) {
+        uint waitTicks = ticks + s_lastTick;
+        while (waitTicks > sysTicks) {
+            sysTicks = RTickCount();
+        }
+    }
+#endif
+
     ret(sysTicks - s_lastTick);
     s_lastTick = sysTicks;
 }
@@ -929,7 +1074,8 @@ void KFormat(argList)
                     theArg = arg(n++);
                     if (c == 's') {
                         if (theArg < 1000) {
-                            strArg = GetFarText(theArg, arg(n++), temp);
+                            strArg =
+                              GetFarText((uint)theArg, (uint)arg(n++), temp);
                         } else {
                             strArg = (char *)theArg;
                         }
@@ -1054,20 +1200,20 @@ void KInitBresen(argList)
 
     motion     = (Obj *)arg(1);
     client     = (Obj *)IndexedProp(motion, motClient);
-    skipFactor = (argCount >= 2) ? arg(2) : 1;
+    skipFactor = (argCount >= 2) ? (int)arg(2) : 1;
 
-    toX = IndexedProp(motion, motX);
-    toY = IndexedProp(motion, motY);
+    toX = (int)IndexedProp(motion, motX);
+    toY = (int)IndexedProp(motion, motY);
 
-    tdx = IndexedProp(client, actXStep) * skipFactor;
-    tdy = IndexedProp(client, actYStep) * skipFactor;
+    tdx = (int)IndexedProp(client, actXStep) * skipFactor;
+    tdy = (int)IndexedProp(client, actYStep) * skipFactor;
 
     watchDog = (tdx > tdy) ? tdx : tdy;
     watchDog *= 2;
 
     // Get distances to be moved.
-    DX = toX - IndexedProp(client, actX);
-    DY = toY - IndexedProp(client, actY);
+    DX = toX - (int)IndexedProp(client, actX);
+    DY = toY - (int)IndexedProp(client, actY);
 
     // Compute basic step sizes.
     while (true) {
@@ -1109,8 +1255,8 @@ void KInitBresen(argList)
 
         // Limit x step to avoid over stepping Y step size.
         if (xAxis && tdx > tdy) {
-            if (tdx && abs(dy + incr) > tdy) {
-                if (!(--watchDog)) {
+            if (tdx != 0 && abs(dy + incr) > tdy) {
+                if ((--watchDog) == 0) {
                     RAlert(E_BRESEN);
                     exit(1);
                 }
@@ -1134,20 +1280,112 @@ void KInitBresen(argList)
     }
 
     // Set the various variables we've computed.
-    IndexedProp(motion, motDX)    = dx;
-    IndexedProp(motion, motDY)    = dy;
-    IndexedProp(motion, motI1)    = i1;
-    IndexedProp(motion, motI2)    = i2;
-    IndexedProp(motion, motDI)    = di;
-    IndexedProp(motion, motIncr)  = incr;
-    IndexedProp(motion, motXAxis) = xAxis;
+    IndexedProp(motion, motDX)    = (uintptr_t)dx;
+    IndexedProp(motion, motDY)    = (uintptr_t)dy;
+    IndexedProp(motion, motI1)    = (uintptr_t)i1;
+    IndexedProp(motion, motI2)    = (uintptr_t)i2;
+    IndexedProp(motion, motDI)    = (uintptr_t)di;
+    IndexedProp(motion, motIncr)  = (uintptr_t)incr;
+    IndexedProp(motion, motXAxis) = (uintptr_t)xAxis;
 }
 
 void KDoBresen(argList)
 {
-#ifndef NOT_IMPL
-#error Not finished
-#endif
+    Obj     *motion, *client;
+    int      x, y, toX, toY, i1, i2, di, si1, si2, sdi;
+    int      dx, dy, incr;
+    bool     xAxis;
+    uint     moveCount;
+    uint8_t *aniState[500];
+
+    motion = (Obj *)arg(1);
+    client = (Obj *)IndexedProp(motion, motClient);
+    g_acc  = 0;
+
+    IndexedProp(client, actSignal) =
+      IndexedProp(client, actSignal) & (~blocked);
+
+    moveCount = (uint)IndexedProp(motion, motMoveCnt) + 1;
+    if ((uint)IndexedProp(client, actMoveSpeed) < moveCount) {
+        // Get properties in variables for speed and convenience.
+        x     = (int)IndexedProp(client, actX);
+        y     = (int)IndexedProp(client, actY);
+        toX   = (int)IndexedProp(motion, motX);
+        toY   = (int)IndexedProp(motion, motY);
+        xAxis = (bool)IndexedProp(motion, motXAxis);
+        dx    = (int)IndexedProp(motion, motDX);
+        dy    = (int)IndexedProp(motion, motDY);
+        incr  = (int)IndexedProp(motion, motIncr);
+        si1 = i1 = (int)IndexedProp(motion, motI1);
+        si2 = i2 = (int)IndexedProp(motion, motI2);
+        sdi = di = (int)IndexedProp(motion, motDI);
+
+        IndexedProp(motion, motXLast) = (uintptr_t)x;
+        IndexedProp(motion, motYLast) = (uintptr_t)y;
+
+        // Save the current animation state before moving the client.
+        memcpy(aniState,
+               client->vars,
+               sizeof(uintptr_t) * OBJHEADER(client)->varSelNum);
+
+        if ((xAxis && (abs(toX - x) <= abs(dx))) ||
+            (!xAxis && (abs(toY - y) <= abs(dy)))) {
+            //
+            // We're within a step size of the destination -- set client's x & y
+            // to it.
+            //
+
+            x = toX;
+            y = toY;
+        } else {
+            //
+            // Move one step.
+            //
+
+            x += dx;
+            y += dy;
+            if (di < 0) {
+                di += i1;
+            } else {
+                di += i2;
+                if (xAxis) {
+                    y += incr;
+                } else {
+                    x += incr;
+                }
+            }
+        }
+
+        // Update client's properties.
+        IndexedProp(client, actX) = (uintptr_t)x;
+        IndexedProp(client, actY) = (uintptr_t)y;
+
+        // Check position validity for this cel.
+        if ((g_acc = InvokeMethod(client, s_cantBeHere, 0)) != 0) {
+            // Client can't be here -- restore the original state and mark the
+            // client as blocked.
+            memcpy(client->vars,
+                   aniState,
+                   sizeof(uintptr_t) * OBJHEADER(client)->varSelNum);
+            i1 = si1;
+            i2 = si2;
+            di = sdi;
+
+            IndexedProp(client, actSignal) =
+              blocked | IndexedProp(client, actSignal);
+        }
+
+        IndexedProp(motion, motI1)      = (uintptr_t)i1;
+        IndexedProp(motion, motI2)      = (uintptr_t)i2;
+        IndexedProp(motion, motDI)      = (uintptr_t)di;
+        IndexedProp(motion, motMoveCnt) = moveCount;
+
+        if (x == toX && y == toY) {
+            InvokeMethod(motion, s_moveDone, 0);
+        }
+    } else {
+        IndexedProp(motion, motMoveCnt) = moveCount;
+    }
 }
 
 void KDoAvoider(argList) {}
@@ -1293,25 +1531,19 @@ void KListOps(argList)
 void KCoordPri(argList)
 {
     if (argCount >= 2 && arg(1) == PTopOfBand) {
-        ret(PriCoord(arg(2)));
+        ret(PriCoord((int)arg(2)));
     } else {
-        ret(CoordPri(arg(1)));
+        ret(CoordPri((int)arg(1)));
     }
 }
 
 void KFileIO(argList)
 {
-#ifdef __WINDOWS__
-    static WIN32_FIND_DATAA findFileData;
-    static HANDLE           hFind = INVALID_HANDLE_VALUE;
-#else
-#error Not impl
-#endif
-
-    char *buf;
-    int   mode;
-    int   fd;
-    bool  res;
+    DirEntry findFileEntry;
+    char    *buf;
+    int      mode;
+    int      fd;
+    bool     res;
 
     switch ((int)arg(1)) {
         case fileOpen:
@@ -1358,28 +1590,17 @@ void KFileIO(argList)
             break;
 
         case fileFindFirst:
-            if (hFind != INVALID_HANDLE_VALUE) {
-                FindClose(hFind);
-            }
-            hFind = FindFirstFileA((const char *)arg(2), &findFileData);
-            res   = (hFind != INVALID_HANDLE_VALUE);
+            res = firstfile((const char *)arg(2), (uint)arg(4), &findFileEntry);
             if (res) {
-                strcpy((char *)arg(3), findFileData.cFileName);
+                strcpy((char *)arg(3), findFileEntry.name);
             }
             ret(res);
             break;
 
         case fileFindNext:
-            if (hFind != INVALID_HANDLE_VALUE) {
-                res = FindNextFileA(hFind, &findFileData) != FALSE;
-                if (res) {
-                    strcpy((char *)arg(2), findFileData.cFileName);
-                } else {
-                    FindClose(hFind);
-                    hFind = INVALID_HANDLE_VALUE;
-                }
-            } else {
-                res = false;
+            res = nextfile(&findFileEntry);
+            if (res) {
+                strcpy((char *)arg(2), findFileEntry.name);
             }
             ret(res);
             break;
