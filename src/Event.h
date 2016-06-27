@@ -34,6 +34,56 @@ typedef struct REventRecord {
 #define ctrl 4 // control key
 #define alt  8 // alt key down
 
+// Direction events.
+#define dirStop 0
+#define dirN    1
+#define dirNE   2
+#define dirE    3
+#define dirSE   4
+#define dirS    5
+#define dirSW   6
+#define dirW    7
+#define dirNW   8
+
+// Key definitions by name (based on IBM modified extended codes)
+#define ESC        27
+#define CR         0x0d
+#define TAB        0x09
+#define LF         0x0a
+#define BS         0x08
+#define SP         0x20
+#define CLEARKEY   0x03 // clear line in TextEdit
+
+// Numeric key code in scan code order with missing codes added.
+#define HOMEKEY    0x4700
+#define UPARROW    0x4800
+#define PAGEUP     0x4900
+#define LEFTARROW  0x4b00
+#define CENTERKEY  0x4c00
+#define RIGHTARROW 0x4d00
+#define ENDKEY     0x4f00
+#define DOWNARROW  0x5000
+#define PAGEDOWN   0x5100
+#define DELETE     0x5300
+#define PAUSEKEY   0x7000
+#define CTRLLEFT   0x7300
+#define CTRLRIGHT  0x7400
+#define CTRLEND    0x7500
+#define CTRLPGDN   0x7600
+#define CTRLHOME   0x7700
+#define CTRLPGUP   0x8400
+
+#define F1         0x3b00
+#define F2         0x3c00
+#define F3         0x3d00
+#define F4         0x3e00
+#define F5         0x3f00
+#define F6         0x4000
+#define F7         0x4100
+#define F8         0x4200
+#define F9         0x4300
+#define F10        0x4400
+
 // Init manager for num events.
 void InitEvent(uint num);
 
