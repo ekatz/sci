@@ -2,6 +2,7 @@
 #include "Graphics.h"
 #include "Menu.h"
 #include "Palette.h"
+#include "Timer.h"
 #include "Window.h"
 
 #define xOrg 160
@@ -260,7 +261,7 @@ static void HWipe(int wipeDir, uint mapSet, bool black)
 {
     RRect r;
     int   i;
-    ulong ticks;
+    uint  ticks;
 
     RSetRect(&r, 0, 0, WIPEWIDE, g_rThePort->portRect.bottom);
     if (wipeDir < 0) {
@@ -268,6 +269,8 @@ static void HWipe(int wipeDir, uint mapSet, bool black)
     }
 
     for (i = 0; i < XWIPES; ++i) {
+        SyncBegin(ticks);
+
         if (black) {
             ShowBlackBits(&r, mapSet);
         } else {
@@ -275,12 +278,7 @@ static void HWipe(int wipeDir, uint mapSet, bool black)
         }
         ROffsetRect(&r, wipeDir, 0);
 
-#ifndef __WINDOWS__
-        // Wait until enough time has passed
-        ticks = RTickCount();
-        while (ticks == RTickCount())
-            ;
-#endif
+        SyncEnd(ticks);
     }
 }
 
@@ -288,7 +286,7 @@ static void VWipe(int wipeDir, uint mapSet, bool black)
 {
     RRect r;
     int   i;
-    ulong ticks;
+    uint  ticks;
 
     RSetRect(&r, 0, 0, g_rThePort->portRect.right, WIPEHIGH);
     if (wipeDir < 0) {
@@ -296,6 +294,8 @@ static void VWipe(int wipeDir, uint mapSet, bool black)
     }
 
     for (i = 0; i < YWIPES; ++i) {
+        SyncBegin(ticks);
+
         if (black) {
             ShowBlackBits(&r, mapSet);
         } else {
@@ -303,12 +303,7 @@ static void VWipe(int wipeDir, uint mapSet, bool black)
         }
         ROffsetRect(&r, wipeDir, 0);
 
-#ifndef __WINDOWS__
-        // Wait until enough time has passed.
-        ticks = RTickCount();
-        while (ticks == RTickCount())
-            ;
-#endif
+        SyncEnd(ticks);
     }
 }
 
@@ -316,7 +311,7 @@ static void Iris(int dir, uint mapSet, bool black)
 {
     RRect r;
     int   i, j, done;
-    ulong ticks;
+    uint  ticks;
 
     if (dir > 0) {
         i = 1;
@@ -325,6 +320,8 @@ static void Iris(int dir, uint mapSet, bool black)
     }
 
     for (done = 0; done < (XWIPES / 2); ++done) {
+        SyncBegin(ticks);
+
         for (j = 0; j < 4; ++j) {
             // Make the rectangle for this show.
             switch (j) {
@@ -361,14 +358,9 @@ static void Iris(int dir, uint mapSet, bool black)
                 ShowBits(&r, mapSet);
             }
         }
-        i += dir;
 
-#ifndef __WINDOWS__
-        // Wait until enough time has passed.
-        ticks = RTickCount();
-        while (ticks == RTickCount())
-            ;
-#endif
+        i += dir;
+        SyncEnd(ticks);
     }
 }
 
@@ -379,9 +371,9 @@ static void Dissolve(uint mapSet, bool black)
 
     int   i, j, x, y, rand = 1234;
     RRect r;
-    ulong ticks;
+    uint  ticks;
 
-    if (mapSet & PDFLAG) {
+    if ((mapSet & PDFLAG) != 0) {
         RSetRect(&r,
                  g_rThePort->portRect.left,
                  g_rThePort->portRect.top,
@@ -394,6 +386,8 @@ static void Dissolve(uint mapSet, bool black)
     rand &= RANDMASK;
 
     for (j = 0; j < 64; ++j) {
+        SyncBegin(ticks);
+
         for (i = 0; i < 16; ++i) {
             if (rand & 1) {
                 rand /= 2;
@@ -413,12 +407,7 @@ static void Dissolve(uint mapSet, bool black)
             }
         }
 
-#ifndef __WINDOWS__
-        // Wait until enough time has passed.
-        ticks = RTickCount();
-        while (ticks == RTickCount())
-            ;
-#endif
+        SyncEnd(ticks);
     }
 
     // Do rectangle 0.
@@ -434,7 +423,7 @@ static void Shutter(int hDir, int vDir, uint mapSet, bool black)
 {
     RRect r1, r2;
     int   i;
-    ulong ticks;
+    uint  ticks;
 
     if (hDir != 0) {
         // Horizontal shutter.
@@ -458,6 +447,8 @@ static void Shutter(int hDir, int vDir, uint mapSet, bool black)
     }
 
     for (i = 0; i < (XWIPES / 2); ++i) {
+        SyncBegin(ticks);
+
         if (black) {
             ShowBlackBits(&r1, mapSet);
             ShowBlackBits(&r2, mapSet);
@@ -470,12 +461,7 @@ static void Shutter(int hDir, int vDir, uint mapSet, bool black)
         ROffsetRect(&r1, -hDir, -vDir);
         ROffsetRect(&r2, hDir, vDir);
 
-#ifndef __WINDOWS__
-        // Wait until enough time has passed.
-        ticks = RTickCount();
-        while (ticks == RTickCount())
-            ;
-#endif
+        SyncEnd(ticks);
     }
 }
 

@@ -5,6 +5,13 @@
 
 #define TICKS_PER_SECOND 60
 
+#if 0
+#define SyncBegin(ticks) (ticks) = RTickCount()
+#define SyncEnd(ticks)   WaitUntil((ticks) + 1)
+#else
+#define SyncBegin(ticks) (void)ticks
+#define SyncEnd(ticks)   Sleep(2)
+#endif
 // Returns the system time in nanoseconds.
 uint64_t GetHighResolutionTime(void);
 
