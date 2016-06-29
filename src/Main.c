@@ -18,6 +18,7 @@ HWND g_hWndMain = NULL;
 
 void Run()
 {
+    InitTimer();
     InitResource();
     InitScripts();
 
@@ -58,8 +59,9 @@ static LRESULT CALLBACK WindowProc(HWND   hWnd,
                                    LPARAM lParam)
 {
     if (uMsg == WM_MOUSEMOVE) {
-        g_mousePosX = (int)(short)LOWORD(lParam);
-        g_mousePosY = (int)(short)HIWORD(lParam);
+        g_mousePosX = (int)(short)((LOWORD(lParam) * MAXWIDTH) / DISPLAYWIDTH);
+        g_mousePosY =
+          (int)(short)((HIWORD(lParam) * MAXHEIGHT) / DISPLAYHEIGHT);
         return 0;
     }
 
@@ -67,20 +69,20 @@ static LRESULT CALLBACK WindowProc(HWND   hWnd,
         REventRecord event = { 0 };
         g_buttonState      = 1;
         event.type         = mouseDown;
-        event.when         = RTickCount();
-        event.where.h      = (short)LOWORD(lParam);
-        event.where.v      = (short)HIWORD(lParam);
+        event.where.h = (short)((LOWORD(lParam) * MAXWIDTH) / DISPLAYWIDTH);
+        event.where.v = (short)((HIWORD(lParam) * MAXHEIGHT) / DISPLAYHEIGHT);
         RPostEvent(&event);
+        return 0;
     }
 
     if (uMsg == WM_LBUTTONUP) {
         REventRecord event = { 0 };
         g_buttonState      = 0;
         event.type         = mouseUp;
-        event.when         = RTickCount();
-        event.where.h      = (short)LOWORD(lParam);
-        event.where.v      = (short)HIWORD(lParam);
+        event.where.h = (short)((LOWORD(lParam) * MAXWIDTH) / DISPLAYWIDTH);
+        event.where.v = (short)((HIWORD(lParam) * MAXHEIGHT) / DISPLAYHEIGHT);
         RPostEvent(&event);
+        return 0;
     }
 
     if (uMsg == WM_DESTROY) {
@@ -171,7 +173,7 @@ int CALLBACK WinMain(_In_ HINSTANCE hInstance,
     rect.left   = bounds->left;
     rect.bottom = bounds->bottom;
     rect.right  = bounds->right;
-    AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, TRUE);
+    AdjustWindowRect(&rect, WS_CLIPCHILDREN | WS_OVERLAPPEDWINDOW, FALSE);
 
     hWnd = CreateWindow("SciWin",
                         "Sierra On-Line",
@@ -190,7 +192,6 @@ int CALLBACK WinMain(_In_ HINSTANCE hInstance,
 
     pixelFormat = ChoosePixelFormat(g_hDcWnd, &pfd);
     SetPixelFormat(g_hDcWnd, pixelFormat, &pfd);
-    InitDisplay();
 
     ShowWindow(hWnd, SW_SHOW);
     UpdateWindow(hWnd);
