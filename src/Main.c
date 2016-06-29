@@ -49,6 +49,56 @@ void Run()
     // We return here on a restart.
     // setjmp(restartBuf);
 
+    {
+        uint8_t heart[] = {
+            0xf0,   0x0c,
+            0xf7,   0x00, 0x03, 0x00,
+                    0x20,
+                    0x22,
+                    0x10,
+                    0x2a,
+                    0x20,
+
+                    0x33,
+                    0x03,
+                    0x91,
+                    0xe7,
+
+                    0x90,
+
+                    0xef,
+                    0x99,
+                    0x0b,
+                    0x3b,
+
+            0xff
+        };
+
+        RGrafPort *prevPort = NULL;
+        RGrafPort  port;
+        ROpenPort(&port);
+
+        RGetPort(&prevPort);
+        RSetPort(&port);
+
+        PenColor(LRED);
+        RTextBox("\n\n\n"
+                 "Noa, my love!\n\n"
+                 "Happy 29th Birthday!\n\n"
+                 "And many more...\n\n"
+                 "Ehud.",
+                 true,
+                 GetBounds(),
+                 TEJUSTCENTER,
+                 0);
+
+        RSetOrigin(MAXWIDTH / 2 - 9, 90);
+        DrawPic(heart, false, 0);
+        ShowBits(GetBounds(), VMAP);
+
+        RSetPort(prevPort);
+    }
+
     // Turn control over to the pseudo-machine.
     PMachine();
 }
