@@ -3,6 +3,7 @@
 #include "PMachine.h"
 #include "Resource.h"
 #include "Selector.h"
+#include <stdarg.h>
 
 #define MINOBJECTADDR 0x2000
 
@@ -242,8 +243,7 @@ void SetProperty(Obj *obj, uint prop, uintptr_t value)
 const char *GetObjName(Obj *obj)
 {
     uintptr_t *name = (uintptr_t *)GetPropAddr(obj, s_name);
-    return (name != 0) ? ((const char *)(OBJHEADER(obj)->script->heap) + *name)
-                       : NULL;
+    return (name != 0) ? ((const char *)g_scriptHeap + *name) : NULL;
 }
 
 char *GetSelectorName(uint id, char *str)
@@ -281,7 +281,6 @@ static void QuickMessage(Obj *obj, uint argc)
 {
     uint       prevScriptNum;
     Handle     prevScriptHandle;
-    Handle     prevScriptHeap;
     Obj       *prevSuper;
     Obj       *origObj;
     ObjID     *funcs;
@@ -302,7 +301,6 @@ static void QuickMessage(Obj *obj, uint argc)
 
     prevScriptNum    = g_thisScript;
     prevScriptHandle = g_scriptHandle;
-    prevScriptHeap   = g_scriptHeap;
 
     CheckObject(obj);
 
@@ -371,7 +369,6 @@ static void QuickMessage(Obj *obj, uint argc)
 
                 // Update current code handle.
                 g_scriptHandle = OBJHEADER(obj)->script->hunk;
-                g_scriptHeap   = OBJHEADER(obj)->script->heap;
 
                 // Get offset in hunk resource of method dictionary.
                 funcs = OBJHEADER(obj)->funcSelList;
@@ -405,15 +402,17 @@ static void QuickMessage(Obj *obj, uint argc)
 #ifdef DEBUG
             const char *origObjName = GetObjName(origObj);
             const char *objName     = GetObjName(obj);
-            LogDebug("ENTER ------ [%s] %s -> %s [Script: %u]",
-                     origObjName,
-                     objName,
-                     GetSelectorName(selector, selName),
-                     g_thisScript);
+            LogInfo("ENTER ------ [%s] %s -> %s [Script: %u, obj: %p, %p]",
+                    origObjName,
+                    objName,
+                    GetSelectorName(selector, selName),
+                    g_thisScript,
+                    origObj,
+                    obj);
 #endif
             ExecuteCode();
 #ifdef DEBUG
-            LogDebug(
+            LogInfo(
               "LEAVE ------ [%s] %s -> %s", origObjName, objName, selName);
 #endif
             g_vars.temp  = prevTempVar;
@@ -427,7 +426,6 @@ static void QuickMessage(Obj *obj, uint argc)
     g_vars.local   = prevLocalVar;
     g_pc           = retAddr;
     g_super        = prevSuper;
-    g_scriptHeap   = prevScriptHeap;
     g_scriptHandle = prevScriptHandle;
     g_thisScript   = prevScriptNum;
 }

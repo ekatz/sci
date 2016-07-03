@@ -44,7 +44,13 @@ typedef struct ObjRes {
     };
 } ObjRes;
 
-static List s_scriptList = LIST_INITIALIZER;
+static List     s_scriptList          = LIST_INITIALIZER;
+byte            g_scriptHeap[0x10000] = { 0 };
+static uint16_t s_scriptHeapSize      = 0;
+static uint16_t s_scriptHeapMap[1000] = { 0 };
+
+static Handle GetHeapHandle(uint size, uint num);
+static void DisposeHeapHandle(Handle handle);
 
 // Return a pointer to the node for script n if it is in the script list,
 // or NULL if it is not in the list.
@@ -126,7 +132,6 @@ void DisposeAllScripts(void)
 
 void DisposeScript(uint num)
 {
-
     Script *script;
 
     script = FindScript(num);
@@ -144,7 +149,7 @@ static void TossScript(Script *script, bool checkClones)
     TossScriptObjects(script->heap);
 
     if (script->heap != NULL) {
-        DisposeResHandle(script->heap);
+        DisposeHeapHandle(script->heap);
     }
 
     if (checkClones && script->clones != 0) {
@@ -212,7 +217,7 @@ static void InitHunkRes(Handle hunk, Script *script, bool alloc)
 
     if (alloc) {
         if (heapLen != 0) {
-            heap = (byte *)GetResHandle(heapLen);
+            heap = (byte *)GetHeapHandle(heapLen, script->num);
         }
         script->heap = heap;
     } else {
@@ -424,7 +429,7 @@ static void FixRelocTable(SegHeader  *seg,
             }
 
             // Make the pointer relative to the heap instead of the hunk.
-            *fixPtr = (uint16_t)(heapEntry - heap);
+            *fixPtr = (uint16_t)(heapEntry - g_scriptHeap);
         }
 
         ++fixDone;
@@ -477,7 +482,7 @@ static void FixExportsTable(SegHeader   *seg,
             }
 
             // Make the pointer relative to the heap instead of the hunk.
-            entry->ptrOff = (uint16_t)(heapEntry - heap);
+            entry->ptrOff = (uint16_t)(heapEntry - g_scriptHeap);
             entry->ptrSeg = (uint16_t)-1;
         }
 
@@ -551,7 +556,7 @@ static void TossScriptClasses(uint num)
 static void TossScriptObjects(Handle heap)
 {
     uint16_t *heapCurr = (uint16_t *)heap;
-    uint16_t *heapEnd  = heapCurr + ResHandleSize(heap);
+    uint16_t *heapEnd  = (uint16_t *)((byte *)heap + ResHandleSize(heap));
     while (heapCurr < heapEnd) {
         // TODO: This is incorrect, as this value can mean other things as well,
         // especially in 32-bit!
@@ -560,5 +565,33 @@ static void TossScriptObjects(Handle heap)
         }
 
         ++heapCurr;
+    }
+}
+
+static Handle GetHeapHandle(uint size, uint num)
+{
+    uint32_t *handle;
+
+    if (s_scriptHeapMap[num] == 0) {
+        s_scriptHeapMap[num] = s_scriptHeapSize;
+        handle               = (uint32_t *)(g_scriptHeap + s_scriptHeapSize);
+        *handle              = size;
+        handle++;
+
+        s_scriptHeapSize +=
+          (uint16_t)(sizeof(uint32_t) + ALIGN_UP(size, sizeof(uint32_t)));
+        assert(s_scriptHeapSize < 0x10000);
+    } else {
+        handle = (uint32_t *)(g_scriptHeap + s_scriptHeapMap[num]);
+        handle++;
+        assert(size == ResHandleSize(handle));
+    }
+    return handle;
+}
+
+static void DisposeHeapHandle(Handle handle)
+{
+    if (handle != NULL) {
+        memset(handle, 0, ResHandleSize(handle));
     }
 }

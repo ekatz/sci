@@ -54,7 +54,6 @@ extern uintptr_t *g_pStackEnd;
 
 extern uint   g_thisScript;
 extern Handle g_scriptHandle;
-extern Handle g_scriptHeap;
 
 extern PVars g_vars;
 

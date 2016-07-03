@@ -1,7 +1,9 @@
 #include "PMachine.h"
+#include "Graphics.h"
 #include "Input.h"
 #include "Kernel.h"
 #include "Object.h"
+#include "Palette.h"
 #include "Resource.h"
 #include "Selector.h"
 
@@ -434,7 +436,6 @@ uintptr_t *g_pStackEnd = NULL;
 
 uint   g_thisScript;
 Handle g_scriptHandle = NULL;
-Handle g_scriptHeap   = NULL;
 
 PVars g_vars = { 0 };
 
@@ -443,8 +444,8 @@ static void DoCall(uint parmCount);
 static void Dispatch(uint scriptNum, uint entryNum, uint parmCount);
 static void LoadEffectiveAddress(uint varType, uint varNum);
 static Script *GetDispatchAddrInHeap(uint scriptNum, uint entryNum, Obj **obj);
-static Script *GetDispatchAddrInHunk(uint scriptNum,
-                                     uint entryNum,
+static Script *GetDispatchAddrInHunk(uint      scriptNum,
+                                     uint      entryNum,
                                      uint8_t **code);
 static char *GetKernelName(uint num, char *buffer);
 
@@ -467,7 +468,6 @@ void PMachine(void)
     script         = GetDispatchAddrInHeap(0, 0, &g_object);
     g_theGameObj   = g_object;
     g_scriptHandle = script->hunk;
-    g_scriptHeap   = script->heap;
     g_vars.global  = script->vars;
 
     g_sp = g_pStack;
@@ -1889,13 +1889,11 @@ static void DoCall(uint parmCount)
 static void Dispatch(uint scriptNum, uint entryNum, uint parmCount)
 {
     Handle     prevScriptHandle;
-    Handle     prevScriptHeap;
     uint       prevScriptNum;
     uint8_t   *prevIP;
     uintptr_t *prevLocalVar;
 
     prevScriptHandle = g_scriptHandle;
-    prevScriptHeap   = g_scriptHeap;
     prevScriptNum    = g_thisScript;
     g_thisScript     = scriptNum;
     prevIP           = g_pc;
@@ -1903,7 +1901,6 @@ static void Dispatch(uint scriptNum, uint entryNum, uint parmCount)
 
     Script *script = GetDispatchAddrInHunk(scriptNum, entryNum, &g_pc);
     g_scriptHandle = script->hunk;
-    g_scriptHeap   = script->heap;
     g_vars.local   = script->vars;
 
     DoCall(parmCount);
@@ -1911,7 +1908,6 @@ static void Dispatch(uint scriptNum, uint entryNum, uint parmCount)
     g_vars.local   = prevLocalVar;
     g_pc           = prevIP;
     g_thisScript   = prevScriptNum;
-    g_scriptHeap   = prevScriptHeap;
     g_scriptHandle = prevScriptHandle;
 }
 
@@ -1940,8 +1936,8 @@ static Script *GetDispatchAddrInHeap(uint scriptNum, uint entryNum, Obj **obj)
     // TODO: should this be "<=" ???
     if (script != NULL && entryNum < (uint)script->exports->numEntries) {
         assert(script->exports->entries[entryNum].ptrSeg == (uint16_t)-1);
-        *obj = (Obj *)((uint8_t *)script->heap +
-                       script->exports->entries[entryNum].ptrOff);
+        *obj =
+          (Obj *)(g_scriptHeap + script->exports->entries[entryNum].ptrOff);
     }
     return script;
 }
@@ -2089,7 +2085,7 @@ _Noreturn void PError(int perrCode, uintptr_t arg1, uintptr_t arg2)
 #ifdef __WINDOWS__
     MessageBoxA(NULL, str, "PError", MB_OK | MB_ICONERROR);
 #else
-#error Not implemented
+    MessageBox("PError", str);
 #endif
     exit(1);
 }
