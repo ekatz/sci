@@ -1,4 +1,5 @@
 #include "Resource.h"
+#include "FileIO.h"
 #include "ResName.h"
 #include "VolLoad.h"
 
@@ -9,18 +10,15 @@ typedef struct ResPatchEntry {
     uint16_t resNum;
 } ResPatchEntry;
 
-List g_loadList = LIST_INITIALIZER;
+List g_loadList     = LIST_INITIALIZER;
+char g_resPath[256] = { 0 };
 
 static Handle s_patches = NULL;
 
 Handle ResLoad(int resType, size_t resNum)
 {
     LoadLink *scan = NULL;
-    if (resType == RES_VIEW) {
-        LogDebug("------------------------ ResLoad %u", resNum);
-        if (resNum == 1)
-            resType = resType;
-    }
+
     if (resType == RES_MEM) {
         scan = (LoadLink *)malloc(sizeof(LoadLink));
         if (NULL == scan) {
@@ -28,7 +26,7 @@ Handle ResLoad(int resType, size_t resNum)
         }
 
         // If resType == RES_MEM, then resNum is size of MEMORY needed.
-        scan->data = GetResHandle(resNum);
+        scan->data = GetResHandle((uint)resNum);
         if (NULL == scan->data) {
             free(scan);
             return NULL;
@@ -154,25 +152,21 @@ bool FindPatchEntry(int resType, size_t resNum)
 
 void InitPatches(void)
 {
-    int              npatches = 0;
-    int              resType;
-    char             fileName[64];
-    ResPatchEntry   *entry;
-    WIN32_FIND_DATAA ffd;
-    HANDLE           hFind;
+    int            npatches = 0;
+    int            resType;
+    char           fileName[64];
+    ResPatchEntry *entry;
+    DirEntry       fileInfo;
 
     for (resType = RES_BASE; resType < (RES_BASE + NRESTYPES); ++resType) {
         ResNameMakeWildCard(fileName, resType);
-
-        hFind = FindFirstFileA(fileName, &ffd);
-        if (hFind != INVALID_HANDLE_VALUE) {
+        if (firstfile(fileName, 0, &fileInfo)) {
             do {
-                if ((ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 &&
-                    isdigit(ffd.cFileName[0])) {
+                if ((fileInfo.atr & F_SUBDIR) == 0 &&
+                    isdigit(fileInfo.name[0])) {
                     npatches++;
                 }
-            } while (FindNextFileA(hFind, &ffd));
-            FindClose(hFind);
+            } while (nextfile(&fileInfo));
         }
     }
 
@@ -185,15 +179,14 @@ void InitPatches(void)
 
     for (resType = RES_BASE; resType < (RES_BASE + NRESTYPES); ++resType) {
         ResNameMakeWildCard(fileName, resType);
-        hFind = FindFirstFile(fileName, &ffd);
-        if (hFind != INVALID_HANDLE_VALUE) {
+        if (firstfile(fileName, 0, &fileInfo)) {
             do {
-                if ((ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 &&
-                    isdigit(ffd.cFileName[0])) {
+                if ((fileInfo.atr & F_SUBDIR) == 0 &&
+                    isdigit(fileInfo.name[0])) {
                     size_t         resNum;
                     ResPatchEntry *tEntry;
 
-                    resNum = (size_t)atoi(ffd.cFileName);
+                    resNum = (size_t)atoi(fileInfo.name);
 
                     // If the entry already exists, do not include it.
                     for (tEntry = (ResPatchEntry *)s_patches; tEntry != entry;
@@ -211,8 +204,7 @@ void InitPatches(void)
                         ++entry;
                     }
                 }
-            } while (FindNextFile(hFind, &ffd));
-            FindClose(hFind);
+            } while (nextfile(&fileInfo));
         }
     }
 
