@@ -145,7 +145,7 @@ void DrawControl(Obj *item)
     state = (uint)GetProperty(item, s_state);
 
     // All items need their now seen rectangles sized externally.
-    RCopyRect(GetPropAddr(item, s_nowSeen), &r);
+    RectFromNative(GetPropAddr(item, s_nowSeen), &r);
 
     // Get some properties up front.
     if (RespondsTo(item, s_text)) {
@@ -261,7 +261,7 @@ static void DrawSelector(Obj *item)
     uint8_t     fore, back;
     uint        width, len;
 
-    RCopyRect(GetPropAddr(item, s_nowSeen), &r);
+    RectFromNative(GetPropAddr(item, s_nowSeen), &r);
     // Ensure that minimum control area is clear.
     REraseRect(&r);
     RInsetRect(&r, -1, -1);
@@ -320,7 +320,7 @@ void RHiliteControl(Obj *item)
     RRect r;
 
     // All items need their now seen rectangles sized externally.
-    RCopyRect(GetPropAddr(item, s_nowSeen), &r);
+    RectFromNative(GetPropAddr(item, s_nowSeen), &r);
 
     // Leave r set to encompass the entire area.
     switch (GetProperty(item, s_type)) {
@@ -359,7 +359,7 @@ static void TextEdit(Obj *item, Obj *evt)
     REventRecord theEvent;
 
     // Get properties into locals.
-    RCopyRect(GetPropAddr(item, s_nowSeen), &box);
+    RectFromNative(GetPropAddr(item, s_nowSeen), &box);
     ObjToEvent(evt, &theEvent);
 
     cursor = EditText(&box,

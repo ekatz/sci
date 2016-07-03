@@ -2177,6 +2177,8 @@ void KGraph(argList)
 {
 #define ret(val) g_acc = ((uintptr_t)(val))
 
+    RRect rect;
+
     switch ((int)arg(1)) {
         case GLoadBits:
             LoadBits((uint)arg(2));
@@ -2201,7 +2203,7 @@ void KGraph(argList)
             break;
 
         case GReAnimate:
-            ReAnimate((RRect *)&arg(2));
+            ReAnimate(RectFromNative(&arg(2), &rect));
             break;
 
         case GFillArea:
@@ -2216,7 +2218,7 @@ void KGraph(argList)
             break;
 
         case GSaveBits:
-            ret(SaveBits((RRect *)&arg(2), (uint)arg(6)));
+            ret(SaveBits(RectFromNative(&arg(2), &rect), (uint)arg(6)));
             break;
 
         case GRestoreBits:
@@ -2224,15 +2226,15 @@ void KGraph(argList)
             break;
 
         case GEraseRect:
-            REraseRect((RRect *)&arg(2));
+            REraseRect(RectFromNative(&arg(2), &rect));
             break;
 
         case GPaintRect:
-            RPaintRect((RRect *)&arg(2));
+            RPaintRect(RectFromNative(&arg(2), &rect));
             break;
 
         case GFillRect:
-            RFillRect((RRect *)&arg(2),
+            RFillRect(RectFromNative(&arg(2), &rect),
                       (uint)arg(6),
                       (uint8_t)arg(7),
                       (uint8_t)arg(8),
@@ -2240,7 +2242,7 @@ void KGraph(argList)
             break;
 
         case GShowBits:
-            ShowBits((RRect *)&arg(2), (uint)arg(6));
+            ShowBits(RectFromNative(&arg(2), &rect), (uint)arg(6));
             break;
 
         default:

@@ -44,7 +44,7 @@ void Animate(List *cast, bool doit)
     Node      *it;
     RGrafPort *oldPort;
     View      *view;
-    RRect      ur;
+    RRect      ur, rns, rls;
     uint       i, castSize;
     uint       signal, loopNum, celNum;
     uint       showAll = g_picNotValid;
@@ -122,13 +122,13 @@ void Animate(List *cast, bool doit)
             IndexedProp(him, actCel) = celNum;
         }
 
-        GetCelRect(view,
-                   loopNum,
-                   celNum,
-                   (int)IndexedProp(him, actX),
-                   (int)IndexedProp(him, actY),
-                   (int)IndexedProp(him, actZ),
-                   (RRect *)IndexedPropAddr(him, actNS));
+        GetCelRectNative(view,
+                         loopNum,
+                         celNum,
+                         (int)IndexedProp(him, actX),
+                         (int)IndexedProp(him, actY),
+                         (int)IndexedProp(him, actZ),
+                         IndexedPropAddr(him, actNS));
 
         // If fixPriority bit in signal is clear we get priority for this line.
         if ((signal & FIXPRI) == 0) {
@@ -181,13 +181,14 @@ void Animate(List *cast, bool doit)
         // A HIDE actor is not drawn.
         // A VIEWADDED is not drawn.
         if ((signal & (VIEWADDED | NOUPDATE | HIDE)) == 0) {
-            IndexedProp(him, actUB) = (uintptr_t)SaveBits(
-              (RRect *)IndexedPropAddr(him, actNS), PMAP | VMAP | CMAP);
+            RectFromNative(IndexedPropAddr(him, actNS), &rns);
+            IndexedProp(him, actUB) =
+              (uintptr_t)SaveBits(&rns, PMAP | VMAP | CMAP);
 
             DrawCel(view,
                     (uint)IndexedProp(him, actLoop),
                     (uint)IndexedProp(him, actCel),
-                    (RRect *)IndexedPropAddr(him, actNS),
+                    &rns,
                     (uint)IndexedProp(him, actPri),
                     (RPalette *)GetProperty(him, s_palette));
 
@@ -207,7 +208,7 @@ void Animate(List *cast, bool doit)
             dup->c   = (uint)IndexedProp(him, actCel);
             dup->p   = (uint)IndexedProp(him, actPri);
             dup->pal = (RPalette *)GetProperty(him, s_palette);
-            RCopyRect((RRect *)IndexedPropAddr(him, actNS), &dup->r);
+            RCopyRect(&rns, &dup->r);
             AddToEnd(&s_lastCast, ToNode(dup));
         }
     }
@@ -227,25 +228,23 @@ void Animate(List *cast, bool doit)
         // Hidden actors don't need it either.
         if ((castShow[i]) || ((signal & HIDDEN) == 0 &&
                               ((signal & NOUPDATE) == 0 || showAll != 0))) {
+            RectFromNative(IndexedPropAddr(him, actLS), &rls);
+            RectFromNative(IndexedPropAddr(him, actNS), &rns);
+
             // Update visual screen.
-            if (RSectRect((RRect *)IndexedPropAddr(him, actLS),
-                          (RRect *)IndexedPropAddr(him, actNS),
-                          &ur)) {
+            if (RSectRect(&rls, &rns, &ur)) {
 
                 // Show the union.
-                RUnionRect((RRect *)IndexedPropAddr(him, actLS),
-                           (RRect *)IndexedPropAddr(him, actNS),
-                           &ur);
+                RUnionRect(&rls, &rns, &ur);
 
                 ShowBits(&ur, g_showMap);
             } else {
                 // Show each separately.
-                ShowBits((RRect *)IndexedPropAddr(him, actNS), g_showMap);
-                ShowBits((RRect *)IndexedPropAddr(him, actLS), g_showMap);
+                ShowBits(&rns, g_showMap);
+                ShowBits(&rls, g_showMap);
             }
 
-            RCopyRect((RRect *)IndexedPropAddr(him, actNS),
-                      (RRect *)IndexedPropAddr(him, actLS));
+            RectToNative(&rns, IndexedPropAddr(him, actLS));
 
             // Now reflect hidden status.
             if ((signal & HIDE) != 0 && (signal & HIDDEN) == 0) {
@@ -525,24 +524,24 @@ static void ReDoStopped(Obj *cast[], bool castShow[], uint size)
         signal = (uint)IndexedProp(him, actSignal);
         if ((signal & VIEWADDED) != 0) {
             view = (View *)ResLoad(RES_VIEW, IndexedProp(him, actView));
+            RectFromNative(IndexedPropAddr(him, actNS), &r);
             DrawCel(view,
                     (uint)IndexedProp(him, actLoop),
                     (uint)IndexedProp(him, actCel),
-                    (RRect *)IndexedPropAddr(him, actNS),
+                    &r,
                     (uint)IndexedProp(him, actPri),
                     (RPalette *)GetProperty(him, s_palette));
 
             castShow[i] = true;
 
             signal &= (~(NOUPDATE | STOPUPD | STARTUPD | FORCEUPD));
-            RCopyRect((RRect *)IndexedPropAddr(him, actNS), &r);
 
             // If ignrAct bit is not set we draw a control box.
             if ((signal & ignrAct) == 0) {
                 // Compute for4 priority that he is.
                 top = (int16_t)PriCoord((uint)IndexedProp(him, actPri)) - 1;
 
-                // Adjust top accordingly.
+                /* adjust top accordingly */
                 if (top < r.top) {
                     top = r.top;
                 }
@@ -579,10 +578,11 @@ static void ReDoStopped(Obj *cast[], bool castShow[], uint size)
                 }
 
                 IndexedProp(him, actUB) = (uintptr_t)SaveBits(
-                  (RRect *)IndexedPropAddr(him, actNS), whichMaps);
+                  RectFromNative(IndexedPropAddr(him, actNS), &r), whichMaps);
 #else
                 IndexedProp(him, actUB) = (uintptr_t)SaveBits(
-                  (RRect *)IndexedPropAddr(him, actNS), VMAP | PMAP | CMAP);
+                  RectFromNative(IndexedPropAddr(him, actNS), &r),
+                  VMAP | PMAP | CMAP);
 #endif
             }
         }
@@ -598,12 +598,12 @@ static void ReDoStopped(Obj *cast[], bool castShow[], uint size)
             //
             // Get nowSeen into local and draw it.
             //
-            RCopyRect((RRect *)IndexedPropAddr(him, actNS), &r);
+            RectFromNative(IndexedPropAddr(him, actNS), &r);
 
             DrawCel(view,
                     (uint)IndexedProp(him, actLoop),
                     (uint)IndexedProp(him, actCel),
-                    (RRect *)IndexedPropAddr(him, actNS),
+                    &r,
                     (uint)IndexedProp(him, actPri),
                     (RPalette *)GetProperty(him, s_palette));
 

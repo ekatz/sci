@@ -204,13 +204,13 @@ void KSetNowSeen(argList)
 {
     Obj *him = (Obj *)arg(1);
 
-    GetCelRect((View *)ResLoad(RES_VIEW, GetProperty(him, s_view)),
-               (uint)GetProperty(him, s_loop),
-               (uint)GetProperty(him, s_cel),
-               (int)GetProperty(him, s_x),
-               (int)GetProperty(him, s_y),
-               (int)GetProperty(him, s_z),
-               (RRect *)GetPropAddr(him, s_nsTop));
+    GetCelRectNative((View *)ResLoad(RES_VIEW, GetProperty(him, s_view)),
+                     (uint)GetProperty(him, s_loop),
+                     (uint)GetProperty(him, s_cel),
+                     (int)GetProperty(him, s_x),
+                     (int)GetProperty(him, s_y),
+                     (int)GetProperty(him, s_z),
+                     GetPropAddr(him, s_nsTop));
 }
 
 void KNumLoops(argList)
@@ -326,13 +326,15 @@ void KEditControl(argList)
 
 void KTextSize(argList)
 {
-    int def = 0;
+    RRect rect;
+    int   def = 0;
 
     if (argCount >= 4) {
         def = (int)arg(4);
     }
 
-    RTextSize((RRect *)arg(1), (char *)arg(2), (int)arg(3), def);
+    RTextSize(&rect, GetTextPointer(arg(2)), (int)arg(3), def);
+    RectToNative(&rect, (uintptr_t *)arg(1));
 }
 
 void KDisplay(argList)
@@ -369,7 +371,7 @@ void KDisplay(argList)
         text = GetFarText((uint)arg1, (uint)arg(2), buffer);
         ++args;
     } else {
-        text = (char *)arg1;
+        text = GetTextPointer(arg1);
     }
     ++args;
 
@@ -661,12 +663,24 @@ void KDoSync(argList)
 
 void KGlobalToLocal(argList)
 {
-    RGlobalToLocal((RPoint *)IndexedPropAddr((Obj *)arg(1), evY));
+    RPoint     pt;
+    uintptr_t *npt;
+
+    npt = IndexedPropAddr((Obj *)arg(1), evY);
+    PointFromNative(npt, &pt);
+    RGlobalToLocal(&pt);
+    PointToNative(&pt, npt);
 }
 
 void KLocalToGlobal(argList)
 {
-    RLocalToGlobal((RPoint *)IndexedPropAddr((Obj *)arg(1), evY));
+    RPoint     pt;
+    uintptr_t *npt;
+
+    npt = IndexedPropAddr((Obj *)arg(1), evY);
+    PointFromNative(npt, &pt);
+    RLocalToGlobal(&pt);
+    PointToNative(&pt, npt);
 }
 
 void KMapKeyToDir(argList)
@@ -1040,7 +1054,9 @@ void KFormat(argList)
     const char *format;
     size_t      i, n;
     uintptr_t   theArg;
-    char        c, *strArg, theStr[20], buffer[2000], temp[500];
+    char        c;
+    const char *strArg;
+    char        theStr[20], buffer[2000], temp[500];
 
     text   = (char *)arg(1);
     format = (const char *)arg(2);
@@ -1056,6 +1072,7 @@ void KFormat(argList)
         format = GetFarText((uint)arg(2), (uint)arg(3), buffer);
         n = 4;
     } else {
+        format = GetTextPointer(arg(2));
         n = 3;
     }
 
@@ -1077,7 +1094,7 @@ void KFormat(argList)
                             strArg =
                               GetFarText((uint)theArg, (uint)arg(n++), temp);
                         } else {
-                            strArg = (char *)theArg;
+                            strArg = GetTextPointer((uint)theArg);
                         }
                         text += sprintf(text, theStr, strArg);
                     } else {
@@ -1155,13 +1172,13 @@ void KBaseSetter(argList)
     actor = (Obj *)arg(1);
     view  = (View *)ResLoad(RES_VIEW, IndexedProp(actor, actView));
 
-    GetCelRect(view,
-               (uint)IndexedProp(actor, actLoop),
-               (uint)IndexedProp(actor, actCel),
-               (int)IndexedProp(actor, actX),
-               (int)IndexedProp(actor, actY),
-               (int)IndexedProp(actor, actZ),
-               (RRect *)IndexedPropAddr(actor, actBR));
+    GetCelRectNative(view,
+                     (uint)IndexedProp(actor, actLoop),
+                     (uint)IndexedProp(actor, actCel),
+                     (int)IndexedProp(actor, actX),
+                     (int)IndexedProp(actor, actY),
+                     (int)IndexedProp(actor, actZ),
+                     IndexedPropAddr(actor, actBR));
 
     theY                            = 1 + (int)IndexedProp(actor, actY);
     IndexedProp(actor, actBRBottom) = (uintptr_t)theY;

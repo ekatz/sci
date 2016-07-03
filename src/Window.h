@@ -60,6 +60,11 @@ bool RFrontWindow(RWindow *wind);
 // Put this window at end of list.
 void RSelectWindow(RWindow *wind);
 
+RRect *RectFromNative(uintptr_t *native, RRect *rect);
+RPoint *PointFromNative(uintptr_t *native, RPoint *pt);
+uintptr_t *RectToNative(RRect *rect, uintptr_t *native);
+uintptr_t *PointToNative(RPoint *pt, uintptr_t *native);
+
 // Draw a frame around this rect
 void RFrameRect(RRect *r);
 

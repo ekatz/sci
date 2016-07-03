@@ -305,6 +305,38 @@ void RSelectWindow(RWindow *wind)
     RSetPort(&wind->port);
 }
 
+RRect *RectFromNative(uintptr_t *native, RRect *rect)
+{
+    rect->top    = (int16_t)native[0];
+    rect->left   = (int16_t)native[1];
+    rect->bottom = (int16_t)native[2];
+    rect->right  = (int16_t)native[3];
+    return rect;
+}
+
+uintptr_t *RectToNative(RRect *rect, uintptr_t *native)
+{
+    native[0] = (uintptr_t)rect->top;
+    native[1] = (uintptr_t)rect->left;
+    native[2] = (uintptr_t)rect->bottom;
+    native[3] = (uintptr_t)rect->right;
+    return native;
+}
+
+RPoint *PointFromNative(uintptr_t *native, RPoint *pt)
+{
+    pt->v = (int16_t)native[0];
+    pt->h = (int16_t)native[1];
+    return pt;
+}
+
+uintptr_t *PointToNative(RPoint *pt, uintptr_t *native)
+{
+    native[0] = (uintptr_t)pt->v;
+    native[1] = (uintptr_t)pt->h;
+    return native;
+}
+
 void RFrameRect(RRect *r)
 {
     RRect rt;

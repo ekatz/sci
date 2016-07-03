@@ -40,6 +40,13 @@ void GetCelRect(View  *view,
                 int    y,
                 int    z,
                 RRect *rect);
+void GetCelRectNative(View      *view,
+                      uint       loopNum,
+                      uint       celNum,
+                      int        x,
+                      int        y,
+                      int        z,
+                      uintptr_t *nrect);
 
 // This routine takes a pointer to the view pointer, the loop, and the cel
 // and returns the cel pointer.

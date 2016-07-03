@@ -1,6 +1,7 @@
 #include "Cels.h"
 #include "Graphics.h"
 #include "Palette.h"
+#include "Window.h"
 
 // Maximum "normal" priority.
 #define MAXPRI         0x10
@@ -148,6 +149,19 @@ void GetCelRect(View  *view,
 
     // Now fix top for height of cel.
     rect->top = rect->bottom - cel->yDim;
+}
+
+void GetCelRectNative(View      *view,
+                      uint       loopNum,
+                      uint       celNum,
+                      int        x,
+                      int        y,
+                      int        z,
+                      uintptr_t *nrect)
+{
+    RRect rect;
+    GetCelRect(view, loopNum, celNum, x, y, z, &rect);
+    RectToNative(&rect, nrect);
 }
 
 Cel *GetCelPointer(View *view, uint loopNum, uint celNum)
