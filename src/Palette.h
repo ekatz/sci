@@ -34,6 +34,23 @@ enum palFunc {
 
 #define MAX_INTENSITY 100
 
+#define BLACK    0
+#define BLUE     PalMatch(0x15, 0x15, 0x77)
+#define GREEN    PalMatch(0x15, 0x77, 0x15)
+#define CYAN     PalMatch(0x15, 0x77, 0x77)
+#define RED      PalMatch(0x77, 0x15, 0x15)
+#define MAGENTA  PalMatch(0x77, 0x15, 0x77)
+#define BROWN    PalMatch(0x77, 0x46, 0x15)
+#define LGREY    PalMatch(0x9f, 0x9f, 0x9f)
+#define GREY     PalMatch(0x5f, 0x5f, 0x5f)
+#define LBLUE    PalMatch(0x26, 0x26, 0xd8)
+#define LGREEN   PalMatch(0x26, 0xd8, 0x26)
+#define LCYAN    PalMatch(0x26, 0xd8, 0xd8)
+#define LRED     PalMatch(0xd8, 0x26, 0x26)
+#define LMAGENTA PalMatch(0xd8, 0x26, 0xd8)
+#define YELLOW   PalMatch(0xd8, 0xd8, 0x26)
+#define WHITE    255
+
 typedef struct Guns {
     uint8_t flags;
     uint8_t r;
@@ -62,5 +79,7 @@ void SetPalIntensity(RPalette *palette, int first, int last, int intensity);
 
 // All SCRIPT palette functions dispatch through KPalette.
 void KPalette(uintptr_t *args);
+
+uint8_t PalMatch(uint8_t r, uint8_t g, uint8_t b);
 
 #endif // PALETTE_H

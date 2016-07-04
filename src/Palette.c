@@ -97,6 +97,16 @@ void SetPalIntensity(RPalette *palette, int first, int last, int intensity)
     }
 }
 
+uint8_t PalMatch(uint8_t r, uint8_t g, uint8_t b)
+{
+    Guns aGun;
+
+    aGun.r = r;
+    aGun.g = g;
+    aGun.b = b;
+    return (uint8_t)Match(&aGun, &g_sysPalette, -1L);
+}
+
 static void InsertPalette(RPalette *srcPal, RPalette *dstPal, int mode)
 {
     int      i;
