@@ -163,6 +163,7 @@
     <ClCompile Include="..\..\..\src\Main.c" />
     <ClCompile Include="..\..\..\src\Menu.c" />
     <ClCompile Include="..\..\..\src\Mouse.c" />
+    <ClCompile Include="..\..\..\src\Mutex.c" />
     <ClCompile Include="..\..\..\src\Object.c" />
     <ClCompile Include="..\..\..\src\Palette.c" />
     <ClCompile Include="..\..\..\src\Picture.c" />
@@ -196,6 +197,7 @@
     <ClInclude Include="..\..\..\src\Log.h" />
     <ClInclude Include="..\..\..\src\Menu.h" />
     <ClInclude Include="..\..\..\src\Mouse.h" />
+    <ClInclude Include="..\..\..\src\Mutex.h" />
     <ClInclude Include="..\..\..\src\Object.h" />
     <ClInclude Include="..\..\..\src\Palette.h" />
     <ClInclude Include="..\..\..\src\Picture.h" />

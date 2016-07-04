@@ -1,6 +1,7 @@
 #include "Event.h"
 #include "Input.h"
 #include "Mouse.h"
+#include "Mutex.h"
 #include "Selector.h"
 #include "Timer.h"
 
@@ -8,6 +9,7 @@ static REventRecord *s_evHead     = NULL;
 static REventRecord *s_evTail     = NULL;
 static REventRecord *s_evQueue    = NULL;
 static REventRecord *s_evQueueEnd = NULL;
+static Mutex         s_mutex;
 
 static void MakeNullEvent(REventRecord *event);
 
@@ -20,9 +22,13 @@ void InitEvent(uint num)
     s_evQueue = (REventRecord *)malloc(num * sizeof(REventRecord));
     s_evHead = s_evTail = s_evQueue;
     s_evQueueEnd        = (s_evQueue + num);
+    CreateMutex(&s_mutex, false);
 }
 
-void EndEvent(void) {}
+void EndEvent(void)
+{
+    DestroyMutex(&s_mutex);
+}
 
 bool RGetNextEvent(ushort mask, REventRecord *event)
 {
@@ -30,6 +36,8 @@ bool RGetNextEvent(ushort mask, REventRecord *event)
     REventRecord *found;
 
     PollInputEvent();
+
+    LockMutex(&s_mutex);
 
     // Scan all events in s_evQueue.
     found = s_evHead;
@@ -50,6 +58,8 @@ bool RGetNextEvent(ushort mask, REventRecord *event)
         // Use his storage.
         MakeNullEvent(event);
     }
+
+    UnlockMutex(&s_mutex);
     return ret;
 }
 
@@ -65,6 +75,8 @@ bool REventAvail(ushort mask, REventRecord *event)
 {
     bool          ret = false;
     REventRecord *found;
+
+    LockMutex(&s_mutex);
 
     // Scan all events in s_evQueue.
     found = s_evHead;
@@ -85,6 +97,7 @@ bool REventAvail(ushort mask, REventRecord *event)
         }
     }
 
+    UnlockMutex(&s_mutex);
     return ret;
 }
 
@@ -97,6 +110,8 @@ bool RStillDown(void)
 void RPostEvent(REventRecord *event)
 {
     event->when = RTickCount();
+
+    LockMutex(&s_mutex);
     memcpy(s_evTail, event, sizeof(REventRecord));
     s_evTail = bump(s_evTail);
 
@@ -104,6 +119,8 @@ void RPostEvent(REventRecord *event)
     if (s_evTail == s_evHead) {
         s_evHead = bump(s_evHead);
     }
+
+    UnlockMutex(&s_mutex);
 }
 
 void EventToObj(const REventRecord *evt, Obj *evtObj)
