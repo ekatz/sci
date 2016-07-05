@@ -690,9 +690,7 @@ void KMapKeyToDir(argList)
 
     sciEvent = (Obj *)arg(1);
     ObjToEvent(sciEvent, &event);
-#ifndef NOT_IMPL
     MapKeyToDir(&event);
-#endif
     EventToObj(&event, sciEvent);
     ret(sciEvent);
 }

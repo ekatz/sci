@@ -5,6 +5,33 @@
 #include "Selector.h"
 #include "Timer.h"
 
+typedef struct KeyToDir {
+    ushort key;
+    ushort dir;
+} KeyToDir;
+
+static KeyToDir s_keyToDirMap[] = {
+    { 0x4800, 1 },
+    { 0x4900, 2 },
+    { 0x4D00, 3 },
+    { 0x5100, 4 },
+    { 0x5000, 5 },
+    { 0x4F00, 6 },
+    { 0x4B00, 7 },
+    { 0x4700, 8 },
+    { 0x4C00, 0 },
+    { 0x0038, 1 },
+    { 0x0039, 2 },
+    { 0x0036, 3 },
+    { 0x0033, 4 },
+    { 0x0032, 5 },
+    { 0x0031, 6 },
+    { 0x0034, 7 },
+    { 0x0037, 8 },
+    { 0x0035, 0 },
+    { 0x0000, 0 }
+};
+
 static REventRecord *s_evHead     = NULL;
 static REventRecord *s_evTail     = NULL;
 static REventRecord *s_evQueue    = NULL;
@@ -139,6 +166,22 @@ void ObjToEvent(const Obj *evtObj, REventRecord *evt)
     evt->message   = (ushort)IndexedProp(evtObj, evMsg);
     evt->where.h   = (int16_t)IndexedProp(evtObj, evX);
     evt->where.v   = (int16_t)IndexedProp(evtObj, evY);
+}
+
+REventRecord *MapKeyToDir(REventRecord *evt)
+{
+    KeyToDir *map;
+
+    if (evt->type == keyDown) {
+        for (map = s_keyToDirMap; map->key != 0; ++map) {
+            if (evt->message == map->key) {
+                evt->type    = direction;
+                evt->message = map->dir;
+                break;
+            }
+        }
+    }
+    return evt;
 }
 
 static void MakeNullEvent(REventRecord *event)
