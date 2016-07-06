@@ -1,4 +1,5 @@
 #include "Timer.h"
+#include <errno.h>
 #include <time.h>
 #if defined(__IOS__)
 #include <mach/mach_time.h>
@@ -11,33 +12,75 @@
 #endif
 
 static uint64_t s_startHrTime = 0;
-
-#if !defined(__WINDOWS__)
-void Sleep(uint milliseconds)
-{
-    usleep(milliseconds * 1000);
-}
-#endif
+static double   s_speed       = 0.0;
+static double   s_scaledTps   = TICKS_PER_SECOND;
 
 #if defined(__IOS__)
 static mach_timebase_info_data_t s_timebaseInfo = { 0 };
 
 static uint64_t AbsoluteTimeToNanoseconds(uint64_t absoluteTime)
 {
-    if (s_timebaseInfo.denom == 0) {
-        mach_timebase_info(&s_timebaseInfo);
-    }
     return (absoluteTime * s_timebaseInfo.numer) / s_timebaseInfo.denom;
 }
 
 static uint64_t NanosecondsToAbsoluteTime(uint64_t nanoseconds)
 {
-    if (s_timebaseInfo.denom == 0) {
-        mach_timebase_info(&s_timebaseInfo);
-    }
     return (nanoseconds * s_timebaseInfo.denom) / s_timebaseInfo.numer;
 }
+#elif defined(__WINDOWS__)
+static double s_frequencyNano = 0.0;
 #endif
+
+static double CalcProcessorSpeed()
+{
+#if defined(__WINDOWS__)
+    uint64_t      rdStart;
+    LARGE_INTEGER qwWait, qwStart, qwCurrent;
+    QueryPerformanceCounter(&qwStart);
+    QueryPerformanceFrequency(&qwWait);
+    qwWait.QuadPart >>= 5;
+    rdStart = __rdtsc();
+    do {
+        QueryPerformanceCounter(&qwCurrent);
+    } while ((qwCurrent.QuadPart - qwStart.QuadPart) < qwWait.QuadPart);
+    return (double)((__rdtsc() - rdStart) << 5) / 1000000.0;
+#else
+    //#error Not impl!
+    return 0;
+#endif
+}
+
+#if !defined(__WINDOWS__)
+void Sleep(uint milliseconds)
+{
+    int             res;
+    struct timespec elapsed, tv;
+
+    elapsed.tv_sec  = milliseconds / 1000;
+    elapsed.tv_nsec = (milliseconds % 1000) * 1000000;
+    do {
+        errno      = 0;
+        tv.tv_sec  = elapsed.tv_sec;
+        tv.tv_nsec = elapsed.tv_nsec;
+        res        = nanosleep(&tv, &elapsed);
+    } while ((res != 0) && (errno == EINTR));
+}
+#endif
+
+void InitTimer(void)
+{
+#if defined(__IOS__)
+    mach_timebase_info(&s_timebaseInfo);
+#elif defined(__WINDOWS__)
+    LARGE_INTEGER frequency;
+    QueryPerformanceFrequency(&frequency);
+    s_frequencyNano = 1000000000.0 / (double)frequency.QuadPart;
+#endif
+
+    s_speed       = CalcProcessorSpeed();
+    s_startHrTime = GetHighResolutionTime();
+    // s_scaledTps = s_speed / s_scaledTps;
+}
 
 uint64_t GetHighResolutionTime(void)
 {
@@ -48,13 +91,7 @@ uint64_t GetHighResolutionTime(void)
     return (uint64_t)systemTime(SYSTEM_TIME_MONOTONIC);
 
 #elif defined(__WINDOWS__)
-    static double s_frequencyNano = 0.0;
     LARGE_INTEGER now;
-    if (s_frequencyNano == 0.0) {
-        LARGE_INTEGER frequency;
-        QueryPerformanceFrequency(&frequency);
-        s_frequencyNano = 1000000000.0 / (double)frequency.QuadPart;
-    }
     QueryPerformanceCounter(&now);
     return (uint64_t)((double)now.QuadPart * s_frequencyNano);
 
@@ -70,14 +107,9 @@ uint RTickCount(void)
     uint     sysTicks;
     uint64_t now;
 
-    if (s_startHrTime == 0) {
-        s_startHrTime = GetHighResolutionTime();
-        return 0;
-    }
-
-    now      = GetHighResolutionTime();
-    sysTicks = (uint)(((now - s_startHrTime) * (uint64_t)TICKS_PER_SECOND) /
-                      (uint64_t)1000000000);
+    now = GetHighResolutionTime();
+    sysTicks =
+      (uint)(((double)(now - s_startHrTime) * s_scaledTps) / 1000000000.0);
     return sysTicks;
 }
 
@@ -87,12 +119,9 @@ void WaitUntil(uint ticks)
     uint64_t end;
     uint     milliseconds;
 
-    if (s_startHrTime == 0) {
-        s_startHrTime = GetHighResolutionTime();
-    }
-
-    end = s_startHrTime + (((uint64_t)ticks * (uint64_t)1000000000) /
-                           (uint64_t)TICKS_PER_SECOND);
+    end = s_startHrTime +
+          (uint64_t)((double)((uint64_t)ticks * (uint64_t)1000000000) /
+                     s_scaledTps);
     now = GetHighResolutionTime();
 
     if (end > now) {

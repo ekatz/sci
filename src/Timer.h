@@ -12,6 +12,9 @@
 #define SyncBegin(ticks) (void)ticks
 #define SyncEnd(ticks)   Sleep(2)
 #endif
+
+void InitTimer(void);
+
 // Returns the system time in nanoseconds.
 uint64_t GetHighResolutionTime(void);
 
