@@ -695,48 +695,6 @@ void KMapKeyToDir(argList)
     ret(sciEvent);
 }
 
-void KDrawMenuBar(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
-void KMenuSelect(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
-void KAddMenu(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
-void KGetMenu(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
-void KSetMenu(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
-void KDrawStatus(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
 void KParse(argList)
 {
 #ifndef NOT_IMPL

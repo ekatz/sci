@@ -2,6 +2,7 @@
 #include "Graphics.h"
 #include "Input.h"
 #include "Kernel.h"
+#include "Menu.h"
 #include "Object.h"
 #include "Palette.h"
 #include "Resource.h"
