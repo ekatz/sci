@@ -10,8 +10,8 @@ typedef struct ResPatchEntry {
     uint16_t resNum;
 } ResPatchEntry;
 
-List g_loadList     = LIST_INITIALIZER;
-char g_resPath[256] = { 0 };
+List g_loadList    = LIST_INITIALIZER;
+char g_resDir[256] = { 0 };
 
 static Handle s_patches = NULL;
 
@@ -136,6 +136,28 @@ void DisposeResHandle(Handle handle)
     }
 }
 
+Handle LoadHandle(const char *fileName)
+{
+    char   path[256];
+    Handle theHandle;
+    size_t len;
+    int    fd;
+
+    // Open the file.
+    sprintf(path, "%s%s", g_resDir, fileName);
+    if ((fd = open(path, O_RDONLY | O_BINARY)) == -1) {
+        return NULL;
+    }
+
+    // Get a handle to storage for it.
+    len       = (size_t)filelength(fd);
+    theHandle = GetResHandle(len);
+    read(fd, theHandle, len);
+    close(fd);
+
+    return theHandle;
+}
+
 bool FindPatchEntry(int resType, size_t resNum)
 {
     if (NULL != s_patches) {
@@ -154,13 +176,15 @@ void InitPatches(void)
 {
     int            npatches = 0;
     int            resType;
+    char           path[256];
     char           fileName[64];
     ResPatchEntry *entry;
     DirEntry       fileInfo;
 
     for (resType = RES_BASE; resType < (RES_BASE + NRESTYPES); ++resType) {
         ResNameMakeWildCard(fileName, resType);
-        if (firstfile(fileName, 0, &fileInfo)) {
+        sprintf(path, "%s%s", g_resDir, fileName);
+        if (firstfile(path, 0, &fileInfo)) {
             do {
                 if ((fileInfo.atr & F_SUBDIR) == 0 &&
                     isdigit(fileInfo.name[0])) {
@@ -179,7 +203,8 @@ void InitPatches(void)
 
     for (resType = RES_BASE; resType < (RES_BASE + NRESTYPES); ++resType) {
         ResNameMakeWildCard(fileName, resType);
-        if (firstfile(fileName, 0, &fileInfo)) {
+        sprintf(path, "%s%s", g_resDir, fileName);
+        if (firstfile(path, 0, &fileInfo)) {
             do {
                 if ((fileInfo.atr & F_SUBDIR) == 0 &&
                     isdigit(fileInfo.name[0])) {

@@ -28,7 +28,7 @@ typedef struct LoadLink {
 } LoadLink;
 
 extern List g_loadList;
-extern char g_resPath[];
+extern char g_resDir[];
 
 // Return handle to resource.
 Handle ResLoad(int resType, size_t resNum);
@@ -46,6 +46,8 @@ Handle GetResHandle(uint size);
 
 // Free the memory pointed to by the handle.
 void DisposeResHandle(Handle handle);
+
+Handle LoadHandle(const char *fileName);
 
 // uint ResHandleSize(Handle handle);
 //

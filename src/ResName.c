@@ -1,6 +1,6 @@
 #include "ResName.h"
 #include "ErrMsg.h"
-#include "ResTypes.h"
+#include "Resource.h"
 
 bool g_newResName = true;
 
@@ -10,7 +10,7 @@ ResType g_resTypes[] = {
     { "script",  "*.scr" },
     { "text",    "*.tex" },
     { "sound",   "*.snd" },
-    { "memory",  ""      },
+    { "memory",  NULL    },
     { "vocab",   "*.voc" },
     { "font",    "*.fon" },
     { "cursor",  "*.cur" },
@@ -33,10 +33,14 @@ static char *makeName(char       *dest,
 char *ResNameMake(char *dest, int resType, size_t resNum)
 {
     if (g_newResName) {
-        sprintf(dest,
-                "%u.%s",
-                (uint)resNum,
-                g_resTypes[resType - RES_BASE].defaultMask + 2);
+        if (g_resTypes[resType - RES_BASE].defaultMask != NULL) {
+            sprintf(dest,
+                    "%u.%s",
+                    (uint)resNum,
+                    g_resTypes[resType - RES_BASE].defaultMask + 2);
+        } else {
+            *dest = '\0';
+        }
     } else {
         sprintf(
           dest, "%s.%03u", g_resTypes[resType - RES_BASE].name, (uint)resNum);
@@ -47,7 +51,12 @@ char *ResNameMake(char *dest, int resType, size_t resNum)
 char *ResNameMakeWildCard(char *dest, int resType)
 {
     if (g_newResName) {
-        sprintf(dest, "*.%s", g_resTypes[resType - RES_BASE].defaultMask + 2);
+        if (g_resTypes[resType - RES_BASE].defaultMask != NULL) {
+            sprintf(
+              dest, "*.%s", g_resTypes[resType - RES_BASE].defaultMask + 2);
+        } else {
+            *dest = '\0';
+        }
     } else {
         sprintf(dest, "%s.*", g_resTypes[resType - RES_BASE].name);
     }
@@ -61,14 +70,19 @@ const char *ResName(int resType)
 
 int ROpenResFile(int resType, size_t resNum, char *name)
 {
+    char        path[256];
     char        fullName[100];
     const char *mask;
     int         fd = -1;
 
     mask = g_resTypes[resType - RES_BASE].defaultMask;
+    if (mask == NULL) {
+        mask = "";
+    }
 
     makeName(fullName, mask, name, resType, resNum);
-    fd = open(fullName, O_RDONLY | O_BINARY);
+    sprintf(path, "%s%s", g_resDir, fullName);
+    fd = open(path, O_RDONLY | O_BINARY);
     if (fd != -1) {
         strcpy(name, fullName);
     } else {
@@ -79,12 +93,13 @@ int ROpenResFile(int resType, size_t resNum, char *name)
 
 char *addSlash(char *dir)
 {
-    int  len;
-    char ch;
+    size_t len;
+    char   ch;
 
-    if ((len = strlen(dir)) != 0 && (ch = dir[len - 1]) != '\\' && ch != '/' &&
-        ch != ':') {
-        strcat(dir, "\\");
+    len = strlen(dir);
+    if (len != 0 && (ch = dir[len - 1]) != '\\' && ch != '/' && ch != ':') {
+        dir[len]     = '\\';
+        dir[len + 1] = '\0';
     }
     return dir;
 }

@@ -1512,6 +1512,7 @@ void KCoordPri(argList)
 
 void KFileIO(argList)
 {
+    char     path[256];
     DirEntry findFileEntry;
     char    *buf;
     int      mode;
@@ -1529,7 +1530,8 @@ void KFileIO(argList)
             } else {
                 mode = O_RDONLY;
             }
-            fd = open(buf, O_BINARY | mode);
+            sprintf(path, "%s%s", g_resDir, buf);
+            fd = open(path, O_BINARY | mode);
             ret(fd);
             break;
 

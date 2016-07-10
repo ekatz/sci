@@ -16,10 +16,10 @@
 
 HWND g_hWndMain = NULL;
 
-void Run()
+void Run(void)
 {
     InitTimer();
-    InitResource();
+    InitResource(NULL);
     InitScripts();
 
     CInitGraph();

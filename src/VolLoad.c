@@ -36,6 +36,8 @@ typedef struct ResSegHeader {
     uint16_t compression;
 } ResSegHeader;
 
+bool g_isExternal = false;
+
 static void *s_resourceMap = NULL;
 static int   s_resVolFd    = -1;
 static short s_resVolNum   = 1;
@@ -47,9 +49,25 @@ static bool  FindDirEntry(short    *volNum,
                           int       resType,
                           size_t    resNum);
 
-void InitResource(void)
+void InitResource(const char *resDir)
 {
     InitList(&g_loadList);
+
+    g_resDir[0] = '\0';
+    if (resDir != NULL) {
+        size_t len = strlen(resDir);
+        if (len != 0 && len < 255) {
+            memcpy(g_resDir, resDir, len);
+            if (resDir[len - 1] != '\\' || resDir[len - 1] != '/') {
+#ifdef __WINDOWS__
+                g_resDir[len++] = '\\';
+#else
+                g_resDir[len++] = '/';
+#endif
+            }
+            g_resDir[len] = '\0';
+        }
+    }
 
     s_resourceMap = LoadResMap(RESMAPNAME);
     if (s_resourceMap == NULL) {
@@ -61,11 +79,13 @@ void InitResource(void)
 
 static void *LoadResMap(const char *mapName)
 {
+    char  path[256];
     int   fd;
     uint  size;
     void *buffer = NULL;
 
-    fd = open(mapName, O_RDONLY | O_BINARY);
+    sprintf(path, "%s%s", g_resDir, mapName);
+    fd = open(path, O_RDONLY | O_BINARY);
     if (fd >= 0) {
         size   = (uint)filelength(fd);
         buffer = malloc(size);
@@ -119,15 +139,19 @@ Handle DoLoad(int resType, size_t resNum)
         short    volNum = 0;
         uint32_t offset = 0;
         if (!FindDirEntry(&volNum, &offset, resType, resNum)) {
-            Panic(E_NOT_FOUND, ResNameMake(fileName, resType, resNum));
+            if (!g_isExternal) {
+                Panic(E_NOT_FOUND, ResNameMake(fileName, resType, resNum));
+            }
             return NULL;
         }
 
         // TODO: write the real code, that support different volNums
 
         if (s_resVolFd == -1 || s_resVolNum != volNum) {
+            char path[256];
             sprintf(fileName, "%s.%03u", RESVOLNAME, volNum);
-            s_resVolFd  = open(fileName, O_RDONLY | O_BINARY);
+            sprintf(path, "%s%s", g_resDir, fileName);
+            s_resVolFd  = open(path, O_RDONLY | O_BINARY);
             s_resVolNum = volNum;
         }
 
