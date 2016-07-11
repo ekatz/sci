@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
-#include <malloc.h>
+#include <ctype.h>
 #include <assert.h>
 #include <fcntl.h>
 #include <sys/types.h>
@@ -14,6 +14,7 @@
 
 #ifdef _WIN32
 #include <Windows.h>
+#include <malloc.h>
 #include <io.h>
 #include <direct.h>
 
@@ -27,6 +28,10 @@
 
 #ifdef SRCAND
 #undef SRCAND
+#endif
+
+#ifdef DELETE
+#undef DELETE
 #endif
 
 #else
@@ -94,7 +99,7 @@ typedef unsigned short  ushort;
 typedef unsigned int    uint;
 typedef unsigned long   ulong;
 
-#ifndef __cplusplus
+#if !defined(__cplusplus) && !defined(bool)
 typedef byte bool;
 #define true    1
 #define false   0
@@ -108,7 +113,9 @@ typedef byte bool;
 #define FALSE   0
 #endif
 
+#ifndef __MACTYPES__
 typedef void*   Handle;
+#endif
 
 // Pseudo-machine object (or other address) references.
 typedef uword   ObjID;

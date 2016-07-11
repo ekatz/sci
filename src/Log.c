@@ -1,5 +1,18 @@
 #include "Log.h"
 #include "Types.h"
+#include <stdarg.h>
+
+#if defined(__IOS__)
+#include <asl.h>
+#include <unistd.h>
+#elif defined(__ANDROID__)
+#include <android/log.h>
+#elif defined(__BLACKBERRY__)
+#include <cstdarg>
+#include <slog2.h>
+extern char *__progname;
+#elif defined(__WINDOWS__)
+#endif
 
 void LogMessage(int level, const char *format, ...)
 {
@@ -18,8 +31,9 @@ void LogMessage(int level, const char *format, ...)
         char *buffer = stackBuffer;
 
 #if defined(__IOS__)
-        static std::atomic<bool> firstTime(true);
-        if (firstTime.load() && firstTime.exchange(false)) {
+        static volatile s_firstTime = true;
+        if (s_firstTime) {
+            s_firstTime = false;
             asl_add_log_file(NULL, STDERR_FILENO);
         }
 
@@ -149,7 +163,7 @@ void LogMessage(int level, const char *format, ...)
 #if !defined(__BLACKBERRY__) || defined(DEBUG)
         buffer[len - 1] = '\n';
 #if defined(_CONSOLE) || defined(__BLACKBERRY__)
-        fprintf(stderr, "%s", levelStr, buffer);
+        fprintf(stderr, "%s: %s", levelStr, buffer);
 #else
         OutputDebugStringA(buffer);
 #endif

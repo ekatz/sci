@@ -9,6 +9,10 @@
 
 #define MAX_LOG_LEVEL LOG_LEVEL_DEBUG
 
+#ifndef __WINDOWS__
+void MessageBox(const char *title, const char *text);
+#endif
+
 void LogMessage(int level, const char *format, ...);
 
 #if defined(DEBUG) || defined(_DEBUG)

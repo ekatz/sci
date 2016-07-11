@@ -98,7 +98,11 @@ char *addSlash(char *dir)
 
     len = strlen(dir);
     if (len != 0 && (ch = dir[len - 1]) != '\\' && ch != '/' && ch != ':') {
+#ifdef __WINDOWS__
         dir[len]     = '\\';
+#else
+        dir[len]     = '/';
+#endif
         dir[len + 1] = '\0';
     }
     return dir;

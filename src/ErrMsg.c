@@ -1,4 +1,5 @@
 #include "ErrMsg.h"
+#include <stdarg.h>
 
 #define ERRBUFSIZE  400
 #define FILEBUFSIZE 1000
@@ -167,7 +168,7 @@ static _Noreturn void DoPanic(const char *text)
 #ifdef __WINDOWS__
     MessageBoxA(NULL, text, "PANIC", MB_OK | MB_ICONERROR);
 #else
-#error Not implemented
+    MessageBox("PANIC", text);
 #endif
     exit(1);
 }
