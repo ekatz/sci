@@ -3,14 +3,17 @@
 
 #include "Types.h"
 
-#define TICKS_PER_SECOND 60
+#define TICKS_PER_SECOND 64
 
 #if 0
 #define SyncBegin(ticks) (ticks) = RTickCount()
 #define SyncEnd(ticks)   WaitUntil((ticks) + 1)
-#else
+#elif 0
 #define SyncBegin(ticks) (void)ticks
 #define SyncEnd(ticks)   Sleep(2)
+#else
+#define SyncBegin(ticks) (ticks) = RTickCount()
+#define SyncEnd(ticks)   while (ticks == RTickCount())
 #endif
 
 void InitTimer(void);
