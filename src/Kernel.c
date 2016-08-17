@@ -787,21 +787,28 @@ void KNodeValue(argList)
 
 void KAddAfter(argList)
 {
-    Node *node = AddKeyAfter(
-      (List *)arg(1), (Node *)arg(2), (Node *)arg(3), (intptr_t)arg(4));
+    Node *node = AddAfter((List *)arg(1), (Node *)arg(2), (Node *)arg(3));
+    if (argCount == 4) {
+        SetKey((Node *)arg(3), (intptr_t)arg(4));
+    }
     ret(node);
 }
 
 void KAddToFront(argList)
 {
-    Node *node =
-      AddKeyToFront((List *)arg(1), (Node *)arg(2), (intptr_t)arg(3));
+    Node *node = AddToFront((List *)arg(1), (Node *)arg(2));
+    if (argCount == 3) {
+        SetKey((Node *)arg(2), (intptr_t)arg(3));
+    }
     ret(node);
 }
 
 void KAddToEnd(argList)
 {
-    Node *node = AddKeyToEnd((List *)arg(1), (Node *)arg(2), (intptr_t)arg(3));
+    Node *node = AddToEnd((List *)arg(1), (Node *)arg(2));
+    if (argCount == 3) {
+        SetKey((Node *)arg(2), (intptr_t)arg(3));
+    }
     ret(node);
 }
 
@@ -1447,6 +1454,7 @@ void KDeviceInfo(argList)
 #ifndef NOT_IMPL
 #error Not finished
 #endif
+    ret(0);
 }
 
 void KGetSaveDir(argList)

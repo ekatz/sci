@@ -22,7 +22,8 @@ typedef struct Node {
 } Node;
 
 typedef struct KeyedNode {
-    Node     node;
+    Node    *next;
+    Node    *prev;
     intptr_t key;
 } KeyedNode;
 
@@ -36,7 +37,7 @@ typedef struct List {
 #define LFirstTrue     2
 #define LAllTrue       3
 
-#define ToNode(elem)         (&((elem)->link))
+#define ToNode(elem)         ((Node *)&((elem)->link))
 #define FromNode(node, type) (CONTAINING_RECORD(node, type, link))
 #define NullNode(type)       ((type *)offsetof(type, link))
 
