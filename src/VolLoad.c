@@ -38,13 +38,13 @@ typedef struct ResSegHeader {
 
 bool g_isExternal = false;
 
-static void *s_resourceMap = NULL;
-static int   s_resVolFd    = -1;
-static short s_resVolNum   = 1;
+static void  *s_resourceMap = NULL;
+static int    s_resVolFd    = -1;
+static ushort s_resVolNum   = 1;
 
 // Allocate buffer and load resource map into it.
 static void *LoadResMap(const char *mapName);
-static bool  FindDirEntry(short    *volNum,
+static bool  FindDirEntry(ushort   *volNum,
                           uint32_t *offset,
                           int       resType,
                           size_t    resNum);
@@ -79,15 +79,15 @@ void InitResource(const char *resDir)
 
 static void *LoadResMap(const char *mapName)
 {
-    char  path[256];
-    int   fd;
-    uint  size;
-    void *buffer = NULL;
+    char   path[256];
+    int    fd;
+    size_t size;
+    void  *buffer = NULL;
 
     sprintf(path, "%s%s", g_resDir, mapName);
     fd = open(path, O_RDONLY | O_BINARY);
     if (fd >= 0) {
-        size   = (uint)filelength(fd);
+        size   = (size_t)filelength(fd);
         buffer = malloc(size);
         if (buffer != NULL) {
             if (-1 == read(fd, buffer, size)) {
@@ -134,10 +134,15 @@ Handle DoLoad(int resType, size_t resNum)
         }
 
         read(fd, &typeLen, 1);
-        lseek(fd, (int)typeLen, SEEK_SET);
+        lseek(fd, (int)typeLen, SEEK_CUR);
     } else {
-        short    volNum = 0;
+        ushort   volNum = 0;
         uint32_t offset = 0;
+#ifdef __WINDOWS__
+        if (RES_SOUND == resType) {
+            resNum -= 1000;
+        }
+#endif
         if (!FindDirEntry(&volNum, &offset, resType, resNum)) {
             if (!g_isExternal) {
                 Panic(E_NOT_FOUND, ResNameMake(fileName, resType, resNum));
@@ -168,8 +173,7 @@ Handle DoLoad(int resType, size_t resNum)
     }
 
     if (fd != -1) {
-        uint size = (uint)dataInfo.segmentLength -
-                    (sizeof(ResSegHeader) - offsetof(ResSegHeader, length));
+        uint size = dataInfo.length;
         outHandle = GetResHandle(size);
 
         read(fd, outHandle, size);
@@ -197,7 +201,7 @@ Handle DoLoad(int resType, size_t resNum)
     return outHandle;
 }
 
-static bool FindDirEntryDos(short    *volNum,
+static bool FindDirEntryDos(ushort   *volNum,
                             uint32_t *offset,
                             int       resType,
                             size_t    resNum)
@@ -223,13 +227,13 @@ static bool FindDirEntryDos(short    *volNum,
     }
 
     if (foundEntry != NULL) {
-        *volNum = (short)foundEntry->volNum;
+        *volNum = (ushort)foundEntry->volNum;
         return true;
     }
     return false;
 }
 
-static bool FindDirEntryWin(short    *volNum,
+static bool FindDirEntryWin(ushort   *volNum,
                             uint32_t *offset,
                             int       resType,
                             size_t    resNum)
@@ -255,13 +259,13 @@ static bool FindDirEntryWin(short    *volNum,
     }
 
     if (foundEntry != NULL) {
-        *volNum = (short)foundEntry->volNum;
+        *volNum = (ushort)foundEntry->volNum;
         return true;
     }
     return false;
 }
 
-static bool FindDirEntry(short    *volNum,
+static bool FindDirEntry(ushort   *volNum,
                          uint32_t *offset,
                          int       resType,
                          size_t    resNum)
