@@ -20,7 +20,11 @@ void ShowString(const char *str);
 void RTextSize(RRect *r, const char *text, int font, int def);
 
 // Put the text to the box in mode requested.
-void RTextBox(const char *text, bool show, RRect *box, uint mode, int font);
+void RTextBox(const char  *text,
+              bool         show,
+              const RRect *box,
+              uint         mode,
+              int          font);
 
 void RDrawText(const char *str, uint first, uint count);
 

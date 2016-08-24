@@ -157,7 +157,11 @@ static uint GetLongest(char const **str, uint max)
     }
 }
 
-void RTextBox(const char *text, bool show, RRect *box, uint mode, int font)
+void RTextBox(const char  *text,
+              bool         show,
+              const RRect *box,
+              uint         mode,
+              int          font)
 {
     const char *first;
     const char *str;

@@ -55,7 +55,7 @@ static bool FormatStringProc(boolfptr func, const char *format, va_list args)
 
         len++;
         if (len >= sizeof(stackBuffer)) {
-            buffer = malloc(len + 1);
+            buffer = (char *)malloc(len + 1);
         }
 
         buffer[0] = '\0';

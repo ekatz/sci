@@ -169,7 +169,7 @@ bool firstfile(const char *spec, uint atr, DirEntry *dta)
                 (uint64_t)findFileData.nFileSizeLow;
     return true;
 #else
-    char path[256];
+    char path[260];
     const char *cp;
     size_t specLen, pathLen;
 
@@ -179,6 +179,12 @@ bool firstfile(const char *spec, uint atr, DirEntry *dta)
     }
 
     pathLen = 0;
+    if (*spec != '/') {
+        path[0] = '.';
+        path[1] = '/';
+        pathLen = 2;
+    }
+
     cp = spec;
     specLen = strlen(spec);
     spec += specLen;
