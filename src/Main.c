@@ -1,3 +1,4 @@
+#include "Audio.h"
 #include "Dialog.h"
 #include "Display.h"
 #include "ErrMsg.h"
@@ -9,6 +10,7 @@
 #include "Palette.h"
 #include "Picture.h"
 #include "Resource.h"
+#include "Text.h"
 #include "Timer.h"
 #include "VolLoad.h"
 #include "Window.h"
@@ -18,6 +20,8 @@ HWND g_hWndMain = NULL;
 
 void Run(void)
 {
+    InstallSoundServer();
+
     InitTimer();
     InitResource(NULL);
     InitScripts();
@@ -31,6 +35,9 @@ void Run(void)
     InitWindow();
 
     InitDialog(DoAlert);
+
+    InitAudioDriver();
+    InitSoundDriver();
 
     // Load offsets to often used object properties.  (In script.c)
     LoadPropOffsets();
@@ -99,6 +106,11 @@ static LRESULT CALLBACK WindowProc(HWND   hWnd,
             Display(0, 0, MAXHEIGHT, MAXWIDTH, g_vHndl, VMAP);
         }
         EndPaint(hWnd, &ps);
+        return 0;
+    }
+
+    if (uMsg == MM_WOM_DONE) {
+        AudioDrv(A_FILLBUFF, 0);
         return 0;
     }
 

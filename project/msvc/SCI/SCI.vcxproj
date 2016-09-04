@@ -147,6 +147,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\src\Animate.c" />
+    <ClCompile Include="..\..\..\src\Audio.c" />
     <ClCompile Include="..\..\..\src\Cels.c" />
     <ClCompile Include="..\..\..\src\Crypt.c" />
     <ClCompile Include="..\..\..\src\Dialog.c" />
@@ -162,6 +163,8 @@
     <ClCompile Include="..\..\..\src\Log.c" />
     <ClCompile Include="..\..\..\src\Main.c" />
     <ClCompile Include="..\..\..\src\Menu.c" />
+    <ClCompile Include="..\..\..\src\Midi.c" />
+    <ClCompile Include="..\..\..\src\MidiDriver.c" />
     <ClCompile Include="..\..\..\src\Mouse.c" />
     <ClCompile Include="..\..\..\src\Mutex.c" />
     <ClCompile Include="..\..\..\src\Object.c" />
@@ -172,6 +175,7 @@
     <ClCompile Include="..\..\..\src\Resource.c" />
     <ClCompile Include="..\..\..\src\SaveGame.c" />
     <ClCompile Include="..\..\..\src\Script.c" />
+    <ClCompile Include="..\..\..\src\Sound.c" />
     <ClCompile Include="..\..\..\src\Text.c" />
     <ClCompile Include="..\..\..\src\Timer.c" />
     <ClCompile Include="..\..\..\src\Trig.c" />
@@ -180,6 +184,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\src\Animate.h" />
+    <ClInclude Include="..\..\..\src\Audio.h" />
     <ClInclude Include="..\..\..\src\Cels.h" />
     <ClInclude Include="..\..\..\src\Crypt.h" />
     <ClInclude Include="..\..\..\src\Dialog.h" />
@@ -196,6 +201,8 @@
     <ClInclude Include="..\..\..\src\List.h" />
     <ClInclude Include="..\..\..\src\Log.h" />
     <ClInclude Include="..\..\..\src\Menu.h" />
+    <ClInclude Include="..\..\..\src\Midi.h" />
+    <ClInclude Include="..\..\..\src\MidiDriver.h" />
     <ClInclude Include="..\..\..\src\Mouse.h" />
     <ClInclude Include="..\..\..\src\Mutex.h" />
     <ClInclude Include="..\..\..\src\Object.h" />
@@ -208,6 +215,7 @@
     <ClInclude Include="..\..\..\src\SaveGame.h" />
     <ClInclude Include="..\..\..\src\Script.h" />
     <ClInclude Include="..\..\..\src\Selector.h" />
+    <ClInclude Include="..\..\..\src\Sound.h" />
     <ClInclude Include="..\..\..\src\Text.h" />
     <ClInclude Include="..\..\..\src\Timer.h" />
     <ClInclude Include="..\..\..\src\Trig.h" />

@@ -640,20 +640,6 @@ void KGameIsRestarting(argList)
     }
 }
 
-void KDoSound(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
-void KDoAudio(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
 void KDoSync(argList)
 {
 #ifndef NOT_IMPL

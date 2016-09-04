@@ -1,4 +1,5 @@
 #include "PMachine.h"
+#include "Audio.h"
 #include "Graphics.h"
 #include "Input.h"
 #include "Kernel.h"
@@ -7,6 +8,7 @@
 #include "Palette.h"
 #include "Resource.h"
 #include "Selector.h"
+#include "Sound.h"
 
 #define PSTACKSIZE (10 * 1024)
 
