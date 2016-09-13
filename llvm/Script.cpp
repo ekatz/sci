@@ -1,235 +1,44 @@
+#include "Script.hpp"
+#include "World.hpp"
+#include "Object.hpp"
+#include "PMachine.hpp"
+#include "Resource.hpp"
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Intrinsics.h>
-#include <set>
-#include "Script.hpp"
-#include "PMachine.hpp"
-
-extern "C" {
-#include "../SCI/src/Resource.h"
-#include "../SCI/src/FarData.h"
-}
 
 using namespace llvm;
 
-extern IntegerType *g_sizeTy;
 
-#define SEG_NULL        0   // End of script resource
-#define SEG_OBJECT      1   // Object
-#define SEG_CODE        2   // Code
-#define SEG_SYNONYMS    3   // Synonym word lists
-#define SEG_SAIDSPECS   4   // Said specs
-#define SEG_STRINGS     5   // Strings
-#define SEG_CLASS       6   // Class
-#define SEG_EXPORTS     7   // Exports
-#define SEG_RELOC       8   // Relocation table
-#define SEG_TEXT        9   // Preload text
-#define SEG_LOCALS      10  // Local variables
+BEGIN_NAMESPACE_SCI
 
 
-#define NextSegment(seg)    ((SegHeader *)((byte *)(seg) + (seg)->size))
-
-
-#pragma warning(push)
-#pragma warning(disable: 4200) // zero-sized array in struct/union
-
-
-typedef struct SegHeader
-{
-    uint16_t type;
-    uint16_t size;
-} SegHeader;
-
-
-typedef struct ResClassEntry
-{
-    uint16_t obj;           // pointer to Obj
-    uint16_t scriptNum;  // script number
-} ResClassEntry;
-
-
-typedef struct RelocTable
-{
-    uint16_t numEntries;
-    uint16_t ptrSeg;
-    uint16_t table[0];
-} RelocTable;
-
-
-typedef struct ExportTableEntry
-{
-    uint16_t ptrOff;
-    uint16_t ptrSeg;
-} ExportTableEntry;
-
-
-typedef struct ExportTable
-{
-    uint16_t numEntries;
-    ExportTableEntry entries[0];
-} ExportTable;
-
-
-#pragma warning(pop)
-
-
-char* GetSelectorName(uint id, char *str)
-{
-    if (GetFarStr(SELECTOR_VOCAB, id, str) == NULL)
-    {
-        sprintf(str, "sel@%u", id);
-    }
-    return str;
-}
-
-
-static inline bool IsUnsignedValue(int16_t val)
-{
-    // If this seems like a flag, then it is unsigned.
-    return ((((uint16_t)val & 0xE000) != 0xE000) && ((((uint16_t)val & 0xF000) | 0x8000) == (uint16_t)val));
-}
-
-
-ConstantInt* GetConstantValue(int16_t val)
-{
-    ConstantInt *c;
-    if (IsUnsignedValue(val))
-    {
-        c = ConstantInt::get(g_sizeTy, static_cast<uint64_t>(static_cast<uint16_t>(val)));
-    }
-    else
-    {
-        c = ConstantInt::get(g_sizeTy, static_cast<uint64_t>(static_cast<int16_t>(val)));
-    }
-    return c;
-}
-
-
-static uint CalcNumInheritedElements(StructType *s)
-{
-    uint num = 0;
-    for (auto i = s->element_begin(), e = s->element_end(); i != e; ++i)
-    {
-        if ((*i)->isIntegerTy())
-        {
-            num++;
-        }
-        else
-        {
-            num += CalcNumInheritedElements(cast<StructType>(*i));
-        }
-    }
-    return num;
-}
-
-
-static ConstantStruct* CreateInitializer(StructType *s, const int16_t *begin, const int16_t *end, const int16_t *&ptr, const int16_t *nameVal, GlobalVariable *name, GlobalVariable *vftbl)
-{
-    std::vector<Constant *> args;
-
-    for (auto i = s->element_begin(), e = s->element_end(); i != e; ++i)
-    {
-        Constant *c;
-        if ((*i)->isIntegerTy())
-        {
-            assert(ptr < end);
-            if (ptr < begin)
-            {
-                c = ConstantExpr::getPtrToInt(vftbl, g_sizeTy);
-            }
-            else if (ptr == nameVal)
-            {
-                c = ConstantExpr::getPtrToInt(name, g_sizeTy);
-            }
-            else
-            {
-                c = GetConstantValue(*ptr);
-            }
-            ptr++;
-        }
-        else
-        {
-            c = CreateInitializer(cast<StructType>(*i), begin, end, ptr, nameVal, name, vftbl);
-        }
-        args.push_back(c);
-    }
-
-    return static_cast<ConstantStruct *>(ConstantStruct::get(s, args));
-}
-
-
-static ConstantStruct* CreateInitializer(StructType *s, const int16_t *vals, uint len, GlobalVariable *vftbl, GlobalVariable *name)
-{
-    const int16_t *ptr = vals - 1;
-    return CreateInitializer(s, vals, vals + len, ptr, vals + 1, name, vftbl);
-}
-
-
-static bool AddElementIndex(SmallVector<Value *, 16> &indices, StructType *s, uint &idx)
-{
-    size_t pos = indices.size();
-
-    // Make place for the value.
-    indices.push_back(NULL);
-
-    uint n = 0;
-    for (auto i = s->element_begin(), e = s->element_end(); i != e; ++i, ++n)
-    {
-        if ((*i)->isIntegerTy())
-        {
-            if (idx == 0)
-            {
-                indices[pos] = ConstantInt::get(Type::getInt32Ty(s->getContext()), n);
-                return true;
-            }
-
-            idx--;
-        }
-        else
-        {
-            if (AddElementIndex(indices, cast<StructType>(*i), idx))
-            {
-                indices[pos] = ConstantInt::get(Type::getInt32Ty(s->getContext()), n);
-                return true;
-            }
-        }
-    }
-
-    // Remove the value.
-    indices.pop_back();
-    return false;
-}
-
-static SmallVector<Value *, 16> CreateElementSelectorIndices(StructType *s, uint idx)
-{
-    SmallVector<Value *, 16> indices;
-    indices.push_back(Constant::getNullValue(g_sizeTy));
-    if (!AddElementIndex(indices, s, idx))
-    {
-        indices.pop_back();
-    }
-    return indices;
-}
-
-
-Script::Script(ScriptManager &mgr, uint id, Handle hunk) :
-    m_mgr(mgr),
+Script::Script(uint id, Handle hunk) :
     m_id(id),
     m_hunk(hunk),
-    m_numObjects(0),
-    m_numVars(0),
-    m_numExports(0),
-    m_funcPush(NULL),
-    m_funcPop(NULL)
+    m_objects(nullptr),
+    m_objectCount(0),
+    m_globals(nullptr),
+    m_locals(nullptr),
+    m_localCount(0),
+    m_exportCount(0)
 {
     char name[10];
     sprintf(name, "Script%03u", m_id);
-    m_module.reset(new Module(name, m_mgr.getContext()));
+    m_module.reset(new Module(name, GetWorld().getContext()));
 }
 
 
 Script::~Script()
 {
-    if (m_hunk != NULL)
+    if (m_objects != nullptr)
+    {
+        for (uint i = 0, n = m_objectCount; i < n; ++i)
+        {
+            m_objects[i].~Object();
+        }
+        free(m_objects);
+    }
+    if (m_hunk != nullptr)
     {
         ResUnLoad(RES_SCRIPT, m_id);
     }
@@ -238,11 +47,13 @@ Script::~Script()
 
 bool Script::load()
 {
+    World &world = GetWorld();
     SegHeader *seg;
-    ExportTable *exports = NULL;
+    ExportTable *exports = nullptr;
+    RelocTable *relocs = nullptr;
     uint numObjects = 0;
 
-    addStubFunctions();
+    m_localCount = 0;
 
     seg = reinterpret_cast<SegHeader *>(m_hunk);
     while (seg->type != SEG_NULL)
@@ -257,6 +68,14 @@ bool Script::load()
             exports = reinterpret_cast<ExportTable *>(seg + 1);
             break;
 
+        case SEG_RELOC:
+            relocs = reinterpret_cast<RelocTable *>(seg + 1);
+            break;
+
+        case SEG_LOCALS:
+            m_localCount = (seg->size - sizeof(SegHeader)) / sizeof(uint16_t);
+            break;
+
         default:
             break;
         }
@@ -264,33 +83,30 @@ bool Script::load()
         seg = NextSegment(seg);
     }
 
-    m_numObjects = 0;
-    m_objects.release();
+    m_objectCount = 0;
+    if (m_objects != nullptr)
+    {
+        free(m_objects);
+        m_objects = nullptr;
+    }
     if (numObjects > 0)
     {
-        m_objects.reset(new Object[numObjects]);
-        memset(m_objects.get(), 0, numObjects * sizeof(Object));
+        size_t size = numObjects * sizeof(Object);
+        m_objects = reinterpret_cast<Object *>(malloc(size));
+        memset(m_objects, 0, size);
     }
 
-    uint numValidExports = 0;
-    m_numExports = 0;
-    m_exports.release();
-    if (exports != NULL && exports->numEntries > 0)
+    if (exports != nullptr && exports->numEntries > 0)
     {
-        for (uint i = 0, n = exports->numEntries; i < n; ++i)
-        {
-            if (exports->entries[i].ptrOff >= sizeof(SegHeader))
-            {
-                numValidExports++;
-            }
-        }
-
-        m_exports.reset(new GlobalObject*[numValidExports]);
-        memset(m_exports.get(), 0, numValidExports * sizeof(GlobalObject *));
+        m_exportCount = exports->numEntries;
+        m_exports.reset(new GlobalObject*[m_exportCount]);
+        memset(m_exports.get(), 0, m_exportCount * sizeof(GlobalObject *));
     }
-
-    m_numVars = 0;
-    m_vars.release();
+    else
+    {
+        m_exportCount = 0;
+        m_exports.release();
+    }
 
     seg = reinterpret_cast<SegHeader *>(m_hunk);
     while (seg->type != SEG_NULL)
@@ -298,84 +114,112 @@ bool Script::load()
         switch (seg->type)
         {
         case SEG_OBJECT: {
-            Object *obj = addObject(reinterpret_cast<ObjRes *>(seg + 1));
-            if (obj != NULL && exports != NULL && m_numExports != exports->numEntries)
+            const uint8_t *res = reinterpret_cast<uint8_t *>(seg + 1);
+            Object *obj = addObject(*reinterpret_cast<const ObjRes *>(res));
+            if (obj != nullptr)
             {
-                const char *res = reinterpret_cast<char *>(seg + 1) + offsetof(ObjRes, sels);
-                for (uint i = 0, n = exports->numEntries; i < n; ++i)
+                uint offset = getOffsetOf(res + offsetof(ObjRes, sels));
+
+                updateExportTable(exports, offset, obj->getGlobal());
+                updateRelocTable(relocs, offset, obj->getGlobal());
+            }
+            break;
+        }
+
+        case SEG_CLASS: {
+            const uint8_t *res = reinterpret_cast<uint8_t *>(seg + 1);
+            Class *cls = world.addClass(*reinterpret_cast<const ObjRes *>(res), *this);
+            if (cls != nullptr)
+            {
+                uint offset = getOffsetOf(res + offsetof(ObjRes, sels));
+
+                GlobalObject **slot = updateExportTable(exports, offset);
+                if (slot != nullptr)
                 {
-                    assert(exports->entries[i].ptrSeg == 0);
-                    if (getDataAt(exports->entries[i].ptrOff) == res)
-                    {
-                        obj->instance->setLinkage(GlobalValue::ExternalLinkage);
-                        m_exports[i] = obj->instance;
-                        m_numExports++;
-                        break;
-                    }
+                    GlobalVariable *obj = cls->getObject();
+                    obj->setLinkage(GlobalValue::ExternalLinkage);
+                    *slot = obj;
+                }
+
+                Value **slotVal = updateRelocTable(relocs, offset);
+                if (slotVal != nullptr)
+                {
+                    *slotVal = cls->getObject();
                 }
             }
             break;
         }
 
-        case SEG_CLASS:
-            m_mgr.addClass(reinterpret_cast<ObjRes *>(seg + 1));
-//             heapLen += OBJSIZE(((ObjRes *)(seg + 1))->varSelNum);
-// 
-//             {
-//                 int a = 0;
-//                 ObjRes *cls = (ObjRes *)(seg + 1);
-//                 ObjID *props = (ObjID *)cls->sels + cls->varSelNum;
-//                 for (i = 0, n = cls->varSelNum; i < n; ++i)
-//                 {
-//                     if (props[i] == 23 && ((char*)hunk + cls->sels[i])[0] != '\0' && isalnum(((char*)hunk + cls->sels[i])[0]))
-//                     {
-//                         if (cls->speciesSel == 0) {
-//                             a = a;
-//                         }
-//                         a = 1;
-//                         LogInfo("class: @%d  \"%s\"", cls->speciesSel, (char*)hunk + cls->sels[i]);
-//                         break;
-//                     }
-//                 }
-// 
-//                 if (!a)
-//                 {
-//                     LogInfo("class: @%d", cls->speciesSel);
-//                 }
-//             }
-            break;
-
         case SEG_CODE:
-            if (exports != NULL && m_numExports != exports->numEntries)
-            {
-                const char *segBegin = reinterpret_cast<char *>(seg + 1);
-                const char *segEnd = reinterpret_cast<char *>(seg) + seg->size;
-                for (uint i = 0, n = exports->numEntries; i < n; ++i)
-                {
-                    assert(exports->entries[i].ptrSeg == 0);
-                    const char *ptr = getDataAt(exports->entries[i].ptrOff);
-                    if (segBegin <= ptr && ptr < segEnd)
-                    {
-//                         func->setLinkage(GlobalValue::ExternalLinkage);
-//                         m_exports[i] = func;
-                        if (++m_numExports == exports->numEntries)
-                        {
-                            break;
-                        }
-                    }
-                }
-            }
             break;
 
         case SEG_SAIDSPECS:
-        case SEG_STRINGS:
+            assert(0); //TODO: Add support for Said!!
+
+        case SEG_STRINGS: {
+            const uint8_t *res = reinterpret_cast<uint8_t *>(seg + 1);
+            uint offsetBegin = getOffsetOf(res);
+            uint offsetEnd = offsetBegin + (static_cast<uint>(seg->size) - sizeof(SegHeader));
+            uint offset;
+
+            offset = offsetBegin;
+            for (int idx; (idx = lookupExportTable(exports, offset, offsetEnd)) >= 0;)
+            {
+                GlobalObject *&slot = m_exports[idx];
+                assert(slot == nullptr);
+
+                offset = exports->entries[idx].ptrOff;
+                const char *str = getDataAt(offset);
+                slot = getString(str);
+
+                offset++;
+            }
+
+
+            offset = offsetBegin;
+            while ((offset = lookupRelocTable(relocs, offset, offsetEnd)) != (uint)-1)
+            {
+                Value *&slot = m_relocTable[offset];
+                assert(slot == nullptr);
+
+                const char *str = getDataAt(offset);
+                slot = getString(str);
+
+                offset += sizeof(uint16_t);
+            }
             break;
+        }
 
         case SEG_LOCALS:
-            setLocals(makeArrayRef(reinterpret_cast<int16_t *>(seg + 1), (seg->size - sizeof(SegHeader)) / sizeof(uint16_t)));
-            break;
+            if (m_localCount != 0)
+            {
+                const uint8_t *res = reinterpret_cast<uint8_t *>(seg + 1);
+                ArrayRef<int16_t> vals(reinterpret_cast<const int16_t *>(res), m_localCount);
+                uint offsetBegin = getOffsetOf(res);
+                uint offsetEnd = offsetBegin + (vals.size() * sizeof(uint16_t));
 
-        case SEG_RELOC:
+                bool exported = false;
+                if (lookupExportTable(exports, offsetBegin, offsetEnd) >= 0)
+                {
+                    exported = true;
+                }
+
+                setLocals(vals, exported);
+
+                uint offset = offsetBegin;
+                while ((offset = lookupRelocTable(relocs, offset, offsetEnd)) != (uint)-1)
+                {
+                    // Must be 16-bit aligned.
+                    assert((offset % sizeof(uint16_t)) == 0);
+                    uint idx = (offset - offsetBegin) / sizeof(uint16_t);
+
+                    Value *&slot = m_relocTable[offset];
+                    assert(slot == nullptr);
+                    slot = getLocalVariable(idx);
+
+                    offset += sizeof(uint16_t);
+                }
+            }
             break;
 
         default:
@@ -385,31 +229,147 @@ bool Script::load()
         seg = NextSegment(seg);
     }
 
-    removeStubFunctions();
 
-    // Sanity check.
-    assert(m_numExports == numValidExports);
+    seg = reinterpret_cast<SegHeader *>(m_hunk);
+    while (seg->type != SEG_NULL)
+    {
+        switch (seg->type)
+        {
+        case SEG_CLASS: {
+            Class *cls = Class::Get(reinterpret_cast<ObjRes *>(seg + 1)->speciesSel);
+            cls->loadMethods();
+            break;
+        }
 
-    getModule()->dump();
+        default:
+            break;
+        }
+
+        seg = NextSegment(seg);
+    }
+
+    //getModule()->dump();
     return true;
 }
 
 
-void Script::setLocals(ArrayRef<int16_t> vals)
+int Script::lookupExportTable(const ExportTable *table, uint offsetBegin, uint offsetEnd)
 {
-    if (vals.empty())
+    if (table != nullptr)
     {
-        m_vars.release();
-        return;
+        assert(m_exportCount == table->numEntries);
+        for (uint i = 0, n = table->numEntries; i < n; ++i)
+        {
+            assert(table->entries[i].ptrSeg == 0);
+            uint offset = static_cast<uint>(table->entries[i].ptrOff);
+            if (offsetBegin <= offset && offset < offsetEnd)
+            {
+                return static_cast<int>(i);
+            }
+        }
     }
+    return -1;
+}
 
-    m_numVars = vals.size();
-    m_vars.reset(new GlobalVariable*[m_numVars]);
 
-    GlobalValue::LinkageTypes linkage = (m_id == 0) ? GlobalValue::ExternalLinkage : GlobalValue::InternalLinkage;
-    for (uint i = 0, n = m_numVars; i < n; ++i)
+GlobalObject** Script::updateExportTable(const ExportTable *table, uint offset, GlobalObject *val)
+{
+    return updateExportTable(table, offset, offset + 1, val);
+}
+
+
+GlobalObject** Script::updateExportTable(const ExportTable *table, uint offsetBegin, uint offsetEnd, GlobalObject *val)
+{
+    int idx = lookupExportTable(table, offsetBegin, offsetEnd);
+    if (idx >= 0)
     {
-        m_vars[i] = new GlobalVariable(*getModule(), g_sizeTy, false, linkage, GetConstantValue(vals[i]));
+        GlobalObject *&slot = m_exports[idx];
+        if (slot == nullptr)
+        {
+            if (val != nullptr)
+            {
+                val->setLinkage(GlobalValue::ExternalLinkage);
+            }
+            slot = val;
+            return &slot;
+        }
+    }
+    return nullptr;
+}
+
+
+uint Script::lookupRelocTable(const RelocTable *table, uint offsetBegin, uint offsetEnd)
+{
+    if (table != nullptr)
+    {
+        assert(table->ptrSeg == 0);
+        for (uint i = 0, n = table->numEntries; i < n; ++i)
+        {
+            const uint16_t *fixPtr = reinterpret_cast<const uint16_t *>(getDataAt(table->table[i]));
+            if (fixPtr != nullptr)
+            {
+                uint offset = static_cast<uint>(*fixPtr);
+                if (offsetBegin <= offset && offset <= offsetEnd)
+                {
+                    return offset;
+                }
+            }
+        }
+    }
+    return (uint)-1;
+}
+
+
+Value** Script::updateRelocTable(const RelocTable *table, uint offset, GlobalObject *val)
+{
+    return updateRelocTable(table, offset, offset + 1, val);
+}
+
+
+Value** Script::updateRelocTable(const RelocTable *table, uint offsetBegin, uint offsetEnd, GlobalObject *val)
+{
+    uint offset = lookupRelocTable(table, offsetBegin, offsetEnd);
+    if (offset != (uint)-1)
+    {
+        Value *&slot = m_relocTable[offset];
+        if (slot == nullptr)
+        {
+            slot = val;
+        }
+        return &slot;
+    }
+    return nullptr;
+}
+
+
+void Script::setLocals(const ArrayRef<int16_t> &vals, bool exported)
+{
+    if (!vals.empty())
+    {
+        World &world = GetWorld();
+        IntegerType *sizeTy = world.getSizeType();
+
+        ArrayType *arrTy = ArrayType::get(sizeTy, m_localCount);
+
+        std::unique_ptr<Constant*[]> consts(new Constant*[m_localCount]);
+        for (uint i = 0, n = m_localCount; i < n; ++i)
+        {
+            consts[i] = world.getConstantValue(vals[i]);
+        }
+        Constant *c = ConstantArray::get(arrTy, makeArrayRef(consts.get(), m_localCount));
+
+        if (m_id == 0)
+        {
+            m_locals = getGlobalVariables();
+            m_locals->setInitializer(c);
+        }
+        else
+        {
+            char name[10];
+            sprintf(name, "locals%03u", m_id);
+            GlobalValue::LinkageTypes linkage = (exported || m_id == 0) ? GlobalValue::ExternalLinkage : GlobalValue::InternalLinkage;
+            m_locals = new GlobalVariable(*getModule(), arrTy, false, linkage, c, name);
+        }
     }
 }
 
@@ -420,7 +380,7 @@ GlobalVariable* Script::getString(const StringRef &str)
     auto it = m_strings.find(str);
     if (it == m_strings.end())
     {
-        Constant *c = ConstantDataArray::getString(m_mgr.getContext(), str);
+        Constant *c = ConstantDataArray::getString(m_module->getContext(), str);
         var = new GlobalVariable(*getModule(),
                                  c->getType(),
                                  true,
@@ -439,12 +399,13 @@ GlobalVariable* Script::getString(const StringRef &str)
 
 Function* Script::getProcedure(const uint8_t *ptr)
 {
+    //TODO: impl
     Function *proc;
     auto it = m_procs.find(ptr);
     if (it == m_procs.end())
     {
-        proc = parseFunction(ptr);
-        if (proc != NULL)
+      //  proc = parseFunction(ptr);
+        if (proc != nullptr)
         {
             m_procs.insert(std::make_pair(ptr, proc));
         }
@@ -457,353 +418,93 @@ Function* Script::getProcedure(const uint8_t *ptr)
 }
 
 
-
-ScriptManager::ScriptManager(LLVMContext &ctx) :
-    m_ctx(ctx),
-    m_classes(NULL),
-    m_numClasses(0),
-    m_sels(500)
+llvm::Value* Script::getLocalVariable(uint idx) const
 {
+    if (idx >= m_localCount)
+    {
+        return nullptr;
+    }
+
+    IntegerType *sizeTy = GetWorld().getSizeType();
+    Value *indices[] = {
+        ConstantInt::get(sizeTy, 0),
+        ConstantInt::get(sizeTy, idx)
+    };
+    return GetElementPtrInst::CreateInBounds(m_locals, indices);
 }
 
 
-ScriptManager::~ScriptManager()
+llvm::Value* Script::getGlobalVariable(uint idx)
 {
+    if (idx >= GetWorld().getGlobalVariablesCount())
+    {
+        return nullptr;
+    }
+
+    IntegerType *sizeTy = GetWorld().getSizeType();
+    Value *indices[] = {
+        ConstantInt::get(sizeTy, 0),
+        ConstantInt::get(sizeTy, idx)
+    };
+    return GetElementPtrInst::CreateInBounds(getGlobalVariables(), indices);
 }
 
 
-bool ScriptManager::load()
+llvm::GlobalVariable* Script::getGlobalVariables()
 {
-    ResClassEntry *res = (ResClassEntry *)ResLoad(RES_VOCAB, CLASSTBL_VOCAB);
-    if (res == NULL)
+    if (m_globals == nullptr)
     {
-        return false;
+        World &world = GetWorld();
+        ArrayType *arrTy = ArrayType::get(world.getSizeType(), world.getGlobalVariablesCount());
+        m_globals = new GlobalVariable(*getModule(), arrTy, false, GlobalValue::ExternalLinkage, nullptr, "globals");
     }
-
-    m_numClasses = ResHandleSize(res) / sizeof(ResClassEntry);
-    m_classes.reset(new Object[m_numClasses]);
-    memset(m_classes.get(), 0, sizeof(Object) * m_numClasses);
-    for (uint i = 0; i < m_numClasses; ++i)
-    {
-        m_classes[i].script = getScript(res[i].scriptNum);
-    }
-
-    for (uint i = 0; i < 1000; ++i)
-    {
-        Script *script = getScript(i);
-        if (script != NULL)
-        {
-            script->load();
-        }
-    }
-    return true;
+    return m_globals;
 }
 
 
-Script* ScriptManager::getScript(uint id)
+GlobalObject* Script::getExportedValue(uint idx) const
 {
-    Script *script = m_scripts[id].get();
-    if (script == NULL)
-    {
-        Handle hunk = ResLoad(RES_SCRIPT, id);
-        if (hunk != NULL)
-        {
-            script = new Script(*this, id, hunk);
-            m_scripts[id].reset(script);
-        }
-    }
-    return script;
+    return (idx < m_exportCount) ? m_exports[idx] : nullptr;
 }
 
 
-uint ScriptManager::countMethods(const Object *obj)
+Value* Script::getRelocatedValue(uint offset) const
 {
-    std::set<ObjID> methods;
-    while (obj != NULL)
-    {
-        for (uint i = 0, n = obj->numMethods; i < n; ++i)
-        {
-            methods.insert(obj->methodSels[i]);
-        }
-
-        obj = obj->super;
-    }
-    return methods.size();
+    auto it = m_relocTable.find(offset);
+    return (it != m_relocTable.end()) ? it->second : nullptr;
 }
 
 
-StringRef ScriptManager::getSelectorName(uint id)
+uint Script::getObjectId(const Object &obj) const
 {
-    const char *data = getSelectorData(id);
-    if (data != NULL)
-    {
-        data += sizeof(void*);
-        return StringRef(data + sizeof(uint8_t), *reinterpret_cast<const uint8_t *>(data));
-    }
-    return StringRef();
+    assert(m_objects <= (&obj) && (&obj) < (m_objects + m_objectCount));
+    return (&obj) - m_objects;
 }
 
 
-FunctionType*& ScriptManager::getMethodSignature(uint id)
+Object* Script::addObject(const ObjRes &res)
 {
-    return *reinterpret_cast<FunctionType **>(getSelectorData(id));
-}
-
-
-char* ScriptManager::getSelectorData(uint id)
-{
-    if (m_sels.size() <= id)
-    {
-        m_sels.resize(id + 1);
-    }
-
-    if (!m_sels[id])
-    {
-        char selName[32];
-        size_t nameLen = strlen(GetSelectorName(id, selName));
-        char *buf = new char[sizeof(void*) + sizeof(uint8_t) + (nameLen + 1)];
-        m_sels[id].reset(buf);
-
-        *reinterpret_cast<void **>(buf) = NULL;
-        buf += sizeof(void*);
-
-        *reinterpret_cast<uint8_t *>(buf) = static_cast<uint8_t>(nameLen);
-        buf += sizeof(uint8_t);
-
-        memcpy(buf, selName, nameLen);
-        buf[nameLen] = '\0';
-    }
-    return m_sels[id].get();
-}
-
-
-Object* ScriptManager::getClass(uint id)
-{
-    if (id >= m_numClasses)
-    {
-        return NULL;
-    }
-
-    Object *obj = &m_classes[id];
-    if (obj->type == NULL)
-    {
-        if (!obj->script->load() || obj->type == NULL)
-        {
-            obj = NULL;
-        }
-    }
+    Object *obj = &m_objects[m_objectCount++];
+    new(obj) Object(res, *this);
     return obj;
 }
 
 
-Object* ScriptManager::addClass(const ObjRes *res)
+const char* Script::getDataAt(uint offset) const
 {
-    if ((uint)res->speciesSel >= m_numClasses)
-    {
-        return NULL;
-    }
-    
-    Object *obj = &m_classes[res->speciesSel];
-    if (m_classes[res->speciesSel].type != NULL)
-    {
-        return obj;
-    }
-
-    Script *script = obj->script;
-
-    obj->propVals = res->getPropertyValues(2).data();
-    obj->propSels = res->getPropertySelectors(2).data();
-    obj->numProps = res->getPropertyValues(2).size();
-
-    const char *name = script->getDataAt(res->nameSel);
-    char nameOrdinal[] = "Class@0000";
-    if (name == NULL || name[0] == '\0')
-    {
-        itoa(res->speciesSel, nameOrdinal + 6, 10);
-        name = nameOrdinal;
-    }
-
-    std::vector<Type *> args;
-    uint i = 0;
-    obj->super = getClass((int16_t)res->superSel);
-    if (obj->super != NULL)
-    {
-        args.push_back(obj->super->type);
-        i += CalcNumInheritedElements(obj->super->type);
-    }
-    else
-    {
-        // Add the virtual table type.
-        args.push_back(g_sizeTy);
-        i++;
-    }
-    for (uint n = obj->numProps + 1; i < n; ++i)
-    {
-        args.push_back(g_sizeTy);
-    }
-
-    obj->type = StructType::create(m_ctx, args, name);
-
-    script->initObject(obj, name);
-
-    const uint16_t *methodOffs = res->getMethodOffsets().data();
-    const ObjID *methodSels = res->getMethodSelectors().data();
-    uint numMethods = res->getMethodSelectors().size();
-    for (i = 0; i < numMethods; ++i)
-    {
-        AnalyzedFunction *func = script->analyzeFunction(methodSels[i], methodOffs[i]);
-        assert(func != NULL);
-        obj->methods.push_back(func);
-    }
-    return obj;
+    return (static_cast<int16_t>(offset) > 0) ?
+        reinterpret_cast<const char *>(m_hunk) + offset :
+        nullptr;
 }
 
 
-Object* Script::addObject(const ObjRes *res)
+uint Script::getOffsetOf(const void *data) const
 {
-    Object *super = m_mgr.getClass((int16_t)res->superSel);
-    assert(super != NULL);
-
-    uint objNum = m_numObjects++;
-    Object *obj = &m_objects[objNum];
-
-    obj->type = super->type;
-    obj->super = super;
-    obj->script = this;
-
-    obj->propVals = res->getPropertyValues(2).data();
-    obj->propSels = super->propSels;
-    obj->numProps = res->getPropertyValues(2).size();
-
-    obj->methodOffs = res->getMethodOffsets().data();
-    obj->methodSels = res->getMethodSelectors().data();
-    obj->numMethods = res->getMethodSelectors().size();
-
-    StructType *clsTy = super->type;
-    PointerType *clsPtrTy = clsTy->getPointerTo();
-
-    const char *name = getDataAt(res->nameSel);
-    char nameOrdinal[] = "obj@0000";
-    if (name == NULL || name[0] == '\0')
-    {
-        itoa(objNum, nameOrdinal + 4, 10);
-        name = nameOrdinal;
-    }
-    initObject(obj, name);
-    return obj;
+    return (reinterpret_cast<uintptr_t>(data) > reinterpret_cast<uintptr_t>(m_hunk)) ?
+        reinterpret_cast<const char *>(data) - reinterpret_cast<const char *>(m_hunk) :
+        0;
 }
 
-
-void Script::initObject(Object *obj, const StringRef &name)
-{
-    Object *super = obj->super;
-    if (obj->numMethods == 0 && super != NULL)
-    {
-        if (super->script == this)
-        {
-            obj->vftbl = super->vftbl;
-        }
-        else
-        {
-            obj->vftbl = getModule()->getGlobalVariable(super->vftbl->getName());
-            if (obj->vftbl == NULL)
-            {
-                obj->vftbl = new GlobalVariable(*getModule(),
-                                                super->vftbl->getType()->getElementType(),
-                                                super->vftbl->isConstant(),
-                                                GlobalValue::ExternalLinkage,
-                                                NULL,
-                                                super->vftbl->getName(),
-                                                NULL,
-                                                super->vftbl->getThreadLocalMode(),
-                                                super->vftbl->getType()->getAddressSpace());
-                obj->vftbl->copyAttributesFrom(super->vftbl);
-            }
-        }
-    }
-    else
-    {
-        uint numMethods = m_mgr.countMethods(obj);
-        obj->vftbl = new GlobalVariable(*getModule(),
-                                        ArrayType::get(Type::getInt8PtrTy(m_mgr.getContext()), numMethods),
-                                        true,
-                                        GlobalValue::LinkOnceODRLinkage,
-                                        NULL,
-                                        std::string("?vftbl@") + name);
-        obj->vftbl->setUnnamedAddr(true);
-    }
-
-    for (uint i = 0, n = obj->numMethods; i < n; ++i)
-    {
-        FunctionType *&methodTy = m_mgr.getMethodSignature(obj->methodSels[i]);
-        if (methodTy == NULL)
-        {
-            methodTy = FunctionType::get(Type::getVoidTy(m_mgr.getContext()), false);
-        }
-    }
-
-    ConstantStruct *initStruct = CreateInitializer(obj->type, obj->propVals, obj->numProps, obj->vftbl, getString(name));
-    obj->instance = new GlobalVariable(*getModule(), obj->type, false, GlobalValue::InternalLinkage, initStruct, name);
-
-    createConstructor(obj);
-}
-
-
-void ScriptManager::dumpClasses() const
-{
-    for (uint i = 0; i < m_numClasses; ++i)
-    {
-        if (m_classes[i].type != NULL)
-        {
-            m_classes[i].type->dump();
-        }
-    }
-}
-
-
-Function* Script::createConstructor(Object *obj)
-{
-    StructType *clsTy = obj->type;
-    LLVMContext &ctx = clsTy->getContext();
-    // obj->propVals, obj->numProps
-
-    std::string ctorName = "?ctor@";
-    ctorName += obj->instance->getName();
-
-    PointerType *clsPtrTy = clsTy->getPointerTo();
-    FunctionType *ctorFuncTy = FunctionType::get(clsPtrTy, clsPtrTy, false);
-
-    Function *ctorFunc = Function::Create(ctorFuncTy, Function::ExternalLinkage, ctorName, getModule());
-    BasicBlock *bb = BasicBlock::Create(ctx, "", ctorFunc);
-    Argument *selfArg = &*ctorFunc->arg_begin();
-    selfArg->setName("self");
-
-    SmallVector<Value *, 16> indices;
-    GetElementPtrInst *elem;
-    Value *val;
-
-    // Add the virtual table.
-    indices = CreateElementSelectorIndices(clsTy, 0);
-    elem = GetElementPtrInst::CreateInBounds(clsTy, selfArg, indices, "-vftbl-", bb);
-    val = ConstantExpr::getPtrToInt(obj->vftbl, g_sizeTy);
-    new StoreInst(val, elem, bb);
-
-    char selName[128];
-
-    for (uint i = 0, n = obj->numProps; i < n; ++i)
-    {
-        indices = CreateElementSelectorIndices(clsTy, i + 1);
-        elem = GetElementPtrInst::CreateInBounds(clsTy, selfArg, indices, m_mgr.getSelectorName(obj->propSels[i]), bb);
-        if (i == 1)
-        {
-            val = ConstantExpr::getPtrToInt(getString(getDataAt(obj->propVals[1])), g_sizeTy);
-        }
-        else
-        {
-            val = GetConstantValue(obj->propVals[i]);
-        }
-        new StoreInst(val, elem, bb);
-    }
     /*
     Function *xx = Function::Create(FunctionType::get(clsPtrTy, clsPtrTy, true), Function::ExternalLinkage, ctorName, getModule(scriptNum));
     BasicBlock *bb2 = BasicBlock::Create(m_ctx, "", xx);
@@ -815,66 +516,6 @@ Function* Script::createConstructor(Object *obj)
     new VAArgInst(valist, Type::getInt32Ty(m_ctx), "", bb2);
     xx->dump();
     */
-    ReturnInst::Create(ctx, selfArg, bb);
-    return ctorFunc;
-}
 
 
-void Script::addStubFunctions()
-{
-    LLVMContext &ctx = m_mgr.getContext();
-    Module *module = getModule();
-    FunctionType *funcTy;
-
-    if (m_funcPush == NULL)
-    {
-        funcTy = FunctionType::get(Type::getVoidTy(ctx), g_sizeTy, false);
-        m_funcPush = Function::Create(funcTy, Function::ExternalLinkage, "push@SCI", module);
-    }
-
-    if (m_funcPop == NULL)
-    {
-        funcTy = FunctionType::get(g_sizeTy, false);
-        m_funcPop = Function::Create(funcTy, Function::ExternalLinkage, "pop@SCI", module);
-    }
-
-    if (m_funcRest == NULL)
-    {
-        funcTy = FunctionType::get(Type::getVoidTy(ctx), g_sizeTy, false);
-        m_funcRest = Function::Create(funcTy, Function::ExternalLinkage, "rest@SCI", module);
-    }
-
-    if (m_funcSend == NULL)
-    {
-        funcTy = FunctionType::get(g_sizeTy, g_sizeTy, false);
-        m_funcSend = Function::Create(funcTy, Function::ExternalLinkage, "send@SCI", module);
-    }
-}
-
-
-void Script::removeStubFunctions()
-{
-    if (m_funcPush != NULL)
-    {
-        assert(m_funcPush->getNumUses() == 0);
-        m_funcPush->removeFromParent();
-        delete m_funcPush;
-        m_funcPush = NULL;
-    }
-    if (m_funcPop != NULL)
-    {
-        assert(m_funcPop->getNumUses() == 0);
-        m_funcPop->removeFromParent();
-        delete m_funcPop;
-        m_funcPop = NULL;
-    }
-}
-
-
-
-
-Function* Script::parseFunction(const uint8_t *code)
-{
-    PMachineInterpreter pmachine(*this);
-    return pmachine.run(code);
-}
+END_NAMESPACE_SCI

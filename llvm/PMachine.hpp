@@ -2,15 +2,18 @@
 #ifndef _PMachine_HPP_
 #define _PMachine_HPP_
 
+#include "World.hpp"
 #include "Script.hpp"
-#include <map>
+#include <llvm/IR/Instructions.h>
 
-class PMachineInterpreter
+BEGIN_NAMESPACE_SCI
+
+class PMachine
 {
 public:
-    PMachineInterpreter(Script &script);
+    PMachine(Script &script);
 
-    llvm::Function* createFunction(const uint8_t *code, uint id);
+    llvm::Function* interpretFunction(const uint8_t *code, const StringRef &name = "", uint id = (uint)-1);
 
 private:
     uint8_t getByte() { return *m_pc++; }
@@ -21,11 +24,16 @@ private:
     uint getUInt(uint8_t opcode) { return (opcode & 1) != 0 ? (uint)getByte() : (uint)getWord(); }
     int getSInt(uint8_t opcode) { return (opcode & 1) != 0 ? (int)getSByte() : (int)getSWord(); }
 
-    void fixAcc();
+    llvm::Value* castValueToSizeType(llvm::Value *val, llvm::BasicBlock *bb);
+    llvm::Value* castValueToSizeType(llvm::Value *val);
+    void castAccToSizeType();
     void storeAcc();
     llvm::Value* loadAcc();
     void storePrevAcc();
     llvm::Value* loadPrevAcc();
+
+    llvm::Value* callPop();
+    void callPush(llvm::Value *val);
 
     llvm::Module* getModule() const { return m_script.getModule(); }
 
@@ -38,7 +46,15 @@ private:
     // Return true if more instructions left in the block.
     bool processNextInstruction();
 
-    typedef bool (PMachineInterpreter::*PfnOp)(uint8_t opcode);
+    void sendMessage(llvm::Value *obj);
+
+    llvm::Value* getIndexedPropPtr(llvm::Value *obj, uint8_t opcode);
+    llvm::Value* getValueByOffset(uint8_t opcode);
+    llvm::Value* getIndexedVariablePtr(uint8_t opcode, uint idx);
+    llvm::Instruction* getParameter(uint idx);
+    llvm::Argument* getVaList(uint idx);
+
+    typedef bool (PMachine::*PfnOp)(uint8_t opcode);
 
     bool bnotOp(uint8_t opcode);
     bool addOp(uint8_t opcode);
@@ -97,24 +113,32 @@ private:
 
     Script &m_script;
     llvm::LLVMContext &m_ctx;
+    llvm::IntegerType *m_sizeTy;
     const uint8_t *m_pc;
+
     llvm::Value *m_acc;
     llvm::AllocaInst *m_accAddr;
     llvm::AllocaInst *m_paccAddr;
+
     llvm::BasicBlock *m_bb;
-    llvm::Value *m_temp;
+    llvm::BasicBlock *m_entry;
 
-    llvm::Argument *m_self;
-    llvm::Argument *m_argc;
-    llvm::Function::ArgumentListType m_args;
-    uint m_numArgs;
+    llvm::AllocaInst *m_temp;
+    uint m_tempCount;
 
-    std::map<const uint8_t *, llvm::BasicBlock *> m_labels;
-    llvm::SmallVector<llvm::BasicBlock *, 4> m_worklist;
+    llvm::Type *m_retTy;
 
-    llvm::Function *m_funcPush;
-    llvm::Function *m_funcPop;
+    std::unique_ptr<llvm::Argument> m_self;
+    std::unique_ptr<llvm::Argument> m_vaList;
+    uint m_vaListIndex;
+    llvm::AllocaInst *m_argc;
+    llvm::AllocaInst *m_param1;
+    uint m_paramCount;
+
+    std::map<uint, llvm::BasicBlock *> m_labels;
+    llvm::SmallVector<std::pair<const uint8_t *, llvm::BasicBlock *>, 4> m_worklist;
 };
 
+END_NAMESPACE_SCI
 
 #endif // !_PMachine_HPP_

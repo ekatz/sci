@@ -1,6 +1,8 @@
+#include "World.hpp"
+#include <llvm/ADT/Triple.h>
 #include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/Module.h>
-#include "Script.hpp"
+#include <llvm/CodeGen/CommandFlags.h>
+#include <llvm/Support/TargetRegistry.h>
 
 extern "C" {
 #include "../SCI/src/ErrMsg.c"
@@ -14,46 +16,39 @@ extern "C" {
 #include "../SCI/src/FarData.c"
 } // extern "C"
 
-llvm::IntegerType *g_sizeTy = NULL;
+using namespace llvm;
+
+
+static cl::opt<std::string>
+opt_targetTriple("target", cl::desc("Generate code for the given target"));
+
 
 int main(int argc, char *argv[])
 {
+#if 0
+    std::string triple = Triple::normalize(opt_targetTriple);
+    if (triple.empty())
+    {
+        triple = sys::getDefaultTargetTriple();
+    }
+
+    std::string err;
+    const Target *target = TargetRegistry::lookupTarget(triple, err);
+    if (target == nullptr)
+    {
+        errs() << argv[0] << ": " << err;
+        return 1;
+    }
+
+    std::unique_ptr<TargetMachine> tm(
+        target->createTargetMachine(triple, getCPUStr(), getFeaturesStr(), InitTargetOptionsFromCodeGenFlags()));
+
+    assert(tm && "Could not allocate target machine!");
+#endif
     g_isExternal = true;
     InitResource(NULL);
 
-    llvm::LLVMContext &ctx = llvm::getGlobalContext();
-
-    g_sizeTy = llvm::Type::getInt32Ty(ctx);
-
-    std::unique_ptr<llvm::Module> m(new llvm::Module("Script000", ctx));
-    llvm::StructType* s = llvm::StructType::create(ctx, "abc");
-
-    std::vector<llvm::Type *> args;
-    args.push_back(llvm::Type::getInt32Ty(ctx));
-    args.push_back(llvm::Type::getInt8PtrTy(ctx));
-    s->setBody(args);
-    
-    args.push_back(llvm::Type::getInt8PtrTy(ctx));
-    // accepts a char*, is vararg, and returns int
-    llvm::FunctionType *printfType =
-        llvm::FunctionType::get(llvm::Type::getInt32Ty(ctx), args, true);
-    llvm::Constant *printfFunc =
-        m->getOrInsertFunction("printf", printfType);
-
-    args.clear();
-    args.push_back(s);
-    llvm::FunctionType *funcType =
-        llvm::FunctionType::get(llvm::Type::getInt32Ty(ctx), args, false);
-    llvm::Function *mainFunc = llvm::Function::Create(
-        funcType, llvm::Function::ExternalLinkage, "testfunc", m.get());
-    llvm::BasicBlock *entry =
-        llvm::BasicBlock::Create(ctx, "entrypoint", mainFunc);
-
-
-    ScriptManager scriptMgr(llvm::getGlobalContext());
-    scriptMgr.load();
-
-    //m->getTypeByName()
-    m->dump();
+    //sci::GetWorld().setDataLayout(tm->createDataLayout());
+    sci::GetWorld().load();
     return 0;
 }
