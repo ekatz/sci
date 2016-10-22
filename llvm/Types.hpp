@@ -29,11 +29,29 @@ extern "C" {
 
 using llvm::StringRef;
 using llvm::ArrayRef;
+using llvm::MutableArrayRef;
 
 template <typename T>
-inline T cast_selector(ObjID sel) {
+inline T selector_cast(ObjID sel) {
     return static_cast<T>(static_cast<int16_t>(sel));
 }
+
+
+template <bool flag, class IsTrue, class IsFalse>
+struct choose_type;
+
+template <class IsTrue, class IsFalse>
+struct choose_type<true, IsTrue, IsFalse>
+{
+    typedef IsTrue type;
+};
+
+template <class IsTrue, class IsFalse>
+struct choose_type<false, IsTrue, IsFalse>
+{
+    typedef IsFalse type;
+};
+
 #endif
 
 #endif // !_Types_HPP_

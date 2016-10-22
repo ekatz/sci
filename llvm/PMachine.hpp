@@ -13,7 +13,11 @@ class PMachine
 public:
     PMachine(Script &script);
 
-    llvm::Function* interpretFunction(const uint8_t *code, const StringRef &name = "", uint id = (uint)-1);
+    llvm::Function* interpretFunction(const uint8_t *code, StringRef name = StringRef(), uint id = (uint)-1);
+
+    bool hasArgc() const { return (m_argc != nullptr); }
+    bool hasVaList() const { return (m_vaList.get() != nullptr); }
+    uint getParamCount() const;
 
 private:
     uint8_t getByte() { return *m_pc++; }
@@ -37,8 +41,9 @@ private:
 
     llvm::Module* getModule() const { return m_script.getModule(); }
 
-    llvm::BasicBlock* getBasicBlock(const uint8_t *label, const llvm::StringRef &name = "");
+    llvm::BasicBlock* getBasicBlock(const uint8_t *label, StringRef name = "label");
 
+    llvm::Function* getStubCallFunction();
     llvm::Function* getKernelFunction(uint id);
 
     void processBasicBlocks();
@@ -46,9 +51,10 @@ private:
     // Return true if more instructions left in the block.
     bool processNextInstruction();
 
-    void sendMessage(llvm::Value *obj);
+    void emitSend(llvm::Value *obj);
+    void emitCall(llvm::Function *func, ArrayRef<llvm::Constant*> constants);
 
-    llvm::Value* getIndexedPropPtr(llvm::Value *obj, uint8_t opcode);
+    llvm::Value* getIndexedPropPtr(uint8_t opcode);
     llvm::Value* getValueByOffset(uint8_t opcode);
     llvm::Value* getIndexedVariablePtr(uint8_t opcode, uint idx);
     llvm::Instruction* getParameter(uint idx);
@@ -114,6 +120,7 @@ private:
     Script &m_script;
     llvm::LLVMContext &m_ctx;
     llvm::IntegerType *m_sizeTy;
+    llvm::Function *m_funcStubCall;
     const uint8_t *m_pc;
 
     llvm::Value *m_acc;
@@ -126,6 +133,7 @@ private:
     llvm::AllocaInst *m_temp;
     uint m_tempCount;
 
+    llvm::CallInst *m_rest;
     llvm::Type *m_retTy;
 
     std::unique_ptr<llvm::Argument> m_self;

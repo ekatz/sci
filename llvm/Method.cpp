@@ -1,6 +1,7 @@
 #include "Method.hpp"
 #include "World.hpp"
 #include "Class.hpp"
+#include "SelectorTable.hpp"
 #include "PMachine.hpp"
 
 using namespace llvm;
@@ -9,29 +10,28 @@ using namespace llvm;
 BEGIN_NAMESPACE_SCI
 
 
-Method::Method(uint selector, uint offset, Class &cls) :
-    Procedure(offset, cls.getScript()),
-    m_selector(selector),
+Method::Method(ObjID selector, uint16_t offset, Class &cls) :
+    Procedure(selector, offset, cls.getScript()),
     m_class(cls)
 {
 }
 
 
+StringRef Method::getName() const
+{
+    return SelectorTable::Get().getSelectorName(getSelector());
+}
+
+
 Function* Method::load()
 {
-    if (m_func != nullptr)
+    if (m_func == nullptr)
     {
-        return m_func;
+        std::string name = getName();
+        name += '@';
+        name += m_class.getName();
+        Procedure::load(name);
     }
-
-    PMachine pmachine(m_script);
-    std::string name = GetWorld().getSelectorName(m_selector);
-    name += "@";
-    name += m_class.getName();
-    m_func = pmachine.interpretFunction(
-        reinterpret_cast<const uint8_t *>(m_script.getDataAt(m_offset)),
-        name,
-        m_selector);
     return m_func;
 }
 

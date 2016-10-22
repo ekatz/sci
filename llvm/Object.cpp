@@ -1,6 +1,7 @@
 #include "Object.hpp"
 #include "Script.hpp"
 #include "World.hpp"
+#include "Property.hpp"
 #include "Resource.hpp"
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Instructions.h>
@@ -11,7 +12,7 @@ using namespace llvm;
 BEGIN_NAMESPACE_SCI
 
 
-static ConstantStruct* CreateInitializer(StructType *s, const int16_t *begin, const int16_t *end, const int16_t *&ptr, GlobalVariable *name, GlobalVariable *vftbl)
+static ConstantStruct* CreateInitializer(StructType *s, const Property *begin, const Property *end, const Property *&ptr, GlobalVariable *name, GlobalVariable *vftbl)
 {
     std::vector<Constant *> args;
 
@@ -35,13 +36,13 @@ static ConstantStruct* CreateInitializer(StructType *s, const int16_t *begin, co
                     break;
 
                 default:
-                    c = ConstantInt::get(*i, static_cast<uint16_t>(*ptr));
+                    c = ConstantInt::get(*i, static_cast<uint16_t>(ptr->getDefaultValue()));
                     break;
                 }
             }
             else
             {
-                c = GetWorld().getConstantValue(*ptr);
+                c = GetWorld().getConstantValue(ptr->getDefaultValue());
             }
             ptr++;
         }
@@ -56,11 +57,11 @@ static ConstantStruct* CreateInitializer(StructType *s, const int16_t *begin, co
 }
 
 
-static ConstantStruct* CreateInitializer(StructType *s, const int16_t *vals, uint len, GlobalVariable *vftbl, GlobalVariable *name)
+static ConstantStruct* CreateInitializer(StructType *s, const Property *props, uint len, GlobalVariable *vftbl, GlobalVariable *name)
 {
     // Make one room for the vftbl.
-    const int16_t *ptr = vals - 1;
-    return CreateInitializer(s, vals + ObjRes::VALUES_OFFSET, vals + len, ptr, name, vftbl);
+    const Property *ptr = props - 1;
+    return CreateInitializer(s, props + ObjRes::VALUES_OFFSET, props + len, ptr, name, vftbl);
 }
 
 
@@ -114,6 +115,8 @@ static SmallVector<Value *, 16> CreateElementSelectorIndices(StructType *s, uint
 
 Object::Object(const ObjRes &res, Script &script) : Class(res, script)
 {
+    assert(getMethodCount() == getSuper()->getMethodCount());
+
     const char *name = m_script.getDataAt(res.nameSel);
     std::string nameOrdinal = "obj@";
     if (name == nullptr || name[0] == '\0')
@@ -179,14 +182,14 @@ Function* Object::createConstructor() const
     for (uint i = 0, n = m_propCount; i < n; ++i)
     {
         indices = CreateElementSelectorIndices(m_type, i + 1);
-        elem = GetElementPtrInst::CreateInBounds(m_type, selfArg, indices, world.getSelectorName(m_propSels[i]), bb);
+        elem = GetElementPtrInst::CreateInBounds(m_type, selfArg, indices, m_props[i].getName(), bb);
         if (i < ObjRes::NAME_OFFSET)
         {
-            val = ConstantInt::get(i16Ty, static_cast<uint16_t>(m_propVals[i]));
+            val = ConstantInt::get(i16Ty, static_cast<uint16_t>(m_props[i].getDefaultValue()));
         }
         else if (i == ObjRes::NAME_OFFSET)
         {
-            const char *str = m_script.getDataAt(m_propVals[1]);
+            const char *str = m_script.getDataAt(static_cast<uint16_t>(m_props[1].getDefaultValue()));
             if (str == nullptr)
             {
                 str = "";
@@ -195,7 +198,7 @@ Function* Object::createConstructor() const
         }
         else
         {
-            val = world.getConstantValue(m_propVals[i]);
+            val = world.getConstantValue(m_props[i].getDefaultValue());
         }
         new StoreInst(val, elem, bb);
     }
@@ -208,7 +211,7 @@ Function* Object::createConstructor() const
 void Object::setInitializer() const
 {
     ConstantStruct *initStruct = CreateInitializer(m_type,
-                                                   m_propVals,
+                                                   m_props,
                                                    m_propCount,
                                                    m_vftbl,
                                                    m_script.getString(m_global->getName()));

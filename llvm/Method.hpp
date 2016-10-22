@@ -11,14 +11,16 @@ class Class;
 class Method : public Procedure
 {
 public:
-    Method(uint selector, uint offset, Class &cls);
+    Method(ObjID selector, uint16_t offset, Class &cls);
 
     llvm::Function* load();
 
-    uint getSelector() const { return m_selector; }
+    uint getSelector() const { return selector_cast<uint>(m_selector); }
+    Class& getClass() const { return m_class; }
+
+    StringRef getName() const;
 
 private:
-    const uint m_selector;
     Class &m_class;
 };
 

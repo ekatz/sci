@@ -12,6 +12,13 @@ extern "C" {
 #include "../SCI/src/FarData.h"
 
 
+// Bits in the -info- property.
+#define CLASSBIT    0x8000
+#define CLONEBIT    0x0001
+#define NODISPOSE   0x0002
+#define NODISPLAY   0x0004  // Don't display in ShowObj()
+
+
 #define SEG_NULL        0   // End of script resource
 #define SEG_OBJECT      1   // Object
 #define SEG_CODE        2   // Code
@@ -87,15 +94,23 @@ struct ObjRes
         };
     };
 
-    //const char* getName(Handle hunk) const;
 
     enum {
         SPECIES_OFFSET,
         SUPER_OFFSET,
         INFO_OFFSET,
         NAME_OFFSET,
-        VALUES_OFFSET,
+        VALUES_OFFSET
     };
+
+
+    bool isClass() const {
+        return (infoSel & CLASSBIT) != 0;
+    }
+
+    bool isObject() const {
+        return !isClass();
+    }
 
     uint getPropertyCount() const {
         return static_cast<uint>(varSelNum);
@@ -134,6 +149,22 @@ inline bool IsUnsignedValue(int16_t val)
     // If this seems like a flag, then it is unsigned.
     return ((((uint16_t)val & 0xE000) != 0xE000) && ((((uint16_t)val & 0xF000) | 0x8000) == (uint16_t)val));
 }
+
+
+#define KORDINAL_ScriptID       2
+#define KORDINAL_DisposeScript  3
+#define KORDINAL_Clone          4
+#define KORDINAL_MapKeyToDir    31
+#define KORDINAL_NewNode        48
+#define KORDINAL_FirstNode      49
+#define KORDINAL_LastNode       50
+#define KORDINAL_NextNode       52
+#define KORDINAL_PrevNode       53
+#define KORDINAL_NodeValue      54
+#define KORDINAL_AddAfter       55
+#define KORDINAL_AddToFront     56
+#define KORDINAL_AddToEnd       57
+#define KORDINAL_FindKey        58
 
 
 #ifdef __WINDOWS__

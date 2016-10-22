@@ -2,9 +2,11 @@
 #ifndef _World_HPP_
 #define _World_HPP_
 
-#include "Types.hpp"
+#include "SelectorTable.hpp"
+#include "ScriptIterator.hpp"
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/ADT/iterator_range.h>
 #include <vector>
 
 struct ObjRes;
@@ -13,13 +15,28 @@ struct ObjRes;
 BEGIN_NAMESPACE_SCI
 
 class Class;
-class Script;
+class Object;
+class Procedure;
 
 struct Stub
 {
-    enum ID { push, pop, rest, super, send, call, callb, calle, callk };
+    enum ID {
+        push,
+        pop,
+        rest,
+        clss,
+        objc,
 
-    std::unique_ptr<llvm::Function> funcs[callk + 1];
+        prop,
+        send,
+        call,
+        calle,
+        callk,
+
+        callv
+    };
+
+    std::unique_ptr<llvm::Function> funcs[callv + 1];
 };
 
 class World
@@ -40,17 +57,46 @@ public:
     Class* getClass(uint id);
     llvm::StructType* getAbstractClassType() const { return m_absClassTy; }
 
-    llvm::StringRef getSelectorName(uint id);
-    llvm::FunctionType*& getMethodSignature(uint id);
+    SelectorTable& getSelectorTable() { return m_sels; }
+    StringRef getSelectorName(uint id);
 
     uint getGlobalVariablesCount() const;
 
     llvm::Function* getStub(Stub::ID id) const { return m_stubs.funcs[id].get(); }
 
-private:
-    Script* getScript(uint id);
+    Script* getScript(llvm::Module &module) const;
+    Script* getScript(uint id) const;
 
-    char* getSelectorData(uint id);
+    Object* lookupObject(llvm::GlobalVariable &var) const;
+
+    bool registerProcedure(Procedure &proc);
+    Procedure* getProcedure(const llvm::Function &func) const;
+
+
+    const_script_iterator begin() const {
+        return const_script_iterator(&m_scripts[0], &m_scripts[1000]);
+    }
+    script_iterator begin() {
+        return script_iterator(&m_scripts[0], &m_scripts[1000]);
+    }
+
+    const_script_iterator end() const {
+        return const_script_iterator(&m_scripts[1000], &m_scripts[1000]);
+    }
+    script_iterator end() {
+        return script_iterator(&m_scripts[1000], &m_scripts[1000]);
+    }
+
+    llvm::iterator_range<script_iterator> scripts() {
+        return llvm::make_range(begin(), end());
+    }
+
+    llvm::iterator_range<const_script_iterator> scripts() const {
+        return llvm::make_range(begin(), end());
+    }
+
+private:
+    Script* acquireScript(uint id);
 
     void createStubFunctions();
 
@@ -63,7 +109,8 @@ private:
     Class *m_classes;
     uint m_classCount;
 
-    std::vector<std::unique_ptr<char[]> > m_sels;
+    llvm::DenseMap<const llvm::Function *, Procedure *> m_funcMap;
+    SelectorTable m_sels;
 
     Stub m_stubs;
 };

@@ -13,15 +13,13 @@ public:
 
     virtual StringRef getName() const;
 
-    llvm::GlobalVariable* getGlobal() const { return m_global; }
-
 private:
     llvm::Function* createConstructor() const;
     void setInitializer() const;
     Object(const ObjRes &res, Script &script);
     ~Object();
 
-    using Class::getObject;
+    using Class::loadObject;
 
 
     friend class Class;
