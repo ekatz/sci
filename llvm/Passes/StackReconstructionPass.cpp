@@ -80,7 +80,7 @@ StackReconstructionPass::~StackReconstructionPass()
 void StackReconstructionPass::run()
 {
     Function *caller = nullptr;
-    Function *popFunc = GetWorld().getStub(Stub::pop);
+    Function *popFunc = Intrinsic::Get(Intrinsic::pop);
     while (!popFunc->user_empty())
     {
         CallInst *call = cast<CallInst>(popFunc->user_back());
@@ -133,13 +133,13 @@ Instruction* StackReconstructionPass::runOnPop(CallInst *callPop, AllocaInst *st
         {
             CallInst *call = cast<CallInst>(inst);
             Function *calledFunc = call->getCalledFunction();
-            if (world.getStub(Stub::push) == calledFunc)
+            if (isa<PushInst>(call))
             {
                 if (balance == 0)
                 {
                     if (workList.empty())
                     {
-                        Value *val = call->getArgOperand(0);
+                        Value *val = cast<PushInst>(call)->getValue();
                         call->eraseFromParent();
 
                         callPop->replaceAllUsesWith(val);
@@ -164,7 +164,7 @@ Instruction* StackReconstructionPass::runOnPop(CallInst *callPop, AllocaInst *st
                     balance++;
                 }
             }
-            else if (world.getStub(Stub::pop) == calledFunc)
+            else if (isa<PopInst>(call))
             {
                 inst = call->getNextNode();
                 runOnPop(call);
@@ -240,18 +240,18 @@ Instruction* StackReconstructionPass::runOnPush(CallInst *callPush, AllocaInst *
         {
             CallInst *call = cast<CallInst>(inst);
             Function *calledFunc = call->getCalledFunction();
-            if (world.getStub(Stub::push) == calledFunc || m_fnStubStore.get() == calledFunc)
+            if (isa<PushInst>(call) || m_fnStubStore.get() == calledFunc)
             {
                 assert(m_fnStubStore.get() != calledFunc || stackAddr != cast<AllocaInst>(call->getArgOperand(1)));
                 balance++;
             }
-            else if (world.getStub(Stub::pop) == calledFunc || m_fnStubLoad.get() == calledFunc)
+            else if (isa<PopInst>(call) || m_fnStubLoad.get() == calledFunc)
             {
                 if (balance == 0)
                 {
                     callPush = createStubStore(callPush, stackAddr);
 
-                    if (world.getStub(Stub::pop) == calledFunc)
+                    if (isa<PopInst>(call))
                     {
                         runOnPop(call, stackAddr);
                     }
@@ -440,18 +440,13 @@ int StackReconstructionPass::calcBasicBlockBalance(llvm::BasicBlock &bb)
     World &world = GetWorld();
     for (Instruction &inst : bb)
     {
-        CallInst *call = dyn_cast<CallInst>(&inst);
-        if (call != nullptr)
+        if (isa<PushInst>(&inst))
         {
-            Function *calledFunc = call->getCalledFunction();
-            if (world.getStub(Stub::push) == calledFunc)
-            {
-                balance++;
-            }
-            else if (world.getStub(Stub::pop) == calledFunc)
-            {
-                balance--;
-            }
+            balance++;
+        }
+        else if (isa<PopInst>(&inst))
+        {
+            balance--;
         }
     }
     return balance;

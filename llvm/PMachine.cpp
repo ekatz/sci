@@ -493,7 +493,7 @@ PMachine::PMachine(Script &script) :
     m_script(script),
     m_ctx(script.getModule()->getContext()),
     m_sizeTy(GetWorld().getSizeType()),
-    m_funcStubCall(nullptr),
+    m_funcCallIntrin(nullptr),
     m_pc(nullptr),
     m_acc(nullptr),
     m_accAddr(nullptr),
@@ -509,16 +509,16 @@ PMachine::PMachine(Script &script) :
     m_param1(nullptr),
     m_paramCount(0)
 {
-    assert(GetWorld().getStub(Stub::push ) != nullptr);
-    assert(GetWorld().getStub(Stub::pop  ) != nullptr);
-    assert(GetWorld().getStub(Stub::rest ) != nullptr);
-    assert(GetWorld().getStub(Stub::clss ) != nullptr);
-    assert(GetWorld().getStub(Stub::objc ) != nullptr);
-    assert(GetWorld().getStub(Stub::prop ) != nullptr);
-    assert(GetWorld().getStub(Stub::send ) != nullptr);
-    assert(GetWorld().getStub(Stub::call ) != nullptr);
-    assert(GetWorld().getStub(Stub::calle) != nullptr);
-    assert(GetWorld().getStub(Stub::callk) != nullptr);
+    Intrinsic::Get(Intrinsic::push);
+    Intrinsic::Get(Intrinsic::pop);
+    Intrinsic::Get(Intrinsic::rest);
+    Intrinsic::Get(Intrinsic::clss);
+    Intrinsic::Get(Intrinsic::objc);
+    Intrinsic::Get(Intrinsic::prop);
+    Intrinsic::Get(Intrinsic::send);
+    Intrinsic::Get(Intrinsic::call);
+    Intrinsic::Get(Intrinsic::calle);
+    Intrinsic::Get(Intrinsic::callk);
 }
 
 
@@ -710,14 +710,14 @@ uint PMachine::getParamCount() const
 }
 
 
-Function* PMachine::getStubCallFunction()
+Function* PMachine::getCallIntrinsic()
 {
-    if (m_funcStubCall == nullptr)
+    if (m_funcCallIntrin == nullptr)
     {
-        Function *funcStubCall = GetWorld().getStub(Stub::call);
-        m_funcStubCall = cast<Function>(m_script.getModule()->getOrInsertFunction(funcStubCall->getName(), funcStubCall->getFunctionType()));
+        Function *funcCallIntrin = Intrinsic::Get(Intrinsic::call);
+        m_funcCallIntrin = cast<Function>(m_script.getModule()->getOrInsertFunction(funcCallIntrin->getName(), funcCallIntrin->getFunctionType()));
     }
-    return m_funcStubCall;
+    return m_funcCallIntrin;
 }
 
 
@@ -747,8 +747,6 @@ void PMachine::emitSend(Value *obj)
         return;
     }
 
-    World &world = GetWorld();
-    Function *popFunc = world.getStub(Stub::pop);
     SmallVector<Value *, 16> args;
 
     uint restParam = (m_rest != nullptr) ? 1 : 0;
@@ -756,7 +754,7 @@ void PMachine::emitSend(Value *obj)
     args[0] = obj;
     for (; paramCount != 0; --paramCount)
     {
-        args[paramCount] = CallInst::Create(popFunc, "", m_bb);
+        args[paramCount] = PopInst::Create(m_bb);
     }
 
     if (m_rest != nullptr)
@@ -765,7 +763,7 @@ void PMachine::emitSend(Value *obj)
         m_rest = nullptr;
     }
 
-    m_acc = CallInst::Create(world.getStub(Stub::send), args, "", m_bb);
+    m_acc = SendMessageInst::Create(args, m_bb);
 }
 
 
@@ -773,7 +771,6 @@ void PMachine::emitCall(Function *func, ArrayRef<Constant*> constants)
 {
     uint paramCount = getByte() / sizeof(uint16_t);
 
-    Function *popFunc = GetWorld().getStub(Stub::pop);
     SmallVector<Value *, 16> args;
 
     uint restParam = (m_rest != nullptr) ? 1 : 0;
@@ -786,7 +783,7 @@ void PMachine::emitCall(Function *func, ArrayRef<Constant*> constants)
     }
     for (paramCount += constCount; paramCount >= constCount; --paramCount)
     {
-        args[paramCount] = CallInst::Create(popFunc, "", m_bb);
+        args[paramCount] = PopInst::Create(m_bb);
     }
 
     if (m_rest != nullptr)
@@ -824,10 +821,8 @@ Value* PMachine::getIndexedPropPtr(uint8_t opcode)
     return GetElementPtrInst::CreateInBounds(ptr, makeArrayRef(indices, idxCount), GetWorld().getSelectorName(idx), m_bb);
 #endif
 
-    Value *args[] = {
-        ConstantInt::get(m_sizeTy, idx)
-    };
-    return CallInst::Create(GetWorld().getStub(Stub::prop), args, "", m_bb);
+    ConstantInt *c = ConstantInt::get(m_sizeTy, idx);
+    return PropertyInst::Create(c, m_bb);
 }
 
 
@@ -1058,13 +1053,13 @@ Value* PMachine::loadPrevAcc()
 
 Value* PMachine::callPop()
 {
-    return CallInst::Create(GetWorld().getStub(Stub::pop), "", m_bb);
+    return PopInst::Create(m_bb);
 }
 
 
 void PMachine::callPush(llvm::Value *val)
 {
-    CallInst::Create(GetWorld().getStub(Stub::push), val, "", m_bb);
+    PushInst::Create(val, m_bb);
 }
 
 
@@ -1304,7 +1299,7 @@ bool PMachine::callOp(uint8_t opcode)
     Constant *constants[] = {
         ConstantInt::get(m_sizeTy, absOffset)
     };
-    emitCall(getStubCallFunction(), constants);
+    emitCall(getCallIntrinsic(), constants);
     return true;
 }
 
@@ -1316,7 +1311,7 @@ bool PMachine::callkOp(uint8_t opcode)
     Constant *constants[] = {
         ConstantInt::get(m_sizeTy, kernelOrdinal)
     };
-    emitCall(GetWorld().getStub(Stub::callk), constants);
+    emitCall(Intrinsic::Get(Intrinsic::callk), constants);
     return true;
 }
 
@@ -1329,7 +1324,7 @@ bool PMachine::callbOp(uint8_t opcode)
         ConstantInt::get(m_sizeTy, 0),
         ConstantInt::get(m_sizeTy, entryIndex)
     };
-    emitCall(GetWorld().getStub(Stub::calle), constants);
+    emitCall(Intrinsic::Get(Intrinsic::calle), constants);
     return true;
 }
 
@@ -1343,7 +1338,7 @@ bool PMachine::calleOp(uint8_t opcode)
         ConstantInt::get(m_sizeTy, scriptId),
         ConstantInt::get(m_sizeTy, entryIndex)
     };
-    emitCall(GetWorld().getStub(Stub::calle), constants);
+    emitCall(Intrinsic::Get(Intrinsic::calle), constants);
     return true;
 }
 
@@ -1405,7 +1400,7 @@ bool PMachine::classOp(uint8_t opcode)
 {
     uint classId = getUInt(opcode);
     ConstantInt *c = ConstantInt::get(m_sizeTy, classId);
-    m_acc = CallInst::Create(GetWorld().getStub(Stub::clss), c, "", m_bb);
+    m_acc = ClassInst::Create(c, m_bb);
     return true;
 }
 
@@ -1431,7 +1426,8 @@ bool PMachine::restOp(uint8_t opcode)
 {
     assert(m_rest == nullptr);
     uint paramIndex = getUInt(opcode);
-    m_rest = CallInst::Create(GetWorld().getStub(Stub::rest), ConstantInt::get(m_sizeTy, paramIndex), "", m_bb);
+    ConstantInt *c = ConstantInt::get(m_sizeTy, paramIndex);
+    m_rest = RestInst::Create(c, m_bb);
     return true;
 }
 

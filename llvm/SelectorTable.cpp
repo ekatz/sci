@@ -13,12 +13,6 @@ using namespace llvm;
 BEGIN_NAMESPACE_SCI
 
 
-SelectorTable& SelectorTable::Get()
-{
-    return GetWorld().getSelectorTable();
-}
-
-
 SelectorTable::SelectorTable() :
     m_table(512),
     m_newMethodSel(selector_cast<uint>(-1))

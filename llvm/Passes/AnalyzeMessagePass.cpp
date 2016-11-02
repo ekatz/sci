@@ -215,39 +215,39 @@ static Constant* UpdateCommonBaseClass(Constant *clsOrig, Constant *clsNew)
 }
 
 
-static bool IsPotentialPropertySendCall(const CallInst *call)
+static bool IsPotentialPropertySendCall(const SendMessageInst *sendMsg)
 {
     ConstantInt *c;
 
-    c = dyn_cast<ConstantInt>(call->getArgOperand(1));
+    c = dyn_cast<ConstantInt>(sendMsg->getSelector());
     if (c != nullptr)
     {
         uint sel = static_cast<uint>(c->getSExtValue());
-        if (SelectorTable::Get().getProperties(sel).empty())
+        if (GetWorld().getSelectorTable().getProperties(sel).empty())
         {
             return false;
         }
     }
 
-    c = dyn_cast<ConstantInt>(call->getArgOperand(2));
+    c = dyn_cast<ConstantInt>(sendMsg->getArgCount());
     if (c != nullptr)
     {
         uint argc = static_cast<uint>(c->getZExtValue());
         switch (argc)
         {
         case 0:
-            if (call->user_empty())
+            if (sendMsg->user_empty())
             {
                 return false;
             }
             break;
 
         case 1:
-            if (!call->user_empty())
+            if (!sendMsg->user_empty())
             {
-                if (call->hasOneUse())
+                if (sendMsg->hasOneUse())
                 {
-                    const Instruction *user = call->user_back();
+                    const Instruction *user = sendMsg->user_back();
                     const StoreInst *store = dyn_cast<StoreInst>(user);
                     if (store != nullptr)
                     {
@@ -389,25 +389,28 @@ void AnalyzeMessagePass::run()
 }
 
 
-Class* ObjectAnalyzer::analyze(CallInst *call)
+Class* ObjectAnalyzer::analyze(ObjCastInst *objc)
 {
-    assert(call->getCalledFunction() == GetWorld().getStub(Stub::objc));
-
     Class *cls;
-    ConstantInt *classIdVal = cast<ConstantInt>(call->getArgOperand(1));
+    ConstantInt *classIdVal = objc->getClassID();
     if (!classIdVal->isAllOnesValue())
     {
         uint classId = static_cast<uint>(classIdVal->getZExtValue());
         cls = GetWorld().getClass(classId);
-        assert(cls != nullptr);
+        assert(cls != nullptr && "Unknown class ID.");
     }
     else
     {
-        Value *val = call->getArgOperand(2);
-        cls = analyzeValue(val);
-        assert(cls != nullptr);
+        Value *anchor = objc->getAnchor();
+        gatherObjectCalls(anchor);
+        cls = analyzeValue(anchor);
+        assert(cls != nullptr && "Failed to analyze object.");
+
         classIdVal = ConstantInt::get(classIdVal->getType(), cls->getId());
-        call->setArgOperand(1, classIdVal);
+        for (ObjCastInst *objc : m_calls)
+        {
+            objc->setClassID(classIdVal);
+        }
     }
     return cls;
 }
@@ -415,8 +418,39 @@ Class* ObjectAnalyzer::analyze(CallInst *call)
 
 Class* ObjectAnalyzer::analyzeValue(Value *val)
 {
+    assert(!m_classes.empty() && "No potential classes available.");
+    if (m_classes.size() == 1)
+    {
+        return m_classes.front();
+    }
+
     switch (val->getValueID())
     {
+    case Value::ArgumentVal:
+    case Value::GlobalVariableVal:
+        if (!val->getName().empty() && val->getName().front() != '?')
+        {
+            assert(m_gep == nullptr && "Cannot index an object directly.");
+            Class *cls = GetWorld().lookupObject(*cast<GlobalVariable>(val));
+            chooseClass(cls);
+            return cls;
+        }
+        return analyzeStoredGlobal(cast<GlobalVariable>(val));
+
+    default:
+        assert(false && "Unsupported value type for analysis.");
+        return nullptr;
+
+    case Value::InstructionVal + Instruction::Call:
+        Intrinsic::send;
+        Intrinsic::prop;
+        Intrinsic::clss;
+        Intrinsic::callk;
+
+    case Value::InstructionVal + Instruction::GetElementPtr:
+
+
+
     case Value::GlobalVariableVal:
 
     case Value::ConstantIntVal:
@@ -623,6 +657,194 @@ Class* ObjectAnalyzer::analyzeExternalProcedureArgument(Procedure *proc, uint ar
     {
         ;
     }
+}
+
+
+void ObjectAnalyzer::chooseClass(Class *cls)
+{
+    for (Class *base : m_classes)
+    {
+        if (Inherits(base, cls))
+        {
+            m_classes.clear();
+            m_classes.push_back(cls);
+            return;
+        }
+    }
+    assert(false && "Requested class does not inherit from any class on the list.");
+}
+
+
+void ObjectAnalyzer::gatherObjectCalls(Value *anchor)
+{
+    World &world = GetWorld();
+    SelectorTable &sels = world.getSelectorTable();
+
+    for (User *user : anchor->users())
+    {
+        ObjCastInst *objc = dyn_cast<ObjCastInst>(user);
+        if (objc == nullptr)
+        {
+            continue;
+        }
+
+        m_calls.push_back(objc);
+        addSelectorInfo(objc->getSendMessage());
+    }
+
+    intersectClasses();
+}
+
+
+uint* ObjectAnalyzer::lookupSelectorInfo(uint sel)
+{
+    for (uint &selInfo : m_selInfos)
+    {
+        if (sel == (selInfo & ~((uint)SEL_TYPE_MASK)))
+        {
+            return &selInfo;
+        }
+    }
+    return nullptr;
+}
+
+
+void ObjectAnalyzer::addSelectorInfo(SendMessageInst *sendMsg)
+{
+    ConstantInt *selVal = dyn_cast<ConstantInt>(sendMsg->getSelector());
+    if (selVal == nullptr)
+    {
+        return;
+    }
+
+    uint sel = static_cast<uint>(selVal->getSExtValue());
+    uint *selInfo = lookupSelectorInfo(sel);
+    if (selInfo == nullptr)
+    {
+        m_selInfos.push_back(sel);
+        selInfo = &m_selInfos.back();
+
+        if (!GetWorld().getSelectorTable().getMethods(sel).empty())
+        {
+            *selInfo |= SEL_TYPE_METHOD;
+        }
+
+        if (IsPotentialPropertySendCall(sendMsg))
+        {
+            *selInfo |= SEL_TYPE_PROP;
+        }
+    }
+    else
+    {
+        if ((*selInfo & SEL_TYPE_PROP) != 0 && !IsPotentialPropertySendCall(sendMsg))
+        {
+            *selInfo &= ~((uint)SEL_TYPE_PROP);
+        }
+    }
+}
+
+
+void ObjectAnalyzer::intersectClasses()
+{
+    SelectorTable &sels = GetWorld().getSelectorTable();
+    for (uint selInfo : m_selInfos)
+    {
+        uint sel = selInfo & ~((uint)SEL_TYPE_MASK);
+        bool isProperty = (selInfo & SEL_TYPE_PROP) != 0;
+        bool isMethod = (selInfo & SEL_TYPE_METHOD) != 0;
+
+        if (isProperty)
+        {
+            ArrayRef<Property *> props = sels.getProperties(sel);
+            for (Property *prop : props)
+            {
+                Class *cls = traverseBaseClass(&prop->getClass());
+                if (cls != nullptr && find(m_classes, cls) == m_classes.end())
+                {
+                    m_classes.push_back(cls);
+                }
+            }
+        }
+
+        if (isMethod)
+        {
+            ArrayRef<Method *> methods = sels.getMethods(sel);
+            for (Method *method : methods)
+            {
+                Class *cls = traverseBaseClass(&method->getClass());
+                if (cls != nullptr && find(m_classes, cls) == m_classes.end())
+                {
+                    m_classes.push_back(cls);
+                }
+            }
+        }
+    }
+}
+
+
+Class* ObjectAnalyzer::traverseBaseClass(Class *cls)
+{
+    int depthBase = -1;
+    Class *clsBase = nullptr;
+    for (uint selInfo : m_selInfos)
+    {
+        uint sel = selInfo & ~((uint)SEL_TYPE_MASK);
+        bool isProperty = (selInfo & SEL_TYPE_PROP) != 0;
+        bool isMethod = (selInfo & SEL_TYPE_METHOD) != 0;
+
+        Class *clsTrav = TraverseBaseClass(cls, sel, isProperty, isMethod);
+        if (clsTrav == nullptr)
+        {
+            return nullptr;
+        }
+
+        int depth = static_cast<int>(clsTrav->getDepth());
+        if (depthBase < depth)
+        {
+            depthBase = depth;
+            clsBase = clsTrav;
+        }
+    }
+    return clsBase;
+}
+
+
+Class* ObjectAnalyzer::TraverseBaseClass(Class *cls, uint sel, bool isProperty, bool isMethod)
+{
+    if (isMethod)
+    {
+        int index;
+        if (cls->getMethod(sel, index) != nullptr)
+        {
+            while (true)
+            {
+                Class *super = cls->getSuper();
+                if (super == nullptr || static_cast<uint>(index) < super->getMethodCount())
+                {
+                    return cls;
+                }
+                cls = super;
+            }
+        }
+    }
+
+    if (isProperty)
+    {
+        int index;
+        if (cls->getProperty(sel, index) != nullptr)
+        {
+            while (true)
+            {
+                Class *super = cls->getSuper();
+                if (super == nullptr || static_cast<uint>(index) < super->getPropertyCount())
+                {
+                    return cls;
+                }
+                cls = super;
+            }
+        }
+    }
+    return nullptr;
 }
 
 
@@ -1499,12 +1721,13 @@ Class* MessageAnalyzer::TraverseBaseClass(Class *cls, uint sel, bool isProperty,
 {
     if (isMethod)
     {
-        if (cls->getMethod(sel) != nullptr)
+        int index;
+        if (cls->getMethod(sel, index) != nullptr)
         {
             while (true)
             {
                 Class *super = cls->getSuper();
-                if (super == nullptr || super->getMethod(sel) == nullptr)
+                if (super == nullptr || static_cast<uint>(index) < super->getMethodCount())
                 {
                     return cls;
                 }
@@ -1515,12 +1738,13 @@ Class* MessageAnalyzer::TraverseBaseClass(Class *cls, uint sel, bool isProperty,
 
     if (isProperty)
     {
-        if (cls->getProperty(sel) != nullptr)
+        int index;
+        if (cls->getProperty(sel, index) != nullptr)
         {
             while (true)
             {
                 Class *super = cls->getSuper();
-                if (super == nullptr || super->getProperty(sel) == nullptr)
+                if (super == nullptr || static_cast<uint>(index) < super->getPropertyCount())
                 {
                     return cls;
                 }
@@ -1568,7 +1792,7 @@ void MessageAnalyzer::addPotentialSelector(CallInst *call, SmallDenseMap<uint, P
         p.isProperty = false;
     }
 
-    if (p.isMethod && SelectorTable::Get().getMethods(sel).empty())
+    if (p.isMethod && GetWorld().getSelectorTable().getMethods(sel).empty())
     {
         p.isMethod = false;
     }
@@ -1579,7 +1803,7 @@ void MessageAnalyzer::addPotentialSelector(CallInst *call, SmallDenseMap<uint, P
 
 void MessageAnalyzer::intersectClasses(const SmallDenseMap<uint, PotentialSelector> &potentialSels)
 {
-    SelectorTable &sels = SelectorTable::Get();
+    SelectorTable &sels = GetWorld().getSelectorTable();
     for (const auto &p : potentialSels)
     {
         uint sel = p.first;
@@ -1674,7 +1898,7 @@ Value* ValueTracer::backtraceBasicBlockTransition(AllocaInst *accAddr, BasicBloc
         }
 
         res = val;
-        if (!(isa<ConstantInt>(val) && cast<ConstantInt>(val)->isNullValue()))
+        if (!(isa<Constant>(val) && cast<Constant>(val)->isNullValue()))
         {
             break;
         }
@@ -1689,40 +1913,33 @@ Value* ValueTracer::backtraceValue(Value *val)
     {
         switch (val->getValueID())
         {
-        case Value::InstructionVal + Instruction::Call: {
-            CallInst *call = cast<CallInst>(val);
-            if (call->getCalledFunction() == GetWorld().getStub(Stub::objc))
-            {
-                val = call->getArgOperand(2);
-                return val;
-            }
-        }
-
         case Value::ArgumentVal:
         case Value::GlobalVariableVal:
         case Value::ConstantIntVal:
             return val;
 
+        case Value::InstructionVal + Instruction::Call:
+            return backtraceReturnValue(cast<CallInst>(val));
+
         case Value::InstructionVal + Instruction::PtrToInt:
             val = cast<PtrToIntInst>(val)->getPointerOperand();
             break;
 
-        case Value::InstructionVal + Instruction::Load: {
-            LoadInst *load = cast<LoadInst>(val);
-            val = load->getPointerOperand();
-            if (isa<AllocaInst>(val) && val->getName().equals("acc.addr"))
-            {
-                BasicBlock *bb = load->getParent();
-                return backtraceBasicBlockTransition(cast<AllocaInst>(val), bb);
-            }
+        case Value::InstructionVal + Instruction::Load:
+            m_load = cast<LoadInst>(val);
+            val = m_load->getPointerOperand();
+//             if (isa<AllocaInst>(val) && val->getName().equals("acc.addr"))
+//             {
+//                 BasicBlock *bb = load->getParent();
+//                 return backtraceBasicBlockTransition(cast<AllocaInst>(val), bb);
+//             }
             break;
-        }
 
         case Value::InstructionVal + Instruction::Alloca:
             return backtraceStoredValue(val);
 
         case Value::InstructionVal + Instruction::GetElementPtr:
-            assert(m_gep == nullptr);
+            assert(m_gep == nullptr && "Cannot backtrace more than one GEP instruction.");
             do
             {
                 m_gep = cast<GetElementPtrInst>(val);
@@ -1732,7 +1949,7 @@ Value* ValueTracer::backtraceValue(Value *val)
             break;
 
         default:
-            assert(0);
+            assert(false && "Cannot backtrace from unsupported instruction");
             return nullptr;
         }
     }
@@ -1742,12 +1959,12 @@ Value* ValueTracer::backtraceValue(Value *val)
 
 Value* ValueTracer::backtraceStoredValue(Value *ptrVal)
 {
-    assert(ptrVal->getType()->isPointerTy());
+    assert(ptrVal->getType()->isPointerTy() && "Destination value is not a pointer.");
 
     Value *res = nullptr;
     if (m_gep != nullptr)
     {
-        assert(m_gep->getPointerOperand() == ptrVal);
+        assert(m_gep->getPointerOperand() == ptrVal && "Mismatch GEP instruction.");
         GetElementPtrInst *gep = m_gep;
         m_gep = nullptr;
 
@@ -1762,7 +1979,7 @@ Value* ValueTracer::backtraceStoredValue(Value *ptrVal)
                     if (val != nullptr)
                     {
                         res = val;
-                        if (!(isa<ConstantInt>(val) && cast<ConstantInt>(val)->isNullValue()))
+                        if (!(isa<Constant>(val) && cast<Constant>(val)->isNullValue()))
                         {
                             break;
                         }
@@ -1782,7 +1999,7 @@ Value* ValueTracer::backtraceStoredValue(Value *ptrVal)
                 if (val != nullptr)
                 {
                     res = val;
-                    if (!(isa<ConstantInt>(val) && cast<ConstantInt>(val)->isNullValue()))
+                    if (!(isa<Constant>(val) && cast<Constant>(val)->isNullValue()))
                     {
                         break;
                     }
@@ -1791,6 +2008,81 @@ Value* ValueTracer::backtraceStoredValue(Value *ptrVal)
         }
     }
     return res;
+}
+
+
+Value* ValueTracer::backtraceReturnValue(CallInst *call)
+{
+    Value *val = call;
+    World &world = GetWorld();
+    switch (cast<IntrinsicInst>(call)->getIntrinsicID())
+    {
+    case Intrinsic::objc:
+        val = call->getArgOperand(2);
+        break;
+
+    case Intrinsic::send: {
+        Value *selVal = call->getArgOperand(1);
+        if (isa<ConstantInt>(selVal))
+        {
+            uint sel = static_cast<uint>(cast<ConstantInt>(selVal)->getSExtValue());
+            if (sel == world.getSelectorTable().getNewMethodSelector())
+            {
+                val = call->getArgOperand(0);
+                val = backtraceValue(val);
+            }
+        }
+        break;
+    }
+
+    case Intrinsic::call: {
+        uint offset = static_cast<uint>(cast<ConstantInt>(call->getArgOperand(0))->getZExtValue());
+        Script *script = world.getScript(*call->getModule());
+        assert(script != nullptr && "Module is not owned by a script!");
+        Procedure *proc = script->getProcedure(offset);
+        assert(proc != nullptr && !proc->isMethod() && "Procedure not found!");
+        val = backtraceFunctionReturnValue(proc->getFunction());
+        break;
+    }
+
+    case Intrinsic::calle: {
+        uint scriptId = static_cast<uint>(cast<ConstantInt>(call->getArgOperand(0))->getZExtValue());
+        uint entryIndex = static_cast<uint>(cast<ConstantInt>(call->getArgOperand(1))->getZExtValue());
+        Script *script = world.getScript(scriptId);
+        GlobalObject *func = script->getExportedValue(entryIndex);
+        val = backtraceFunctionReturnValue(cast<Function>(func));
+        break;
+    }
+
+    default:
+        break;
+    }
+    return val;
+}
+
+
+Value* ValueTracer::backtraceFunctionReturnValue(Function *func)
+{
+    assert(func->getReturnType() == GetWorld().getSizeType() &&
+           "Function does not return an object size value!");
+
+    Value *val = nullptr;
+    for (BasicBlock &bb : *func)
+    {
+        ReturnInst *ret = dyn_cast<ReturnInst>(bb.getTerminator());
+        if (ret == nullptr)
+        {
+            continue;
+        }
+
+        Value *retVal = ret->getReturnValue();
+        val = backtraceValue(retVal);
+        if (!(isa<Constant>(val) && cast<Constant>(val)->isNullValue()))
+        {
+            break;
+        }
+    }
+    return val;
 }
 
 

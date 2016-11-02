@@ -13,20 +13,13 @@ static std::string CreateCallInstName(Value *sel)
     std::string name;
     if (isa<ConstantInt>(sel))
     {
-        name = SelectorTable::Get().getSelectorName(static_cast<uint>(cast<ConstantInt>(sel)->getSExtValue()));
+        name = GetWorld().getSelectorTable().getSelectorName(static_cast<uint>(cast<ConstantInt>(sel)->getSExtValue()));
         if (!name.empty())
         {
             name = "res@" + name;
         }
     }
     return name;
-}
-
-
-static inline bool IsRestCall(const Value *val)
-{
-    const CallInst *call = dyn_cast<CallInst>(val);
-    return (call != nullptr && call->getCalledFunction() == GetWorld().getStub(Stub::rest));
 }
 
 
@@ -49,7 +42,7 @@ SplitSendPass::~SplitSendPass()
 
 void SplitSendPass::run()
 {
-    Function *sendFunc = GetWorld().getStub(Stub::send);
+    Function *sendFunc = Intrinsic::Get(Intrinsic::send);
     for (auto u = sendFunc->user_begin(), e = sendFunc->user_end(); u != e;)
     {
         CallInst *call = cast<CallInst>(*u);
@@ -69,7 +62,7 @@ bool SplitSendPass::splitSend(CallInst *callSend)
 
     auto iLast = callSend->arg_end() - 1;
     Value *rest = nullptr;
-    if (IsRestCall(*iLast))
+    if (isa<RestInst>(*iLast))
     {
         rest = *iLast;
         --iLast;

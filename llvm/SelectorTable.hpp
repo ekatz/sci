@@ -12,8 +12,6 @@ class Property;
 class SelectorTable
 {
 public:
-    static SelectorTable& Get();
-
     SelectorTable();
     ~SelectorTable();
 

@@ -2,12 +2,11 @@
 #ifndef _World_HPP_
 #define _World_HPP_
 
+#include "Intrinsics.hpp"
 #include "SelectorTable.hpp"
 #include "ScriptIterator.hpp"
-#include <llvm/IR/Module.h>
-#include <llvm/IR/Constants.h>
+#include <llvm/IR/DataLayout.h>
 #include <llvm/ADT/iterator_range.h>
-#include <vector>
 
 struct ObjRes;
 
@@ -17,27 +16,6 @@ BEGIN_NAMESPACE_SCI
 class Class;
 class Object;
 class Procedure;
-
-struct Stub
-{
-    enum ID {
-        push,
-        pop,
-        rest,
-        clss,
-        objc,
-
-        prop,
-        send,
-        call,
-        calle,
-        callk,
-
-        callv
-    };
-
-    std::unique_ptr<llvm::Function> funcs[callv + 1];
-};
 
 class World
 {
@@ -62,7 +40,7 @@ public:
 
     uint getGlobalVariablesCount() const;
 
-    llvm::Function* getStub(Stub::ID id) const { return m_stubs.funcs[id].get(); }
+    llvm::Function* getIntrinsic(Intrinsic::ID iid) const { return m_intrinsics.get(iid); }
 
     Script* getScript(llvm::Module &module) const;
     Script* getScript(uint id) const;
@@ -98,8 +76,6 @@ public:
 private:
     Script* acquireScript(uint id);
 
-    void createStubFunctions();
-
 
     llvm::DataLayout m_dataLayout;
     llvm::LLVMContext &m_ctx;
@@ -112,7 +88,7 @@ private:
     llvm::DenseMap<const llvm::Function *, Procedure *> m_funcMap;
     SelectorTable m_sels;
 
-    Stub m_stubs;
+    Intrinsic m_intrinsics;
 };
 
 

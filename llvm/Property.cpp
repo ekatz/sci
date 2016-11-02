@@ -1,5 +1,6 @@
 #include "Property.hpp"
 #include "SelectorTable.hpp"
+#include "World.hpp"
 
 using namespace llvm;
 
@@ -17,7 +18,7 @@ Property::Property(ObjID selector, int16_t value, Class &cls) :
 
 StringRef Property::getName() const
 {
-    return SelectorTable::Get().getSelectorName(getSelector());
+    return GetWorld().getSelectorTable().getSelectorName(getSelector());
 }
 
 

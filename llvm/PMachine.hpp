@@ -43,7 +43,7 @@ private:
 
     llvm::BasicBlock* getBasicBlock(const uint8_t *label, StringRef name = "label");
 
-    llvm::Function* getStubCallFunction();
+    llvm::Function* getCallIntrinsic();
     llvm::Function* getKernelFunction(uint id);
 
     void processBasicBlocks();
@@ -120,7 +120,7 @@ private:
     Script &m_script;
     llvm::LLVMContext &m_ctx;
     llvm::IntegerType *m_sizeTy;
-    llvm::Function *m_funcStubCall;
+    llvm::Function *m_funcCallIntrin;
     const uint8_t *m_pc;
 
     llvm::Value *m_acc;

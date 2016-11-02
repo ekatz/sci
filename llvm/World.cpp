@@ -54,18 +54,11 @@ World::World() :
         ArrayType::get(m_sizeTy, 0) // vars
     };
     m_absClassTy = StructType::create(m_ctx, elems);
-
-    createStubFunctions();
 }
 
 
 World::~World()
 {
-    for (uint i = 0, n = ARRAYSIZE(m_stubs.funcs); i < n; ++i)
-    {
-        assert(!m_stubs.funcs[i] || m_stubs.funcs[i]->getNumUses() == 0);
-    }
-
     if (m_classes != nullptr)
     {
         for (uint i = 0, n = m_classCount; i < n; ++i)
@@ -142,11 +135,6 @@ bool World::load()
     DumpScriptModule(997);
     DumpScriptModule(255);
     DumpScriptModule(0);
-
-    for (uint i = 0, n = ARRAYSIZE(m_stubs.funcs); i < n; ++i)
-    {
-        assert(!m_stubs.funcs[i] || m_stubs.funcs[i]->getNumUses() == 0);
-    }
     return true;
 }
 
@@ -262,38 +250,6 @@ Procedure* World::getProcedure(const Function &func) const
 uint World::getGlobalVariablesCount() const
 {
     return m_scripts[0]->getLocalVariablesCount();
-}
-
-
-void World::createStubFunctions()
-{
-    Type *params[] = { m_sizeTy, m_sizeTy, m_sizeTy };
-    FunctionType *funcTy;
-
-    funcTy = FunctionType::get(Type::getVoidTy(m_ctx), m_sizeTy, false);
-    m_stubs.funcs[Stub::push].reset(Function::Create(funcTy, Function::ExternalLinkage, "push@SCI"));
-
-    funcTy = FunctionType::get(m_sizeTy, false);
-    m_stubs.funcs[Stub::pop].reset(Function::Create(funcTy, Function::ExternalLinkage, "pop@SCI"));
-
-    funcTy = FunctionType::get(m_sizeTy->getPointerTo(), m_sizeTy, false);
-    m_stubs.funcs[Stub::prop].reset(Function::Create(funcTy, Function::ExternalLinkage, "prop@SCI"));
-
-    funcTy = FunctionType::get(m_sizeTy, m_sizeTy, false);
-    m_stubs.funcs[Stub::rest].reset(Function::Create(funcTy, Function::ExternalLinkage, "rest@SCI"));
-    m_stubs.funcs[Stub::clss].reset(Function::Create(funcTy, Function::ExternalLinkage, "class@SCI"));
-
-    funcTy = FunctionType::get(m_sizeTy, m_sizeTy, true);
-    m_stubs.funcs[Stub::callv].reset(Function::Create(funcTy, Function::ExternalLinkage, "callv@SCI"));
-
-    funcTy = FunctionType::get(m_sizeTy, makeArrayRef(params, 2), true);
-    m_stubs.funcs[Stub::objc].reset(Function::Create(funcTy, Function::ExternalLinkage, "obj_cast@SCI"));
-    m_stubs.funcs[Stub::call].reset(Function::Create(funcTy, Function::ExternalLinkage, "call@SCI"));
-    m_stubs.funcs[Stub::callk].reset(Function::Create(funcTy, Function::ExternalLinkage, "callk@SCI"));
-
-    funcTy = FunctionType::get(m_sizeTy, makeArrayRef(params, 3), true);
-    m_stubs.funcs[Stub::calle].reset(Function::Create(funcTy, Function::ExternalLinkage, "calle@SCI"));
-    m_stubs.funcs[Stub::send].reset(Function::Create(funcTy, Function::ExternalLinkage, "send@SCI"));
 }
 
 

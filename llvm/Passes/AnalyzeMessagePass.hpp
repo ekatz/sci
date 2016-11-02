@@ -26,7 +26,6 @@ public:
 private:
     void initializeReferences();
     
-    void gatherObjectCalls(llvm::CallInst *call);
     void mutateSuper(llvm::CallInst *call);
 
     std::unique_ptr<std::pair<std::unique_ptr<llvm::CallInst*[]>, uint>[]> m_propRefs;
@@ -105,7 +104,7 @@ private:
 class ObjectAnalyzer
 {
 public:
-    Class* analyze(llvm::CallInst *call);
+    Class* analyze(ObjCastInst *objc);
 
 private:
     Class* analyzeValue(llvm::Value *val);
@@ -116,7 +115,27 @@ private:
     Class* analyzeInternalProcedureArgument(Procedure *proc, uint argIndex);
     Class* analyzeExternalProcedureArgument(Procedure *proc, uint argIndex);
 
+    void chooseClass(Class *cls);
+
+    void gatherObjectCalls(llvm::Value *anchor);
+    uint* lookupSelectorInfo(uint sel);
+    void addSelectorInfo(SendMessageInst *sendMsg);
+
+    void intersectClasses();
+    Class* traverseBaseClass(Class *cls);
+    static Class* TraverseBaseClass(Class *cls, uint sel, bool isProperty, bool isMethod);
+
+    enum {
+        SEL_TYPE_PROP = 1 << (8 * sizeof(uint) - 1),
+        SEL_TYPE_METHOD = (uint)SEL_TYPE_PROP >> 1,
+
+        SEL_TYPE_MASK = SEL_TYPE_PROP | SEL_TYPE_METHOD
+    };
+
     llvm::GetElementPtrInst *m_gep = nullptr;
+    std::vector<ObjCastInst *> m_calls;
+    std::vector<uint> m_selInfos;
+    std::vector<Class *> m_classes;
 };
 
 
@@ -133,8 +152,11 @@ private:
     llvm::Value* backtraceBasicBlockTransition(llvm::AllocaInst *accAddr, llvm::BasicBlock *bb);
     llvm::Value* backtraceValue(llvm::Value *val);
     llvm::Value* backtraceStoredValue(llvm::Value *ptrVal);
+    llvm::Value* backtraceReturnValue(llvm::CallInst *call);
+    llvm::Value* backtraceFunctionReturnValue(llvm::Function *func);
 
     llvm::GetElementPtrInst *m_gep = nullptr;
+    llvm::LoadInst *m_load = nullptr;
     llvm::SmallVector<llvm::BasicBlock *, 8> m_blocks;
 };
 

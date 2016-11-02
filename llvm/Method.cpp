@@ -19,7 +19,7 @@ Method::Method(ObjID selector, uint16_t offset, Class &cls) :
 
 StringRef Method::getName() const
 {
-    return SelectorTable::Get().getSelectorName(getSelector());
+    return GetWorld().getSelectorTable().getSelectorName(getSelector());
 }
 
 

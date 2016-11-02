@@ -4,8 +4,6 @@
 #include "Procedure.hpp"
 #include "PMachine.hpp"
 #include "Resource.hpp"
-#include <llvm/IR/Instructions.h>
-#include <llvm/IR/Intrinsics.h>
 #include <llvm/ADT/STLExtras.h>
 #include <set>
 
@@ -511,8 +509,8 @@ void Script::growProcedureArray(uint count)
 void Script::loadProcedures(SmallVector<uint, 8> &procOffsets, const ExportTable *exports)
 {
     World &world = GetWorld();
-    Function *funcGlobalStubCall = world.getStub(Stub::call);
-    Function *funcLocalStubCall = nullptr;
+    Function *funcGlobalCallIntrin = Intrinsic::Get(Intrinsic::call);
+    Function *funcLocalCallIntrin = nullptr;
 
     while (!procOffsets.empty())
     {
@@ -542,9 +540,9 @@ void Script::loadProcedures(SmallVector<uint, 8> &procOffsets, const ExportTable
         }
         procOffsets.clear();
 
-        if (funcLocalStubCall != nullptr || (funcLocalStubCall = getModule()->getFunction(funcGlobalStubCall->getName())) != nullptr)
+        if (funcLocalCallIntrin != nullptr || (funcLocalCallIntrin = getModule()->getFunction(funcGlobalCallIntrin->getName())) != nullptr)
         {
-            for (User *user : funcLocalStubCall->users())
+            for (User *user : funcLocalCallIntrin->users())
             {
                 CallInst *call = cast<CallInst>(user);
                 uint offset = static_cast<uint>(cast<ConstantInt>(call->getArgOperand(0))->getZExtValue());
@@ -554,14 +552,14 @@ void Script::loadProcedures(SmallVector<uint, 8> &procOffsets, const ExportTable
                     procOffsets.push_back(offset);
                 }
             }
-            funcLocalStubCall->replaceAllUsesWith(funcGlobalStubCall);
+            funcLocalCallIntrin->replaceAllUsesWith(funcGlobalCallIntrin);
         }
     }
 
-    if (funcLocalStubCall != nullptr)
+    if (funcLocalCallIntrin != nullptr)
     {
-        assert(funcLocalStubCall->user_empty());
-        funcLocalStubCall->eraseFromParent();
+        assert(funcLocalCallIntrin->user_empty());
+        funcLocalCallIntrin->eraseFromParent();
     }
 }
 

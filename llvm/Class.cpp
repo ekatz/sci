@@ -386,7 +386,7 @@ bool Class::loadMethods()
         return true;
     }
 
-    SelectorTable &sels = SelectorTable::Get();
+    SelectorTable &sels = GetWorld().getSelectorTable();
     ArrayType *arrTy = cast<ArrayType>(m_vftbl->getType()->getElementType());
     Type *elemTy = arrTy->getElementType();
 
