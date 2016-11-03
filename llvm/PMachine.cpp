@@ -529,24 +529,40 @@ Function* PMachine::interpretFunction(const uint8_t *code, StringRef name, uint 
     m_paccAddr = nullptr;
     m_temp = nullptr;
     m_tempCount = 0;
-    m_retTy = nullptr;
-    m_self.release();
-    m_vaList.release();
+    m_self = nullptr;
     m_argc = nullptr;
     m_param1 = nullptr;
 
+    FunctionType *funcTy;
     if (id != (uint)-1)
     {
-        m_self.reset(new Argument(m_sizeTy, "self"));
+        Type *params[] = {
+            m_sizeTy, // self
+            m_sizeTy->getPointerTo() // args
+        };
+        funcTy = FunctionType::get(m_sizeTy, params, false);
     }
+    else
+    {
+        Type *params[] = {
+            m_sizeTy->getPointerTo() // args
+        };
+        funcTy = FunctionType::get(m_sizeTy, params, false);
+    }
+    Function *func = Function::Create(funcTy, Function::LinkOnceODRLinkage, name, getModule());
+
+    auto a = func->arg_begin();
+    if (id != (uint)-1)
+    {
+        m_self = &*a;
+        m_self->setName("self");
+        ++a;
+    }
+    m_args = &*a;
+    m_args->setName("args");
 
     m_entry = getBasicBlock(code, "entry");
     processBasicBlocks();
-
-    if (m_retTy == nullptr)
-    {
-        m_retTy = Type::getVoidTy(m_ctx);
-    }
 
     if (m_accAddr != nullptr && m_accAddr->use_empty())
     {
@@ -556,43 +572,6 @@ Function* PMachine::interpretFunction(const uint8_t *code, StringRef name, uint 
     {
         m_paccAddr->eraseFromParent();
     }
-
-    uint paramCount = getParamCount();
-    uint totalArgCount = paramCount;
-    if (m_self)
-    {
-        totalArgCount++;
-    }
-    if (m_argc != nullptr)
-    {
-        totalArgCount++;
-    }
-    if (m_vaList)
-    {
-        totalArgCount++;
-    }
-
-    Type **argTypes = reinterpret_cast<Type **>(alloca(sizeof(Type *) * totalArgCount));
-    Type **argTy = argTypes;
-    if (m_self)
-    {
-        *argTy++ = m_self->getType();
-    }
-    if (m_argc != nullptr)
-    {
-        *argTy++ = m_sizeTy;
-    }
-    for (uint i = 0, n = paramCount; i < n; ++i)
-    {
-        *argTy++ = m_sizeTy;
-    }
-    if (m_vaList)
-    {
-        *argTy++ = m_vaList->getType();
-    }
-
-    FunctionType *funcTy = FunctionType::get(m_retTy, makeArrayRef(argTypes, totalArgCount), false);
-    Function *func = Function::Create(funcTy, Function::LinkOnceODRLinkage, name, getModule());
 
     Instruction *instAfterAlloca = nullptr;
     if (m_param1 != nullptr || m_argc != nullptr)

@@ -15,10 +15,6 @@ public:
 
     llvm::Function* interpretFunction(const uint8_t *code, StringRef name = StringRef(), uint id = (uint)-1);
 
-    bool hasArgc() const { return (m_argc != nullptr); }
-    bool hasVaList() const { return (m_vaList.get() != nullptr); }
-    uint getParamCount() const;
-
 private:
     uint8_t getByte() { return *m_pc++; }
     int8_t getSByte() { return (int8_t)*m_pc++; }
@@ -134,14 +130,9 @@ private:
     uint m_tempCount;
 
     llvm::CallInst *m_rest;
-    llvm::Type *m_retTy;
 
-    std::unique_ptr<llvm::Argument> m_self;
-    std::unique_ptr<llvm::Argument> m_vaList;
-    uint m_vaListIndex;
-    llvm::AllocaInst *m_argc;
-    llvm::AllocaInst *m_param1;
-    uint m_paramCount;
+    llvm::Argument *m_self;
+    llvm::Argument *m_args;
 
     std::map<uint, llvm::BasicBlock *> m_labels;
     llvm::SmallVector<std::pair<const uint8_t *, llvm::BasicBlock *>, 4> m_worklist;
