@@ -10,6 +10,9 @@
 
 BEGIN_NAMESPACE_SCI
 
+class Procedure;
+class Method;
+
 class Intrinsic
 {
 public:
@@ -203,6 +206,9 @@ public:
     llvm::Value* getObject()   const { return getArgOperand(0); }
     llvm::Value* getSelector() const { return getArgOperand(1); }
     llvm::Value* getArgCount() const { return getArgOperand(2); }
+
+    static uint MatchArgOperandIndex(llvm::Argument *arg);
+    static uint MatchArgOperandIndex(Method *method, llvm::Argument *arg);
 };
 
 class ObjCastInst : public IntrinsicInst
@@ -240,6 +246,19 @@ public:
     SendMessageInst* getSendMessage() {
         return llvm::cast<SendMessageInst>(user_back());
     }
+
+
+    op_iterator class_begin() { return arg_begin() + 1; }
+    op_iterator class_end() { return arg_end(); }
+    iterator_range<op_iterator> classes() {
+        return make_range(class_begin(), class_end());
+    }
+
+    const_op_iterator class_begin() const { return arg_begin() + 1; }
+    const_op_iterator class_end() const { return arg_end(); }
+    iterator_range<const_op_iterator> classes() const {
+        return make_range(class_begin(), arg_end());
+    }
 };
 
 class CallInternalInst : public IntrinsicInst
@@ -268,6 +287,9 @@ public:
     llvm::Value* getArgCount() const {
         return getArgOperand(1);
     }
+
+    static uint MatchArgOperandIndex(llvm::Argument *arg);
+    static uint MatchArgOperandIndex(Procedure *proc, llvm::Argument *arg);
 };
 
 class CallExternalInst: public IntrinsicInst
@@ -299,6 +321,9 @@ public:
     llvm::Value* getArgCount() const {
         return getArgOperand(2);
     }
+
+    static uint MatchArgOperandIndex(llvm::Argument *arg);
+    static uint MatchArgOperandIndex(Procedure *proc, llvm::Argument *arg);
 };
 
 class CallKernelInst : public IntrinsicInst

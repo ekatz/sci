@@ -160,6 +160,94 @@ void ObjectAnalyzer::analyzeAsArgument(Value *arg, CallInst *call)
         }
     }
 }
+/*
+A. Main
+1. analyze object (AnalyzeObject(object))
+2. analyze for all object->methods (AnalyzeObject(self))
 
+
+B. AnalyzeObject
+1. analyze for all users
+
+
+* add ClassId to the obj_cast of a SendMessageInst (may it be the object or one of the params)
+* if it did not exist in the obj_cast before, then
+** if it is the SendMessageInst's object, then
+*** analyze the object->method with all combinations of the params (if they have obj_cast)
+** if it is a SendMessageInst's param, then
+*** for each object in the obj_cast of the SendMessageInst's object
+**** analyze object->method
+
+
+inside function:
+mark every param with obj_cast if it was actually an object
+*/
+
+
+void evolve(Value *val)
+{
+    switch (val->getValueID())
+    {
+    case Value::InstructionVal + Instruction::GetElementPtr:
+        assert(cast<GetElementPtrInst>(val)->getPointerOperand() == val);
+
+    case Value::InstructionVal + Instruction::PtrToInt:
+    case Value::ArgumentVal:
+    case Value::GlobalVariableVal:
+        for (User *user : val->users())
+        {
+            evolve(user);
+        }
+        break;
+
+    
+
+    case Value::InstructionVal + Instruction::Call:
+
+    case Value::InstructionVal + Instruction::Ret:
+    case Value::InstructionVal + Instruction::Store:
+    
+    
+
+    default:
+        if (!(isa<Instruction>(val) && cast<Instruction>(val)->isBinaryOp()))
+        {
+            assert(false && "Unsupported instruction.");
+        }
+    case Value::InstructionVal + Instruction::ICmp:
+        return;
+    }
+}
+
+/*
+void analyzeValue(Value *val)
+{
+    switch (val->getValueID())
+    {
+    case Value::ArgumentVal:
+
+    case Value::GlobalVariableVal:
+
+    case Value::InstructionVal + Instruction::GetElementPtr:
+
+    case Value::InstructionVal + Instruction::Call:
+
+    case Value::InstructionVal + Instruction::Ret:
+    case Value::InstructionVal + Instruction::Store:
+    case Value::InstructionVal + Instruction::Load:
+    case Value::InstructionVal + Instruction::Alloca:
+    case Value::InstructionVal + Instruction::ZExt:
+    case Value::InstructionVal + Instruction::PtrToInt:
+
+    default:
+        if (!(isa<Instruction>(val) && cast<Instruction>(val)->isBinaryOp()))
+        {
+            assert(false && "Unsupported instruction.");
+        }
+    case Value::InstructionVal + Instruction::ICmp:
+        return;
+    }
+}
+*/
 
 END_NAMESPACE_SCI

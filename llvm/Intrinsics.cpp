@@ -1,5 +1,6 @@
 #include "Intrinsics.hpp"
 #include "World.hpp"
+#include "Method.hpp"
 
 using namespace llvm;
 
@@ -132,6 +133,75 @@ bool IntrinsicInst::classof(const CallInst *call)
         return (llvmID > llvm::Intrinsic::num_intrinsics);
     }
     return false;
+}
+
+
+uint SendMessageInst::MatchArgOperandIndex(Argument *arg)
+{
+    Procedure *proc = GetWorld().getProcedure(*arg->getParent());
+    assert(proc != nullptr && "Argument does not belong to a known procedure!");
+    Method *method = proc->asMethod();
+    assert(method != nullptr && "Cannot send a message to a procedure!");
+    return MatchArgOperandIndex(method, arg);
+}
+
+
+uint SendMessageInst::MatchArgOperandIndex(Method *method, Argument *arg)
+{
+    assert(method->getFunction() == arg->getParent() && "Argument does not belong to the procedure!");
+
+    uint argIndex = arg->getArgNo();
+    if (argIndex == 0)
+    {
+        return 0;
+    }
+    if (method->hasArgc())
+    {
+        argIndex--;
+    }
+    return argIndex + 2; // Skip the first 2 arguments (the Object and the Selector).
+}
+
+
+uint CallInternalInst::MatchArgOperandIndex(Argument *arg)
+{
+    Procedure *proc = GetWorld().getProcedure(*arg->getParent());
+    assert(proc != nullptr && "Argument does not belong to a known procedure!");
+    return MatchArgOperandIndex(proc, arg);
+}
+
+
+uint CallInternalInst::MatchArgOperandIndex(Procedure *proc, Argument *arg)
+{
+    assert(!proc->isMethod() && "Cannot call a method directly!");
+    assert(proc->getFunction() == arg->getParent() && "Argument does not belong to the procedure!");
+
+    uint argIndex = arg->getArgNo();
+    if (!proc->hasArgc())
+    {
+        argIndex++;
+    }
+    return argIndex + 1; // Skip the first argument (the procedure offset).
+}
+
+
+uint CallExternalInst::MatchArgOperandIndex(Argument *arg)
+{
+    return MatchArgOperandIndex(GetWorld().getProcedure(*arg->getParent()), arg);
+}
+
+
+uint CallExternalInst::MatchArgOperandIndex(Procedure *proc, Argument *arg)
+{
+    assert(!proc->isMethod() && "Cannot call a method directly!");
+    assert(proc->getFunction() == arg->getParent() && "Argument does not belong to the procedure!");
+
+    uint argIndex = arg->getArgNo();
+    if (!proc->hasArgc())
+    {
+        argIndex++;
+    }
+    return argIndex + 2; // Skip the first 2 arguments (the Script ID and the Entry Index).
 }
 
 

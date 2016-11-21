@@ -27,6 +27,7 @@ public:
     bool hasArgc() const { return m_flags.argc; }
     bool hasVaList() const { return m_flags.vaList; }
     uint getParamCount() const { return m_paramCount; }
+    int getParamNo(llvm::Argument *arg) const;
 
     Script& getScript() const { return m_script; }
 

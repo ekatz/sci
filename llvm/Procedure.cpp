@@ -75,4 +75,24 @@ Method* Procedure::asMethod()
 }
 
 
+int Procedure::getParamNo(Argument *arg) const
+{
+    assert(arg->getParent() == m_func && "Parameter does not belong to this procedure!");
+    uint argNo = arg->getArgNo();
+    if (isMethod())
+    {
+        if (argNo == 0)
+        {
+            return -1;
+        }
+        argNo--;
+    }
+    if (!hasArgc())
+    {
+        argNo++;
+    }
+    return static_cast<int>(argNo);
+}
+
+
 END_NAMESPACE_SCI

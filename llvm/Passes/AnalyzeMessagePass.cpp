@@ -215,6 +215,88 @@ static Constant* UpdateCommonBaseClass(Constant *clsOrig, Constant *clsNew)
 }
 
 
+static bool IsPotentialPropertyMessageGetter(const SendMessageInst *sendMsg)
+{
+    ConstantInt *c;
+
+    c = dyn_cast<ConstantInt>(sendMsg->getSelector());
+    if (c != nullptr)
+    {
+        uint sel = static_cast<uint>(c->getSExtValue());
+        if (GetWorld().getSelectorTable().getProperties(sel).empty())
+        {
+            return false;
+        }
+    }
+
+    c = dyn_cast<ConstantInt>(sendMsg->getArgCount());
+    if (c != nullptr)
+    {
+        uint argc = static_cast<uint>(c->getZExtValue());
+        if (argc != 0)
+        {
+            return false;
+        }
+        if (sendMsg->user_empty())
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+
+static bool IsPotentialPropertyMessageSetter(const SendMessageInst *sendMsg)
+{
+    ConstantInt *c;
+
+    c = dyn_cast<ConstantInt>(sendMsg->getSelector());
+    if (c != nullptr)
+    {
+        uint sel = static_cast<uint>(c->getSExtValue());
+        if (GetWorld().getSelectorTable().getProperties(sel).empty())
+        {
+            return false;
+        }
+    }
+
+    c = dyn_cast<ConstantInt>(sendMsg->getArgCount());
+    if (c != nullptr)
+    {
+        uint argc = static_cast<uint>(c->getZExtValue());
+        if (argc != 1)
+        {
+            return false;
+        }
+        if (!sendMsg->user_empty())
+        {
+            if (sendMsg->hasOneUse())
+            {
+                const Instruction *user = sendMsg->user_back();
+                const StoreInst *store = dyn_cast<StoreInst>(user);
+                if (store != nullptr)
+                {
+                    const AllocaInst *alloc = dyn_cast<AllocaInst>(store->getPointerOperand());
+                    if (alloc != nullptr)
+                    {
+                        if (alloc->getName().equals("acc.addr"))
+                        {
+                            return true;
+                        }
+                    }
+                }
+                else if (isa<ReturnInst>(user))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
+
 static bool IsPotentialPropertySendCall(const SendMessageInst *sendMsg)
 {
     ConstantInt *c;
@@ -2038,7 +2120,7 @@ Value* ValueTracer::backtraceReturnValue(CallInst *call)
     case Intrinsic::call: {
         uint offset = static_cast<uint>(cast<ConstantInt>(call->getArgOperand(0))->getZExtValue());
         Script *script = world.getScript(*call->getModule());
-        assert(script != nullptr && "Module is not owned by a script!");
+        assert(script != nullptr && "Not a script module.");
         Procedure *proc = script->getProcedure(offset);
         assert(proc != nullptr && !proc->isMethod() && "Procedure not found!");
         val = backtraceFunctionReturnValue(proc->getFunction());
@@ -2352,5 +2434,556 @@ void AnalyzeMessagePass::mutateSuper(CallInst *call)
     call->eraseFromParent();
 }
 
+
+
+int m_callDepth = 0;
+SmallVector<Class *, 8> m_classes;
+SmallVector<llvm::Argument *, 4> m_args;
+SmallVector<llvm::BasicBlock *, 8> m_blocks;
+
+
+bool addClass(Class *cls)
+{
+    bool ret = (find(m_classes, cls) == m_classes.end());
+    if (ret)
+    {
+        m_classes.push_back(cls);
+    }
+    return ret;
+}
+
+
+bool addClass(uint classId)
+{
+    Class *cls = GetWorld().getClass(classId);
+    assert(cls != nullptr && "Invalid class ID.");
+    return addClass(cls);
+}
+
+
+bool addArgument(Argument *arg)
+{
+    bool ret = (find(m_args, arg) == m_args.end());
+    if (ret)
+    {
+        m_args.push_back(arg);
+    }
+    return ret;
+}
+
+
+bool addBasicBlock(BasicBlock *bb)
+{
+    bool ret = (find(m_blocks, bb) == m_blocks.end());
+    if (ret)
+    {
+        m_blocks.push_back(bb);
+    }
+    return ret;
+}
+
+
+ArrayRef<SendMessageInst *> getSendMessageInsts(uint selector) const;
+ArrayRef<CallInternalInst *> getCallInternalInsts(uint scriptId, uint offset) const;
+ArrayRef<CallExternalInst *> getCallExternalInsts(uint scriptId, uint entryIndex) const;
+
+
+static Value* RetraceLoadedValue(LoadInst *load)
+{
+    Value *ptrVal = load->getPointerOperand();
+    while (isa<GetElementPtrInst>(ptrVal))
+    {
+        GetElementPtrInst *gep = cast<GetElementPtrInst>(ptrVal);
+        ptrVal = gep->getPointerOperand();
+    }
+    return ptrVal;
+}
+
+
+static bool MatchLoadStore(LoadInst *load, StoreInst *store)
+{
+    Value *ptrVal1 = load->getPointerOperand();
+    Value *ptrVal2 = store->getPointerOperand();
+    while (isa<GetElementPtrInst>(ptrVal1))
+    {
+        if (!isa<GetElementPtrInst>(ptrVal2))
+        {
+            return false;
+        }
+
+        GetElementPtrInst *gep1 = cast<GetElementPtrInst>(ptrVal1);
+        GetElementPtrInst *gep2 = cast<GetElementPtrInst>(ptrVal2);
+        if (!EqualGEPs(gep1, gep2))
+        {
+            return false;
+        }
+
+        ptrVal1 = gep1->getPointerOperand();
+        ptrVal2 = gep2->getPointerOperand();
+    }
+    return (ptrVal1 == ptrVal2);
+}
+
+
+void retraceStoredValue(LoadInst *load)
+{
+    Value *ptrVal = RetraceLoadedValue(load);
+    if (isa<AllocaInst>(ptrVal))
+    {
+        for (BasicBlock *bb : predecessors(load->getParent()))
+        {
+            if (!addBasicBlock(bb))
+            {
+                continue;
+            }
+
+            for (auto i = bb->rbegin(), e = bb->rend(); i != e; ++i)
+            {
+                StoreInst *store = dyn_cast<StoreInst>(&*i);
+                if (store != nullptr)
+                {
+                    if (MatchLoadStore(load, store))
+                    {
+                        retraceValue(store->getValueOperand());
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        GlobalVariable *var = cast<GlobalVariable>(ptrVal);
+        assert(var->getName().empty() || var->getName().front() == '?' &&
+               "Global object doesn't have a reserved name!");
+        retraceStoredGlobal(load, var);
+    }
+}
+
+
+void retraceStoredGlobal(LoadInst *load, GlobalVariable *var)
+{
+    GetElementPtrInst *gep = cast<GetElementPtrInst>(load->getPointerOperand());
+    assert(gep->getNumIndices() == 2 && gep->hasAllConstantIndices() &&
+           "Invalid index into global variables array!");
+
+    bool found = false;
+    if (var->getName().equals("?globals"))
+    {
+        for (Script &script : GetWorld().scripts())
+        {
+            var = script.getModule()->getGlobalVariable("?globals");
+            if (var != nullptr)
+            {
+                found |= retraceStoredScriptVariable(var, gep);
+            }
+        }
+    }
+    else
+    {
+        found |= retraceStoredScriptVariable(var, gep);
+    }
+    assert(found && "No stored object found!");
+}
+
+
+bool retraceStoredScriptVariable(GlobalVariable *var, GetElementPtrInst *gep)
+{
+    bool found = false;
+    for (User *user : var->users())
+    {
+        if (isa<GetElementPtrInst>(user))
+        {
+            GetElementPtrInst *otherGep = cast<GetElementPtrInst>(user);
+            if (gep != otherGep && EqualGEPs(gep, otherGep))
+            {
+                StoreInst *store = dyn_cast<StoreInst>(otherGep->user_back());
+                if (store != nullptr)
+                {
+                    found |= true;
+                    retrace(store->getValueOperand());
+                }
+            }
+        }
+    }
+    return found;
+}
+
+
+void retraceValue(Value *val)
+{
+    while (true)
+    {
+        switch (val->getValueID())
+        {
+        case Value::ArgumentVal:
+            retraceArgument(cast<Argument>(val));
+            return;
+
+        case Value::GlobalVariableVal: {
+            assert(!val->getName().empty() && val->getName().front() != '?' &&
+                "Global object has a reserved name!");
+            Class *cls = GetWorld().lookupObject(*cast<GlobalVariable>(val));
+            assert(cls != nullptr && "Unknown global object!");
+            addClass(cls);
+            return;
+        }
+
+        case Value::ConstantIntVal:
+            assert(cast<ConstantInt>(val)->isNullValue() && "Unsupported constant object value.");
+            return;
+
+        case Value::InstructionVal + Instruction::Call:
+            retraceReturnValue(cast<CallInst>(val));
+            return;
+
+        case Value::InstructionVal + Instruction::PtrToInt:
+            val = cast<PtrToIntInst>(val)->getPointerOperand();
+            break;
+
+        case Value::InstructionVal + Instruction::Load:
+            retraceStoredValue(cast<LoadInst>(val));
+            break;
+
+        case Value::InstructionVal + Instruction::GetElementPtr:
+            val = cast<GetElementPtrInst>(val)->getPointerOperand();
+            break;
+
+        default:
+            assert(false && "Cannot retrace from unsupported instruction.");
+            return;
+        }
+    }
+}
+
+
+void retraceMessageClass(SendMessageInst *sendMsg) // public
+{
+    Value *val = sendMsg->getObject();
+    if (isa<ConstantInt>(val))
+    {
+        uint classId = static_cast<uint>(cast<ConstantInt>(val)->getZExtValue());
+        addClass(classId);
+    }
+    else
+    {
+        retraceValue(val);
+    }
+}
+
+
+void retraceMessageObject(SendMessageInst *sendMsg) // public
+{
+    Value *val = sendMsg->getObject();
+    if (isa<ConstantInt>(val))
+    {
+        val = &*sendMsg->getFunction()->arg_begin();
+    }
+    retraceValue(val);
+}
+
+
+void retraceArgument(Argument *arg)
+{
+    Procedure *proc = GetWorld().getProcedure(*arg->getParent());
+    assert(proc != nullptr && "No procedure matching the parameter.");
+
+    Method *method = proc->asMethod();
+
+#if 0
+    // If this is the first parameter ('self') of a method then add the method's class!
+    if (method != nullptr && IsFirstArgument(arg))
+    {
+        addClass(&method->getClass()); // NO GOOD!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    }
+    else
+#endif
+    if (m_callDepth > 0)
+    {
+        addArgument(arg);
+    }
+    else
+    {
+        if (method != nullptr)
+        {
+            uint sel = method->getSelector();
+            Class *cls = &method->getClass();
+            uint argIndex = SendMessageInst::MatchArgOperandIndex(method, arg);
+
+            // Run through all messages sent to the classes that respond, to the selector, with the same method.
+            ArrayRef<SendMessageInst *> refs = getSendMessageInsts(sel);
+
+            // If this is the first parameter ('self') of a method.
+            if (argIndex == 0)
+            {
+                for (SendMessageInst *sendMsg : refs)
+                {
+                    ObjectAnalyzer analyzer;
+                    analyzer.retraceMessageObject(sendMsg);
+
+                    Value *val = sendMsg->getObject();
+
+                    // Explicit call.
+                    if (isa<ConstantInt>(val))
+                    {
+                        for (Class *clsMsg : analyzer.classes())
+                        {
+                            addClass(clsMsg);
+                        }
+                    }
+                    // Virtual call.
+                    else
+                    {
+                        for (Class *clsMsg : analyzer.classes())
+                        {
+                            if (Inherits(cls, clsMsg) && clsMsg->getMethod(sel) == method)
+                            {
+                                addClass(clsMsg);
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                for (SendMessageInst *sendMsg : refs)
+                {
+                    ObjectAnalyzer analyzer;
+                    analyzer.retraceMessageClass(sendMsg);
+
+                    for (Class *clsMsg : analyzer.classes())
+                    {
+                        if (Inherits(cls, clsMsg) && clsMsg->getMethod(sel) == method)
+                        {
+                            Value *val = sendMsg->getArgOperand(argIndex);
+                            retraceValue(val);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            if (proc->getFunction()->hasExternalLinkage())
+            {
+                // Run through all external calls to the procedure.
+                //CallExternalInst
+            }
+
+            // Run through all internal calls to the procedure.
+            //CallInternalInst
+        }
+    }
+}
+
+
+void retraceReturnValue(CallInst *call)
+{
+    if (isa<IntrinsicInst>(call))
+    {
+        switch (cast<IntrinsicInst>(call)->getIntrinsicID())
+        {
+        case Intrinsic::send:
+            retraceMessageReturnValue(cast<SendMessageInst>(call));
+            break;
+
+        case Intrinsic::prop:
+            retraceProperty(cast<PropertyInst>(call));
+            break;
+
+        case Intrinsic::call:
+            retraceProcedureReturnValue(cast<CallInternalInst>(call));
+            break;
+
+        case Intrinsic::calle:
+            retraceProcedureReturnValue(cast<CallExternalInst>(call));
+            break;
+
+        case Intrinsic::callk:
+            retraceKernelReturnValue(cast<CallKernelInst>(call));
+            break;
+
+        case Intrinsic::clss: {
+            uint classId = static_cast<uint>(cast<ClassInst>(call)->getClassID()->getZExtValue());
+            addClass(classId);
+            break;
+        }
+
+        case Intrinsic::objc: {
+            // Copy class list.
+            for (const Use &u : cast<ObjCastInst>(call)->classes())
+            {
+                uint classId = static_cast<uint>(cast<ConstantInt>(u.get())->getZExtValue());
+                addClass(classId);
+            }
+            break;
+        }
+
+        default:
+            assert(false && "Unsupported SCI intrinsic.");
+            break;
+        }
+    }
+    else
+    {
+        Function *func = call->getCalledFunction();
+        retraceFunctionReturnValue(func);
+
+        if (!m_args.empty())
+        {
+            auto args(std::move(m_args));
+            for (Argument *arg : args)
+            {
+                uint argIndex = arg->getArgNo();
+                Value *val = call->getArgOperand(argIndex);
+                retraceValue(val);
+            }
+        }
+    }
+}
+
+
+void retraceMessageReturnValue(SendMessageInst *sendMsg)
+{
+    ConstantInt *c = cast<ConstantInt>(sendMsg->getSelector());
+    uint sel = static_cast<uint>(c->getSExtValue());
+
+    ObjectAnalyzer analyzer;
+    analyzer.retraceMessageClass(sendMsg);
+    // if this is a property the call retraceProperty, and return -1
+
+    SelectorTable &sels = GetWorld().getSelectorTable();
+    ArrayRef<Method *> methods = sels.getMethods(sel);
+    bool propGetter = IsPotentialPropertyMessageGetter(sendMsg);
+
+    for (Class *cls : analyzer.classes())
+    {
+        bool respond = false;
+        if (propGetter)
+        {
+            Property *prop = cls->getProperty(sel);
+            if (prop != nullptr)
+            {
+                retraceProperty(prop);
+                respond = true;
+            }
+        }
+
+        if (!respond)
+        {
+            for (Method *method : methods)
+            {
+                if (Inherits(cls, &method->getClass()))
+                {
+                    retraceMethodReturnValue(sendMsg, method);
+                    respond = true;
+                }
+            }
+        }
+
+        assert(respond && "Class does not respond to selector.");
+    }
+}
+
+
+void retraceProperty(Property *prop)
+{
+    ;
+}
+
+
+void retraceMethodReturnValue(SendMessageInst *sendMsg, Method *method)
+{
+    
+    retraceProcedureReturnValue();
+
+    if (!m_args.empty())
+    {
+        auto args(std::move(m_args));
+        for (Argument *arg : args)
+        {
+            uint argIndex = SendMessageInst::MatchArgOperandIndex(method, arg);
+            Value *val = sendMsg->getArgOperand(argIndex);
+            retrace(val);
+        }
+    }
+}
+
+
+void retraceProcedureReturnValue(CallInternalInst *call)
+{
+    uint offset = static_cast<uint>(call->getOffset()->getZExtValue());
+    Script *script = GetWorld().getScript(*call->getModule());
+    assert(script != nullptr && "Not a script module.");
+    Procedure *proc = script->getProcedure(offset);
+    assert(proc != nullptr && "No procedure in the offset.");
+    retraceFunctionReturnValue(proc->getFunction());
+
+    if (!m_args.empty())
+    {
+        auto args(std::move(m_args));
+        for (Argument *arg : args)
+        {
+            uint argIndex = CallInternalInst::MatchArgOperandIndex(proc, arg);
+            Value *val = call->getArgOperand(argIndex);
+            retrace(val);
+        }
+    }
+}
+
+
+void retraceProcedureReturnValue(CallExternalInst *call)
+{
+    uint scriptId = static_cast<uint>(call->getScriptID()->getZExtValue());
+    uint entryIndex = static_cast<uint>(call->getEntryIndex()->getZExtValue());
+    Script *script = GetWorld().getScript(scriptId);
+    Function *func = cast<Function>(script->getExportedValue(entryIndex));
+    retraceFunctionReturnValue(func);
+
+    if (!m_args.empty())
+    {
+        Procedure *proc = GetWorld().getProcedure(*func);
+        assert(proc != nullptr && "No procedure matching the function.");
+
+        auto args(std::move(m_args));
+        for (Argument *arg : args)
+        {
+            uint argIndex = CallExternalInst::MatchArgOperandIndex(proc, arg);
+            Value *val = call->getArgOperand(argIndex);
+            retrace(val);
+        }
+    }
+}
+
+
+void retraceFunctionReturnValue(Function *func)
+{
+    m_callDepth++;
+    for (const BasicBlock &bb : *func)
+    {
+        const ReturnInst *ret = dyn_cast<ReturnInst>(bb.getTerminator());
+        if (ret != nullptr)
+        {
+            Value *retVal = ret->getReturnValue();
+            assert(retVal != nullptr);
+            retrace(retVal);
+        }
+    }
+    m_callDepth--;
+}
+
+
+int retraceKernelReturnValue(CallKernelInst *call)
+{
+    uint kernelOrdinal = static_cast<uint>(call->getKernelOrdinal()->getZExtValue());
+    if (kernelOrdinal == Clone)
+    {
+        return 0;
+    }
+}
+
+
+//retraceStoredValue
 
 END_NAMESPACE_SCI
