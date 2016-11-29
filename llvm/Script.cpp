@@ -5,7 +5,6 @@
 #include "PMachine.hpp"
 #include "Resource.hpp"
 #include <llvm/ADT/STLExtras.h>
-#include <set>
 
 using namespace llvm;
 
@@ -16,6 +15,7 @@ BEGIN_NAMESPACE_SCI
 Script::Script(uint id, Handle hunk) :
     m_id(id),
     m_hunk(hunk),
+    m_stringSegCount(0),
     m_objects(nullptr),
     m_objectCount(0),
     m_globals(nullptr),
@@ -64,6 +64,7 @@ bool Script::load()
         char name[10];
         sprintf(name, "Script%03u", m_id);
         m_module.reset(new Module(name, GetWorld().getContext()));
+        m_module->setDataLayout(GetWorld().getDataLayout());
     }
 
 
@@ -74,6 +75,7 @@ bool Script::load()
     SmallVector<uint, 8> procOffsets;
     uint numObjects = 0;
 
+    m_stringSegCount = 0;
     m_localCount = 0;
     m_procCount = 0;
 
@@ -96,6 +98,10 @@ bool Script::load()
 
         case SEG_LOCALS:
             m_localCount = (seg->size - sizeof(SegHeader)) / sizeof(uint16_t);
+            break;
+
+        case SEG_STRINGS:
+            m_stringSegCount++;
             break;
 
         default:
@@ -130,6 +136,53 @@ bool Script::load()
         m_exports.release();
     }
 
+    if (m_stringSegCount != 0)
+    {
+        m_stringSegs.reset(new SegHeader*[m_stringSegCount]);
+
+        seg = reinterpret_cast<SegHeader *>(m_hunk);
+        for (uint i = 0; i < m_stringSegCount; seg = NextSegment(seg))
+        {
+            if (seg->type == SEG_STRINGS)
+            {
+                m_stringSegs[i++] = seg;
+
+                const uint8_t *res = reinterpret_cast<uint8_t *>(seg + 1);
+                uint offsetBegin = getOffsetOf(res);
+                uint offsetEnd = offsetBegin + (static_cast<uint>(seg->size) - sizeof(SegHeader));
+                int idx;
+
+                idx = lookupExportTable(exports, offsetBegin, offsetEnd);
+                while (idx >= 0)
+                {
+                    GlobalObject *&slot = m_exports[idx];
+                    assert(slot == nullptr);
+
+                    uint offset = exports->entries[idx].ptrOff;
+                    const char *str = getDataAt(offset);
+                    slot = getString(str);
+
+                    idx = lookupExportTable(exports, idx + 1, offset + 1, offsetEnd);
+                }
+
+
+                idx = lookupRelocTable(relocs, offsetBegin, offsetEnd);
+                while (idx >= 0)
+                {
+                    uint offset = *reinterpret_cast<const uint16_t *>(getDataAt(relocs->table[idx]));
+                    Value *&slot = m_relocTable[offset];
+                    assert(slot == nullptr);
+
+                    const char *str = getDataAt(offset);
+                    slot = getString(str);
+
+                    idx = lookupRelocTable(relocs, idx + 1, offset + 1, offsetEnd);
+                }
+                break;
+            }
+        }
+    }
+
     seg = reinterpret_cast<SegHeader *>(m_hunk);
     while (seg->type != SEG_NULL)
     {
@@ -150,24 +203,13 @@ bool Script::load()
 
         case SEG_CLASS: {
             const uint8_t *res = reinterpret_cast<uint8_t *>(seg + 1);
-            Class *cls = world.addClass(*reinterpret_cast<const ObjRes *>(res), *this);
+            Object *cls = world.addClass(*reinterpret_cast<const ObjRes *>(res), *this);
             if (cls != nullptr)
             {
                 uint offset = getOffsetOf(res + offsetof(ObjRes, sels));
 
-                GlobalObject **slot = updateExportTable(exports, offset);
-                if (slot != nullptr)
-                {
-                    GlobalVariable *obj = cls->loadObject();
-                    obj->setLinkage(GlobalValue::ExternalLinkage);
-                    *slot = obj;
-                }
-
-                Value **slotVal = updateRelocTable(relocs, offset);
-                if (slotVal != nullptr)
-                {
-                    *slotVal = cls->loadObject();
-                }
+                updateExportTable(exports, offset, cls->getGlobal());
+                updateRelocTable(relocs, offset, cls->getGlobal());
             }
             break;
         }
@@ -189,42 +231,8 @@ bool Script::load()
         }
 
         case SEG_SAIDSPECS:
-            assert(0); //TODO: Add support for Said!!
-
-        case SEG_STRINGS: {
-            const uint8_t *res = reinterpret_cast<uint8_t *>(seg + 1);
-            uint offsetBegin = getOffsetOf(res);
-            uint offsetEnd = offsetBegin + (static_cast<uint>(seg->size) - sizeof(SegHeader));
-            int idx;
-
-            idx = lookupExportTable(exports, offsetBegin, offsetEnd);
-            while (idx >= 0)
-            {
-                GlobalObject *&slot = m_exports[idx];
-                assert(slot == nullptr);
-
-                uint offset = exports->entries[idx].ptrOff;
-                const char *str = getDataAt(offset);
-                slot = getString(str);
-
-                idx = lookupExportTable(exports, idx + 1, offset + 1, offsetEnd);
-            }
-
-
-            idx = lookupRelocTable(relocs, offsetBegin, offsetEnd);
-            while (idx >= 0)
-            {
-                uint offset = *reinterpret_cast<const uint16_t *>(getDataAt(relocs->table[idx]));
-                Value *&slot = m_relocTable[offset];
-                assert(slot == nullptr);
-
-                const char *str = getDataAt(offset);
-                slot = getString(str);
-
-                idx = lookupRelocTable(relocs, idx + 1, offset + 1, offsetEnd);
-            }
+            assert(false); //TODO: Add support for Said!!
             break;
-        }
 
         case SEG_LOCALS:
             if (m_localCount != 0)
@@ -237,6 +245,7 @@ bool Script::load()
                 bool exported = false;
                 if (lookupExportTable(exports, offsetBegin, offsetEnd) >= 0)
                 {
+                    assert(false && "Currently not supported!");
                     exported = true;
                 }
 
@@ -292,6 +301,7 @@ bool Script::load()
 
     loadProcedures(procOffsets, exports);
     sortFunctions();
+    printf("%s interpreted successfully!\n", m_module->getName().data());
     return true;
 }
 
@@ -424,6 +434,7 @@ void Script::setLocals(ArrayRef<int16_t> vals, bool exported)
             sprintf(name, "?locals%03u", m_id);
             GlobalValue::LinkageTypes linkage = (exported || m_id == 0) ? GlobalValue::ExternalLinkage : GlobalValue::InternalLinkage;
             m_locals = new GlobalVariable(*getModule(), arrTy, false, linkage, c, name);
+            m_locals->setAlignment(16);
         }
     }
 }
@@ -435,14 +446,16 @@ GlobalVariable* Script::getString(StringRef str)
     auto it = m_strings.find(str);
     if (it == m_strings.end())
     {
+        std::string name = "?string@" + utostr(getId()) + '@' + utostr(m_strings.size());
         Constant *c = ConstantDataArray::getString(m_module->getContext(), str);
         var = new GlobalVariable(*getModule(),
                                  c->getType(),
                                  true,
                                  GlobalValue::LinkOnceODRLinkage,
                                  c,
-                                 "?string");
-        var->setUnnamedAddr(true);
+                                 name);
+        var->setAlignment(GetWorld().getTypeAlignment(c->getType()));
+        var->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
         m_strings.insert(std::pair<std::string, GlobalVariable *>(str, var));
     }
     else
@@ -450,6 +463,30 @@ GlobalVariable* Script::getString(StringRef str)
         var = it->second;
     }
     return var;
+}
+
+
+GlobalVariable* Script::getLocalString(uint offset)
+{
+    if (offset <= sizeof(SegHeader))
+    {
+        return nullptr;
+    }
+
+    for (uint i = 0, n = m_stringSegCount; i < n; ++i)
+    {
+        SegHeader *seg = m_stringSegs[i];
+        const uint8_t *res = reinterpret_cast<uint8_t *>(seg + 1);
+        uint offsetBegin = getOffsetOf(res);
+        uint offsetEnd = offsetBegin + (static_cast<uint>(seg->size) - sizeof(SegHeader));
+
+        if (offsetBegin <= offset && offset < offsetEnd)
+        {
+            const char *str = getDataAt(offset);
+            return getString(str);
+        }
+    }
+    return nullptr;
 }
 
 
@@ -512,33 +549,36 @@ void Script::loadProcedures(SmallVector<uint, 8> &procOffsets, const ExportTable
     Function *funcGlobalCallIntrin = Intrinsic::Get(Intrinsic::call);
     Function *funcLocalCallIntrin = nullptr;
 
-    while (!procOffsets.empty())
+    do
     {
-        uint count = m_procCount;
-        // Only the first set of procedures are from the export table.
-        bool exported = (count == 0);
-
-        growProcedureArray(static_cast<uint>(procOffsets.size()));
-
-        Procedure *proc = &m_procs[count];
-        for (uint offset : procOffsets)
+        if (!procOffsets.empty())
         {
-            new(proc) Procedure(offset, *this);
-            Function *func = proc->load();
-            assert(func != nullptr);
+            uint count = m_procCount;
+            // Only the first set of procedures are from the export table.
+            bool exported = (count == 0);
 
-            if (exported)
-            {
-                updateExportTable(exports, offset, func);
-            }
-            else
-            {
-                func->setLinkage(GlobalValue::InternalLinkage);
-            }
+            growProcedureArray(static_cast<uint>(procOffsets.size()));
 
-            proc++;
+            Procedure *proc = &m_procs[count];
+            for (uint offset : procOffsets)
+            {
+                new(proc) Procedure(offset, *this);
+                Function *func = proc->load();
+                assert(func != nullptr);
+
+                if (exported)
+                {
+                    updateExportTable(exports, offset, func);
+                }
+                else
+                {
+                    func->setLinkage(GlobalValue::InternalLinkage);
+                }
+
+                proc++;
+            }
+            procOffsets.clear();
         }
-        procOffsets.clear();
 
         if (funcLocalCallIntrin != nullptr || (funcLocalCallIntrin = getModule()->getFunction(funcGlobalCallIntrin->getName())) != nullptr)
         {
@@ -555,6 +595,7 @@ void Script::loadProcedures(SmallVector<uint, 8> &procOffsets, const ExportTable
             funcLocalCallIntrin->replaceAllUsesWith(funcGlobalCallIntrin);
         }
     }
+    while (!procOffsets.empty());
 
     if (funcLocalCallIntrin != nullptr)
     {
@@ -621,7 +662,8 @@ llvm::GlobalVariable* Script::getGlobalVariables()
     {
         World &world = GetWorld();
         ArrayType *arrTy = ArrayType::get(world.getSizeType(), world.getGlobalVariablesCount());
-        m_globals = new GlobalVariable(*getModule(), arrTy, false, GlobalValue::ExternalLinkage, nullptr, "?globals");
+        m_globals = new GlobalVariable(*getModule(), arrTy, false, GlobalValue::ExternalLinkage, nullptr, "g_globalVars");
+        m_globals->setAlignment(16);
     }
     return m_globals;
 }
@@ -688,18 +730,6 @@ Object* Script::lookupObject(GlobalVariable &var) const
     }
     return nullptr;
 }
-
-    /*
-    Function *xx = Function::Create(FunctionType::get(clsPtrTy, clsPtrTy, true), Function::ExternalLinkage, ctorName, getModule(scriptNum));
-    BasicBlock *bb2 = BasicBlock::Create(m_ctx, "", xx);
-    AllocaInst *valistptr = new AllocaInst(Type::getInt8PtrTy(m_ctx), "", bb2);
-    valistptr->setAlignment(4);
-    BitCastInst *valist = new BitCastInst(valistptr, Type::getInt8PtrTy(m_ctx), "", bb2);
-    Function *vastart = Intrinsic::getDeclaration(getModule(scriptNum), Intrinsic::vastart);
-    CallInst::Create(vastart, valist, "", bb2);
-    new VAArgInst(valist, Type::getInt32Ty(m_ctx), "", bb2);
-    xx->dump();
-    */
 
 
 END_NAMESPACE_SCI

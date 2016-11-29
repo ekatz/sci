@@ -63,10 +63,10 @@ StackReconstructionPass::StackReconstructionPass() :
     FunctionType *funcTy;
 
     funcTy = FunctionType::get(Type::getVoidTy(world.getContext()), params, false);
-    m_fnStubStore.reset(Function::Create(funcTy, Function::ExternalLinkage, "stub_store@SCI"));
+    m_fnStubStore.reset(Function::Create(funcTy, GlobalValue::ExternalLinkage, "stub_store@SCI"));
 
     funcTy = FunctionType::get(sizeTy, params[1], false);
-    m_fnStubLoad.reset(Function::Create(funcTy, Function::ExternalLinkage, "stub_load@SCI"));
+    m_fnStubLoad.reset(Function::Create(funcTy, GlobalValue::ExternalLinkage, "stub_load@SCI"));
 }
 
 
@@ -152,6 +152,7 @@ Instruction* StackReconstructionPass::runOnPop(CallInst *callPop, AllocaInst *st
                         {
                             assert(m_insertPt != nullptr);
                             stackAddr = new AllocaInst(world.getSizeType(), "stack.addr", m_insertPt);
+                            stackAddr->setAlignment(world.getSizeTypeAlignment());
                         }
 
                         callPop = createStubLoad(callPop, stackAddr);
@@ -371,6 +372,8 @@ void StackReconstructionPass::mutateStubs()
 
         Constant *c;
         uint stores = countStores(*stackAddr, c);
+
+        // If there is only 1 store.
         if (stores == 1)
         {
             callStub->eraseFromParent();
@@ -382,6 +385,7 @@ void StackReconstructionPass::mutateStubs()
             }
             stackAddr->eraseFromParent();
         }
+        // If there is a constant value common to all stores.
         else if (c != nullptr)
         {
             while (!stackAddr->user_empty())
@@ -404,11 +408,12 @@ void StackReconstructionPass::mutateStubs()
 
                 if (callStub->getCalledFunction() == m_fnStubStore.get())
                 {
-                    new StoreInst(val, stackAddr, callStub);
+                    val = callStub->getArgOperand(0);
+                    new StoreInst(val, stackAddr, false, GetWorld().getTypeAlignment(val), callStub);
                 }
-                else
+                else // (callStub->getCalledFunction() == m_fnStubLoad.get())
                 {
-                    LoadInst *load = new LoadInst(stackAddr, "", callStub);
+                    LoadInst *load = new LoadInst(stackAddr, "", false, GetWorld().getTypeAlignment(stackAddr->getAllocatedType()), callStub);
                     callStub->replaceAllUsesWith(load);
                 }
                 callStub->eraseFromParent();

@@ -24,15 +24,21 @@ public:
     ~World();
 
     void setDataLayout(const llvm::DataLayout &dl);
+    const llvm::DataLayout& getDataLayout() const { return m_dataLayout; }
+    uint getTypeAlignment(llvm::Value *val) const { return getTypeAlignment(val->getType()); }
+    uint getTypeAlignment(llvm::Type *type) const { return m_dataLayout.getPrefTypeAlignment(type); }
+    uint getElementTypeAlignment(llvm::Value *val) const { return getElementTypeAlignment(val->getType()); }
+    uint getElementTypeAlignment(llvm::Type *type) const { return getTypeAlignment(type->getPointerElementType()); }
+    uint getSizeTypeAlignment() const { return getTypeAlignment(m_sizeTy); }
 
     bool load();
 
-    llvm::LLVMContext& getContext() const { return m_ctx; }
+    llvm::LLVMContext& getContext() { return m_ctx; }
     llvm::IntegerType* getSizeType() const { return m_sizeTy; }
     llvm::ConstantInt* getConstantValue(int16_t val) const;
 
-    Class* addClass(const ObjRes &res, Script &script);
-    Class* getClass(uint id);
+    Object* addClass(const ObjRes &res, Script &script);
+    Object* getClass(uint id);
     llvm::StructType* getAbstractClassType() const { return m_absClassTy; }
 
     SelectorTable& getSelectorTable() { return m_sels; }
@@ -40,10 +46,11 @@ public:
 
     uint getGlobalVariablesCount() const;
 
-    llvm::Function* getIntrinsic(Intrinsic::ID iid) const { return m_intrinsics.get(iid); }
+    llvm::Function* getIntrinsic(Intrinsic::ID iid) const { return m_intrinsics->get(iid); }
 
     Script* getScript(llvm::Module &module) const;
     Script* getScript(uint id) const;
+    uint getScriptCount() const { return m_scriptCount; }
 
     Object* lookupObject(llvm::GlobalVariable &var) const;
 
@@ -78,17 +85,18 @@ private:
 
 
     llvm::DataLayout m_dataLayout;
-    llvm::LLVMContext &m_ctx;
+    llvm::LLVMContext m_ctx;
     llvm::IntegerType *m_sizeTy;
     llvm::StructType *m_absClassTy;
     std::unique_ptr<Script> m_scripts[1000];
-    Class *m_classes;
+    uint m_scriptCount;
+    Object *m_classes;
     uint m_classCount;
 
     llvm::DenseMap<const llvm::Function *, Procedure *> m_funcMap;
     SelectorTable m_sels;
 
-    Intrinsic m_intrinsics;
+    std::unique_ptr<Intrinsic> m_intrinsics;
 };
 
 

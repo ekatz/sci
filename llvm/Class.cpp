@@ -5,7 +5,7 @@
 #include "World.hpp"
 #include "Script.hpp"
 #include "Resource.hpp"
-#include <set>
+#include "Decl.hpp"
 
 using namespace llvm;
 
@@ -45,9 +45,8 @@ Class* Class::Get(uint id)
 
 Class::Class(const ObjRes &res, Script &script) :
     m_script(script),
-    m_vftbl(nullptr),
-    m_global(nullptr),
-    m_ctor(nullptr),
+    m_species(nullptr),
+    m_methodOffs(nullptr),
     m_props(nullptr),
     m_overloadMethods(nullptr)
 {
@@ -107,35 +106,35 @@ Class::Class(const ObjRes &res, Script &script) :
     if (m_super != nullptr)
     {
         args.push_back(m_super->getType());
-      //  i = CalcNumInheritedElements(m_super->getType());
         i = m_super->getPropertyCount();
         assert(i != 0);
         assert((i + 1) == CalcNumInheritedElements(m_super->getType()));
-      //  // Do not count the the virtual table.
-      //  i--;
     }
     else
     {
-        // Add the virtual table type.
+        // Add the species pointer.
         args.push_back(sizeTy);
         i = 0;
-    }
-    for (; i < ObjRes::NAME_OFFSET; ++i)
-    {
-        args.push_back(i16Ty);
     }
     for (; i < n; ++i)
     {
         args.push_back(sizeTy);
     }
 
-    const char *name = script.getDataAt(res.nameSel);
-    std::string nameOrdinal = "Class@";
-    if (name == nullptr || name[0] == '\0')
+    StringRef name;
+    std::string nameStr;
+    const char *nameSel = m_script.getDataAt(res.nameSel);
+    if (nameSel != nullptr && nameSel[0] != '\0')
     {
-        nameOrdinal += utostr_32(m_id);
-        name = nameOrdinal.data();
+        nameStr = nameSel;
     }
+    else
+    {
+        nameStr = res.isClass() ? "Class" : "obj";
+        nameStr += '@' + utostr(getId());
+    }
+    nameStr += '@' + utostr(m_script.getId());
+    name = nameStr;
 
     m_type = StructType::create(world.getContext(), args, name);
 
@@ -155,7 +154,7 @@ Class::Class(const ObjRes &res, Script &script) :
     }
 
     createMethods();
-    m_vftbl = createVirtualTable();
+    createSpecies();
 }
 
 
@@ -239,58 +238,101 @@ Module& Class::getModule() const
 }
 
 
-GlobalVariable* Class::createVirtualTable() const
+void Class::createSpecies()
 {
-    GlobalVariable *vftbl;
-    if (m_overloadMethodCount == 0 && m_super != nullptr)
-    {
-        GlobalVariable *superVftbl = m_super->m_vftbl;
-        if (&m_super->m_script == &m_script)
-        {
-            vftbl = superVftbl;
-        }
-        else
-        {
-            vftbl = getModule().getGlobalVariable(superVftbl->getName());
-            if (vftbl == nullptr)
-            {
-                vftbl = new GlobalVariable(getModule(),
-                                           superVftbl->getType()->getElementType(),
-                                           superVftbl->isConstant(),
-                                           GlobalValue::ExternalLinkage,
-                                           nullptr,
-                                           superVftbl->getName(),
-                                           nullptr,
-                                           superVftbl->getThreadLocalMode(),
-                                           superVftbl->getType()->getAddressSpace());
-                vftbl->copyAttributesFrom(superVftbl);
-            }
-        }
-    }
-    else
-    {
-        vftbl = new GlobalVariable(getModule(),
-                                   ArrayType::get(Type::getInt8PtrTy(GetWorld().getContext()), m_methodCount),
+    World &world = GetWorld();
+    LLVMContext &ctx = world.getContext();
+    Module &module = getModule();
+    PointerType *int8PtrTy = Type::getInt8PtrTy(ctx);
+    IntegerType *int16Ty = Type::getInt16Ty(ctx);
+
+    m_methodOffs = new GlobalVariable(module,
+                                      ArrayType::get(int8PtrTy, m_methodCount),
+                                      true,
+                                      GlobalValue::LinkOnceODRLinkage,
+                                      nullptr,
+                                      std::string("?methodOffs@") + getName());
+    m_methodOffs->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+    m_methodOffs->setAlignment(world.getTypeAlignment(int8PtrTy));
+
+    GlobalVariable *methodSels;
+    methodSels = new GlobalVariable(module,
+                                    ArrayType::get(int16Ty, m_methodCount + 1),
+                                    true,
+                                    GlobalValue::LinkOnceODRLinkage,
+                                    nullptr,
+                                    std::string("?methodSels@") + getName());
+    methodSels->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+    methodSels->setAlignment(world.getTypeAlignment(int16Ty));
+
+    GlobalVariable *propSels;
+    propSels = new GlobalVariable(module,
+                                  ArrayType::get(int16Ty, m_propCount + 1),
+                                  true,
+                                  GlobalValue::LinkOnceODRLinkage,
+                                  nullptr,
+                                  std::string("?propSels@") + getName());
+    propSels->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+    propSels->setAlignment(world.getTypeAlignment(int16Ty));
+
+    m_species = new GlobalVariable(module,
+                                   ArrayType::get(int8PtrTy, 4),
                                    true,
                                    GlobalValue::LinkOnceODRLinkage,
                                    nullptr,
-                                   std::string("?vftbl@") + getName());
-        vftbl->setUnnamedAddr(true);
-    }
-    return vftbl;
-}
+                                   std::string("?species@") + getName());
+    m_species->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+    m_species->setAlignment(world.getTypeAlignment(int8PtrTy));
 
 
-GlobalVariable* Class::loadObject()
-{
-    if (m_global == nullptr)
+    std::unique_ptr<Constant*[]> initVals(new Constant*[std::max({ m_methodCount + 1, m_propCount + 1, 4U })]);
+    Constant *c;
+    ArrayType *arrTy;
+    Type *elemTy;
+
+
+    arrTy = cast<ArrayType>(methodSels->getType()->getElementType());
+    initVals[0] = ConstantInt::get(int16Ty, m_methodCount);
+
+    for (uint i = 0, n = m_methodCount; i < n; ++i)
     {
-        Object *obj = static_cast<Object *>(this);
-        m_global = new GlobalVariable(getModule(), m_type, false, GlobalValue::InternalLinkage, nullptr, getName());
-        m_ctor = obj->createConstructor();
-        obj->setInitializer();
+        initVals[i + 1] = ConstantInt::get(int16Ty, m_methods[i]->getSelector());
     }
-    return m_global;
+
+    c = ConstantArray::get(arrTy, makeArrayRef(initVals.get(), m_methodCount + 1));
+    methodSels->setInitializer(c);
+
+
+    arrTy = cast<ArrayType>(propSels->getType()->getElementType());
+    initVals[0] = ConstantInt::get(int16Ty, m_propCount);
+
+    for (uint i = 0, n = m_propCount; i < n; ++i)
+    {
+        initVals[i + 1] = ConstantInt::get(int16Ty, m_props[i].getSelector());
+    }
+
+    c = ConstantArray::get(arrTy, makeArrayRef(initVals.get(), m_propCount + 1));
+    propSels->setInitializer(c);
+
+
+    arrTy = cast<ArrayType>(m_species->getType()->getElementType());
+    elemTy = arrTy->getElementType();
+
+    if (m_super != nullptr)
+    {
+        GlobalVariable *superSpecies = GetGlobalVariableDecl(m_super->getSpecies(), &module);
+        initVals[0] = ConstantExpr::getBitCast(superSpecies, elemTy);
+    }
+    else
+    {
+        initVals[0] = Constant::getNullValue(elemTy);
+    }
+    initVals[1] = ConstantExpr::getBitCast(propSels, elemTy);
+    initVals[2] = ConstantExpr::getBitCast(methodSels, elemTy);
+    initVals[3] = ConstantExpr::getBitCast(m_methodOffs, elemTy);
+
+    c = ConstantArray::get(arrTy, makeArrayRef(initVals.get(), 4));
+    m_species->setInitializer(c);
 }
 
 
@@ -381,16 +423,16 @@ void Class::createMethods()
 
 bool Class::loadMethods()
 {
-    if (m_vftbl->hasInitializer())
+    if (m_methodOffs->hasInitializer())
     {
         return true;
     }
 
     SelectorTable &sels = GetWorld().getSelectorTable();
-    ArrayType *arrTy = cast<ArrayType>(m_vftbl->getType()->getElementType());
+    ArrayType *arrTy = cast<ArrayType>(m_methodOffs->getType()->getElementType());
     Type *elemTy = arrTy->getElementType();
 
-    std::unique_ptr<Constant*[]> vftblInit(new Constant*[m_methodCount]);
+    std::unique_ptr<Constant*[]> offsInit(new Constant*[m_methodCount]);
 
     for (uint i = 0, n = m_methodCount; i < n; ++i)
     {
@@ -408,11 +450,11 @@ bool Class::loadMethods()
             func = cast<Function>(getModule().getOrInsertFunction(func->getName(), func->getFunctionType()));
         }
 
-        vftblInit[i] = ConstantExpr::getBitCast(func, elemTy);
+        offsInit[i] = ConstantExpr::getBitCast(func, elemTy);
     }
 
-    Constant *c = ConstantArray::get(arrTy, makeArrayRef(vftblInit.get(), m_methodCount));
-    m_vftbl->setInitializer(c);
+    Constant *c = ConstantArray::get(arrTy, makeArrayRef(offsInit.get(), m_methodCount));
+    m_methodOffs->setInitializer(c);
     return true;
 }
 

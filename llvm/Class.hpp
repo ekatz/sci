@@ -42,11 +42,7 @@ public:
     Script& getScript() const { return m_script; }
     llvm::Module& getModule() const;
 
-    llvm::GlobalVariable* loadObject();
-    llvm::GlobalVariable* getGlobal() const { return m_global; }
-
-    llvm::GlobalVariable* getVirtualTable() const { return m_vftbl; }
-    llvm::Function* getConstructor() const { return m_ctor; }
+    llvm::GlobalVariable* getSpecies() const { return m_species; }
 
     bool isObject() const;
 
@@ -57,7 +53,7 @@ private:
     void createMethods();
 
 protected:
-    llvm::GlobalVariable* createVirtualTable() const;
+    void createSpecies();
     int findMethod(uint id) const;
     int findProperty(uint id) const;
 
@@ -68,10 +64,8 @@ protected:
     uint m_id;
     uint m_depth;
     llvm::StructType *m_type;
-    llvm::GlobalVariable *m_vftbl;
-
-    llvm::GlobalVariable *m_global;
-    llvm::Function *m_ctor;
+    llvm::GlobalVariable *m_species;
+    llvm::GlobalVariable *m_methodOffs;
 
     Property *m_props;
     uint m_propCount;
@@ -84,9 +78,6 @@ protected:
 
     Class *m_super;
     Script &m_script;
-
-
-    friend class World;
 };
 
 END_NAMESPACE_SCI

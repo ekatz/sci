@@ -131,6 +131,10 @@ public:
         return static_cast<RestInst *>(
             llvm::CallInst::Create(Intrinsic::Get(Intrinsic::rest), paramIndex, "", insertAtEnd));
     }
+
+    llvm::ConstantInt* getParamIndex() const {
+        return llvm::cast<llvm::ConstantInt>(getArgOperand(0));
+    }
 };
 
 class ClassInst : public IntrinsicInst
@@ -203,12 +207,22 @@ public:
             llvm::CallInst::Create(Intrinsic::Get(Intrinsic::send), args, "", insertAtEnd));
     }
 
-    llvm::Value* getObject()   const { return getArgOperand(0); }
-    llvm::Value* getSelector() const { return getArgOperand(1); }
-    llvm::Value* getArgCount() const { return getArgOperand(2); }
+    llvm::Value* getObject()   const { return llvm::CallInst::getArgOperand(0); }
+    llvm::Value* getSelector() const { return llvm::CallInst::getArgOperand(1); }
+    llvm::Value* getArgCount() const { return llvm::CallInst::getArgOperand(2); }
+    llvm::Value* getArgOperand(uint i) const { return llvm::CallInst::getArgOperand(i + 3); }
 
-    static uint MatchArgOperandIndex(llvm::Argument *arg);
-    static uint MatchArgOperandIndex(Method *method, llvm::Argument *arg);
+    op_iterator arg_begin() { return llvm::CallInst::arg_begin() + 3; }
+    op_iterator arg_end() { return llvm::CallInst::arg_end(); }
+    llvm::iterator_range<op_iterator> arg_operands() {
+        return make_range(arg_begin(), arg_end());
+    }
+
+    const_op_iterator arg_begin() const { return llvm::CallInst::arg_begin() + 3; }
+    const_op_iterator arg_end() const { return llvm::CallInst::arg_end(); }
+    llvm::iterator_range<const_op_iterator> arg_operands() const {
+        return make_range(arg_begin(), arg_end());
+    }
 };
 
 class ObjCastInst : public IntrinsicInst
@@ -250,13 +264,13 @@ public:
 
     op_iterator class_begin() { return arg_begin() + 1; }
     op_iterator class_end() { return arg_end(); }
-    iterator_range<op_iterator> classes() {
+    llvm::iterator_range<op_iterator> classes() {
         return make_range(class_begin(), class_end());
     }
 
     const_op_iterator class_begin() const { return arg_begin() + 1; }
     const_op_iterator class_end() const { return arg_end(); }
-    iterator_range<const_op_iterator> classes() const {
+    llvm::iterator_range<const_op_iterator> classes() const {
         return make_range(class_begin(), arg_end());
     }
 };
@@ -288,8 +302,17 @@ public:
         return getArgOperand(1);
     }
 
-    static uint MatchArgOperandIndex(llvm::Argument *arg);
-    static uint MatchArgOperandIndex(Procedure *proc, llvm::Argument *arg);
+    op_iterator arg_begin() { return llvm::CallInst::arg_begin() + 2; }
+    op_iterator arg_end() { return llvm::CallInst::arg_end(); }
+    llvm::iterator_range<op_iterator> arg_operands() {
+        return make_range(arg_begin(), arg_end());
+    }
+
+    const_op_iterator arg_begin() const { return llvm::CallInst::arg_begin() + 2; }
+    const_op_iterator arg_end() const { return llvm::CallInst::arg_end(); }
+    llvm::iterator_range<const_op_iterator> arg_operands() const {
+        return make_range(arg_begin(), arg_end());
+    }
 };
 
 class CallExternalInst: public IntrinsicInst
@@ -322,8 +345,17 @@ public:
         return getArgOperand(2);
     }
 
-    static uint MatchArgOperandIndex(llvm::Argument *arg);
-    static uint MatchArgOperandIndex(Procedure *proc, llvm::Argument *arg);
+    op_iterator arg_begin() { return llvm::CallInst::arg_begin() + 3; }
+    op_iterator arg_end() { return llvm::CallInst::arg_end(); }
+    llvm::iterator_range<op_iterator> arg_operands() {
+        return make_range(arg_begin(), arg_end());
+    }
+
+    const_op_iterator arg_begin() const { return llvm::CallInst::arg_begin() + 3; }
+    const_op_iterator arg_end() const { return llvm::CallInst::arg_end(); }
+    llvm::iterator_range<const_op_iterator> arg_operands() const {
+        return make_range(arg_begin(), arg_end());
+    }
 };
 
 class CallKernelInst : public IntrinsicInst
@@ -347,10 +379,26 @@ public:
     }
 
     llvm::ConstantInt* getKernelOrdinal() const {
-        return llvm::cast<llvm::ConstantInt>(getArgOperand(0));
+        return llvm::cast<llvm::ConstantInt>(llvm::CallInst::getArgOperand(0));
     }
     llvm::Value* getArgCount() const {
-        return getArgOperand(1);
+        return llvm::CallInst::getArgOperand(1);
+    }
+
+    llvm::Value* getArgOperand(uint i) const {
+        return llvm::CallInst::getArgOperand(i + 2);
+    }
+
+    op_iterator arg_begin() { return llvm::CallInst::arg_begin() + 2; }
+    op_iterator arg_end() { return llvm::CallInst::arg_end(); }
+    llvm::iterator_range<op_iterator> arg_operands() {
+        return make_range(arg_begin(), arg_end());
+    }
+
+    const_op_iterator arg_begin() const { return llvm::CallInst::arg_begin() + 2; }
+    const_op_iterator arg_end() const { return llvm::CallInst::arg_end(); }
+    llvm::iterator_range<const_op_iterator> arg_operands() const {
+        return make_range(arg_begin(), arg_end());
     }
 };
 

@@ -13,11 +13,7 @@ class PMachine
 public:
     PMachine(Script &script);
 
-    llvm::Function* interpretFunction(const uint8_t *code, StringRef name = StringRef(), uint id = (uint)-1);
-
-    bool hasArgc() const { return (m_argc != nullptr); }
-    bool hasVaList() const { return (m_vaList.get() != nullptr); }
-    uint getParamCount() const;
+    llvm::Function* interpretFunction(const uint8_t *code, StringRef name = StringRef(), uint id = (uint)-1, Class *cls = nullptr, bool debug = false);
 
 private:
     uint8_t getByte() { return *m_pc++; }
@@ -44,12 +40,13 @@ private:
     llvm::BasicBlock* getBasicBlock(const uint8_t *label, StringRef name = "label");
 
     llvm::Function* getCallIntrinsic();
-    llvm::Function* getKernelFunction(uint id);
 
     void processBasicBlocks();
 
     // Return true if more instructions left in the block.
     bool processNextInstruction();
+
+    void emitDebugLog();
 
     void emitSend(llvm::Value *obj);
     void emitCall(llvm::Function *func, ArrayRef<llvm::Constant*> constants);
@@ -57,8 +54,6 @@ private:
     llvm::Value* getIndexedPropPtr(uint8_t opcode);
     llvm::Value* getValueByOffset(uint8_t opcode);
     llvm::Value* getIndexedVariablePtr(uint8_t opcode, uint idx);
-    llvm::Instruction* getParameter(uint idx);
-    llvm::Argument* getVaList(uint idx);
 
     typedef bool (PMachine::*PfnOp)(uint8_t opcode);
 
@@ -115,7 +110,6 @@ private:
     bool badOp(uint8_t opcode);
 
     static PfnOp s_opTable[];
-    static const char* s_kernelNames[];
 
     Script &m_script;
     llvm::LLVMContext &m_ctx;
@@ -137,14 +131,12 @@ private:
     llvm::Type *m_retTy;
 
     std::unique_ptr<llvm::Argument> m_self;
-    std::unique_ptr<llvm::Argument> m_vaList;
-    uint m_vaListIndex;
-    llvm::AllocaInst *m_argc;
-    llvm::AllocaInst *m_param1;
-    uint m_paramCount;
+    std::unique_ptr<llvm::Argument> m_args;
 
     std::map<uint, llvm::BasicBlock *> m_labels;
     llvm::SmallVector<std::pair<const uint8_t *, llvm::BasicBlock *>, 4> m_worklist;
+
+    Class *m_class;
 };
 
 END_NAMESPACE_SCI

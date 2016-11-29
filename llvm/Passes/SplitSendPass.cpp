@@ -30,7 +30,7 @@ SplitSendPass::SplitSendPass()
     Type *params[] = { sizeTy, sizeTy, sizeTy };
 
     FunctionType *funcTy = FunctionType::get(sizeTy, params, true);
-    m_fnStubSend.reset(Function::Create(funcTy, Function::ExternalLinkage, "stub_send@SCI"));
+    m_fnStubSend.reset(Function::Create(funcTy, GlobalValue::ExternalLinkage, "stub_send@SCI"));
 }
 
 

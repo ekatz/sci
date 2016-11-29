@@ -1,6 +1,7 @@
 #include "PMachine.hpp"
 #include "World.hpp"
 #include "Class.hpp"
+#include "Property.hpp"
 #include "Resource.hpp"
 
 using namespace llvm;
@@ -359,136 +360,6 @@ PMachine::PfnOp PMachine::s_opTable[] = {
 };
 
 
-const char* PMachine::s_kernelNames[] = {
-    "KLoad",
-    "KUnLoad",
-    "KScriptID",
-    "KDisposeScript",
-    "KClone",
-    "KDisposeClone",
-    "KIsObject",
-    "KRespondsTo",
-    "KDrawPic",
-    "KShow",
-    "KPicNotValid",
-    "KAnimate",
-    "KSetNowSeen",
-    "KNumLoops",
-    "KNumCels",
-    "KCelWide",
-    "KCelHigh",
-    "KDrawCel",
-    "KAddToPic",
-    "KNewWindow",
-    "KGetPort",
-    "KSetPort",
-    "KDisposeWindow",
-    "KDrawControl",
-    "KHiliteControl",
-    "KEditControl",
-    "KTextSize",
-    "KDisplay",
-    "KGetEvent",
-    "KGlobalToLocal",
-    "KLocalToGlobal",
-    "KMapKeyToDir",
-    "KDrawMenuBar",
-    "KMenuSelect",
-    "KAddMenu",
-    "KDrawStatus",
-    "KParse",
-    "KSaid",
-    "KSetSynonyms",
-    "KHaveMouse",
-    "KSetCursor",
-    "KSaveGame",
-    "KRestoreGame",
-    "KRestartGame",
-    "KGameIsRestarting",
-    "KDoSound",
-    "KNewList",
-    "KDisposeList",
-    "KNewNode",
-    "KFirstNode",
-    "KLastNode",
-    "KEmptyList",
-    "KNextNode",
-    "KPrevNode",
-    "KNodeValue",
-    "KAddAfter",
-    "KAddToFront",
-    "KAddToEnd",
-    "KFindKey",
-    "KDeleteKey",
-    "KRandom",
-    "KAbs",
-    "KSqrt",
-    "KGetAngle",
-    "KGetDistance",
-    "KWait",
-    "KGetTime",
-    "KStrEnd",
-    "KStrCat",
-    "KStrCmp",
-    "KStrLen",
-    "KStrCpy",
-    "KFormat",
-    "KGetFarText",
-    "KReadNumber",
-    "KBaseSetter",
-    "KDirLoop",
-    "KCantBeHere",
-    "KOnControl",
-    "KInitBresen",
-    "KDoBresen",
-    "KDoAvoider",
-    "KSetJump",
-    "KSetDebug",
-    "KInspectObj",
-    "KShowSends",
-    "KShowObjs",
-    "KShowFree",
-    "KMemoryInfo",
-    "KStackUsage",
-    "KProfiler",
-    "KGetMenu",
-    "KSetMenu",
-    "KGetSaveFiles",
-    "KGetCWD",
-    "KCheckFreeSpace",
-    "KValidPath",
-    "KCoordPri",
-    "KStrAt",
-    "KDeviceInfo",
-    "KGetSaveDir",
-    "KCheckSaveGame",
-    "KShakeScreen",
-    "KFlushResources",
-    "KSinMult",
-    "KCosMult",
-    "KSinDiv",
-    "KCosDiv",
-    "KGraph",
-    "KJoystick",
-    "KShiftScreen",
-    "KPalette",
-    "KMemorySegment",
-    "KIntersections",
-    "KMemory",
-    "KListOps",
-    "KFileIO",
-    "KDoAudio",
-    "KDoSync",
-    "KAvoidPath",
-    "KSort",
-    "KATan",
-    "KLock",
-    "KStrSplit",
-    "KMessage",
-    "KIsItSkip"
-};
-
-
 PMachine::PMachine(Script &script) :
     m_script(script),
     m_ctx(script.getModule()->getContext()),
@@ -504,10 +375,7 @@ PMachine::PMachine(Script &script) :
     m_tempCount(0),
     m_rest(nullptr),
     m_retTy(nullptr),
-    m_argc(nullptr),
-    m_vaListIndex(0),
-    m_param1(nullptr),
-    m_paramCount(0)
+    m_class(nullptr)
 {
     Intrinsic::Get(Intrinsic::push);
     Intrinsic::Get(Intrinsic::pop);
@@ -522,23 +390,22 @@ PMachine::PMachine(Script &script) :
 }
 
 
-Function* PMachine::interpretFunction(const uint8_t *code, StringRef name, uint id)
+Function* PMachine::interpretFunction(const uint8_t *code, StringRef name, uint id, Class *cls, bool debug)
 {
+    m_class = cls;
     m_acc = nullptr;
     m_accAddr = nullptr;
     m_paccAddr = nullptr;
     m_temp = nullptr;
     m_tempCount = 0;
-    m_retTy = nullptr;
     m_self.release();
-    m_vaList.release();
-    m_argc = nullptr;
-    m_param1 = nullptr;
+    m_args.release();
 
     if (id != (uint)-1)
     {
         m_self.reset(new Argument(m_sizeTy, "self"));
     }
+    m_args.reset(new Argument(m_sizeTy->getPointerTo(), "args"));
 
     m_entry = getBasicBlock(code, "entry");
     processBasicBlocks();
@@ -557,53 +424,23 @@ Function* PMachine::interpretFunction(const uint8_t *code, StringRef name, uint 
         m_paccAddr->eraseFromParent();
     }
 
-    uint paramCount = getParamCount();
-    uint totalArgCount = paramCount;
+    FunctionType *funcTy;
     if (m_self)
     {
-        totalArgCount++;
+        Type *params[] = {
+            m_self->getType(),
+            m_args->getType()
+        };
+        funcTy = FunctionType::get(m_retTy, params, false);
     }
-    if (m_argc != nullptr)
+    else
     {
-        totalArgCount++;
+        Type *params[] = {
+            m_args->getType()
+        };
+        funcTy = FunctionType::get(m_retTy, params, false);
     }
-    if (m_vaList)
-    {
-        totalArgCount++;
-    }
-
-    Type **argTypes = reinterpret_cast<Type **>(alloca(sizeof(Type *) * totalArgCount));
-    Type **argTy = argTypes;
-    if (m_self)
-    {
-        *argTy++ = m_self->getType();
-    }
-    if (m_argc != nullptr)
-    {
-        *argTy++ = m_sizeTy;
-    }
-    for (uint i = 0, n = paramCount; i < n; ++i)
-    {
-        *argTy++ = m_sizeTy;
-    }
-    if (m_vaList)
-    {
-        *argTy++ = m_vaList->getType();
-    }
-
-    FunctionType *funcTy = FunctionType::get(m_retTy, makeArrayRef(argTypes, totalArgCount), false);
-    Function *func = Function::Create(funcTy, Function::LinkOnceODRLinkage, name, getModule());
-
-    Instruction *instAfterAlloca = nullptr;
-    if (m_param1 != nullptr || m_argc != nullptr)
-    {
-        instAfterAlloca = (m_param1 != nullptr) ? m_param1 : m_argc;
-        do 
-        {
-            instAfterAlloca = instAfterAlloca->getNextNode();
-        }
-        while (isa<AllocaInst>(instAfterAlloca));
-    }
+    Function *func = Function::Create(funcTy, GlobalValue::LinkOnceODRLinkage, name, getModule());
 
     auto iArg = func->arg_begin();
     if (m_self)
@@ -612,45 +449,17 @@ Function* PMachine::interpretFunction(const uint8_t *code, StringRef name, uint 
         iArg->takeName(m_self.get());
         ++iArg;
     }
-    if (m_argc != nullptr)
-    {
-        new StoreInst(&*iArg, m_argc, instAfterAlloca);
-        iArg->setName("argc");
-        ++iArg;
-    }
-    if (m_param1 != nullptr)
-    {
-        Instruction *param = m_param1;
-        uint i = 1, n;
-        for (n = paramCount; i <= n; ++i)
-        {
-            new StoreInst(&*iArg, param, instAfterAlloca);
-            iArg->setName(std::string("param") + utostr_32(i));
-            ++iArg;
-            param = param->getNextNode();
-        }
-
-        if (i <= m_paramCount)
-        {
-            for (n = m_paramCount; i <= n; ++i)
-            {
-                Value *val = GetElementPtrInst::CreateInBounds(&*iArg, ConstantInt::get(m_sizeTy, i - m_paramCount), "", instAfterAlloca);
-                val = new LoadInst(val, std::string("param") + utostr_32(i), instAfterAlloca);
-                new StoreInst(val, param, instAfterAlloca);
-                param = param->getNextNode();
-            }
-        }
-    }
-    if (m_vaList)
-    {
-        m_vaList->replaceAllUsesWith(&*iArg);
-        iArg->takeName(m_vaList.get());
-        ++iArg;
-    }
+    m_args->replaceAllUsesWith(&*iArg);
+    iArg->takeName(m_args.get());
 
     for (auto i = m_labels.begin(), e = m_labels.end(); i != e; ++i)
     {
         i->second->insertInto(func);
+    }
+
+    if (debug)
+    {
+        emitDebugLog();
     }
     return func;
 }
@@ -666,8 +475,11 @@ void PMachine::processBasicBlocks()
     m_bb = item.second;
 
     m_rest = nullptr;
+    uint sizeAlign = GetWorld().getSizeTypeAlignment();
     m_accAddr = new AllocaInst(m_sizeTy, "acc.addr", m_bb);
+    m_accAddr->setAlignment(sizeAlign);
     m_paccAddr = new AllocaInst(m_sizeTy, "prev.addr", m_bb);
+    m_paccAddr->setAlignment(sizeAlign);
     while (processNextInstruction())
         ;
     assert(m_rest == nullptr);
@@ -704,12 +516,6 @@ BasicBlock* PMachine::getBasicBlock(const uint8_t *label, StringRef name)
 }
 
 
-uint PMachine::getParamCount() const
-{
-    return m_vaList ? m_vaListIndex - 1 : m_paramCount;
-}
-
-
 Function* PMachine::getCallIntrinsic()
 {
     if (m_funcCallIntrin == nullptr)
@@ -718,24 +524,6 @@ Function* PMachine::getCallIntrinsic()
         m_funcCallIntrin = cast<Function>(m_script.getModule()->getOrInsertFunction(funcCallIntrin->getName(), funcCallIntrin->getFunctionType()));
     }
     return m_funcCallIntrin;
-}
-
-
-Function* PMachine::getKernelFunction(uint id)
-{
-    if (id >= ARRAYSIZE(s_kernelNames))
-    {
-        return nullptr;
-    }
-
-    Function* func = getModule()->getFunction(s_kernelNames[id]);
-    if (func == nullptr)
-    {
-        FunctionType *funcTy = FunctionType::get(m_sizeTy, m_sizeTy, true);
-        func = Function::Create(funcTy, Function::ExternalLinkage, s_kernelNames[id], getModule());
-        func->arg_begin()->setName("argc");
-    }
-    return func;
 }
 
 
@@ -799,30 +587,32 @@ void PMachine::emitCall(Function *func, ArrayRef<Constant*> constants)
 Value* PMachine::getIndexedPropPtr(uint8_t opcode)
 {
     uint idx = getUInt(opcode) / sizeof(uint16_t);
-
-#if 0
     Type *i32Ty = Type::getInt32Ty(m_ctx);
 
     // Create indices into the Class Abstract Type.
+    uint sel;
     uint idxCount = 0;
     Value *indices[3];
     indices[idxCount++] = ConstantInt::get(i32Ty, 0);
-    if (idx < ObjRes::VALUES_OFFSET)
+    if (idx == ObjRes::SPECIES_OFFSET)
     {
-        indices[idxCount++] = ConstantInt::get(i32Ty, idx + 1);
+        indices[idxCount++] = ConstantInt::get(i32Ty, 0);
+        sel = 0;
     }
     else
     {
-        indices[idxCount++] = ConstantInt::get(i32Ty, ObjRes::VALUES_OFFSET + 1);
-        indices[idxCount++] = ConstantInt::get(m_sizeTy, idx - ObjRes::VALUES_OFFSET);
+        assert(idx != ObjRes::SUPER_OFFSET);
+        idx -= ObjRes::INFO_OFFSET;
+        indices[idxCount++] = ConstantInt::get(i32Ty, 1);
+        indices[idxCount++] = ConstantInt::get(m_sizeTy, idx);
+        sel = m_class->getProperties()[idx].getSelector();
     }
 
     Value *ptr = new IntToPtrInst(m_self.get(), Class::GetAbstractType()->getPointerTo(), "", m_bb);
-    return GetElementPtrInst::CreateInBounds(ptr, makeArrayRef(indices, idxCount), GetWorld().getSelectorName(idx), m_bb);
-#endif
-
-    ConstantInt *c = ConstantInt::get(m_sizeTy, idx);
-    return PropertyInst::Create(c, m_bb);
+    std::string name = "prop";
+    name += '@';
+    name += GetWorld().getSelectorName(sel);
+    return GetElementPtrInst::CreateInBounds(ptr, makeArrayRef(indices, idxCount), name, m_bb);
 }
 
 
@@ -878,8 +668,11 @@ Value* PMachine::getIndexedVariablePtr(uint8_t opcode, uint idx)
         break;
     }
 
-    case OP_PARM:
-        assert(0);
+    case OP_PARM: {
+        ConstantInt *c = ConstantInt::get(m_sizeTy, idx);
+        var = GetElementPtrInst::CreateInBounds(m_args.get(), c);
+        break;
+    }
     }
 
     m_bb->getInstList().push_back(static_cast<Instruction*>(var));
@@ -890,90 +683,6 @@ Value* PMachine::getIndexedVariablePtr(uint8_t opcode, uint idx)
         var = GetElementPtrInst::CreateInBounds(var, m_acc, "", m_bb);
     }
     return var;
-}
-
-
-Instruction* PMachine::getParameter(uint idx)
-{
-    Instruction *param = nullptr;
-
-    // If idx is 0, then this is the argc (meta-param).
-    if (idx == 0)
-    {
-        if (m_argc == nullptr)
-        {
-            m_argc = new AllocaInst(m_sizeTy, "argc.addr");
-            m_entry->getInstList().push_front(m_argc);
-        }
-        param = m_argc;
-    }
-    else if (idx <= m_paramCount)
-    {
-        param = m_param1;
-        while (idx != 1)
-        {
-            idx--;
-            param = param->getNextNode();
-        }
-    }
-    // If the param is not created yes, then create it (and the preceding params).
-    else
-    {
-        auto instAnchor = m_entry->begin();
-        if (m_param1 == nullptr)
-        {
-            if (m_argc != nullptr)
-            {
-                instAnchor = m_argc->getIterator();
-                ++instAnchor;
-            }
-
-            m_param1 = new AllocaInst(m_sizeTy, "param1.addr");
-            m_entry->getInstList().insert(instAnchor, m_param1);
-            m_paramCount++;
-        }
-        else
-        {
-            instAnchor = m_param1->getIterator();
-            for (uint i = 0, n = m_paramCount; i < n; ++i)
-            {
-                ++instAnchor;
-            }
-        }
-
-        param = m_param1;
-        while (m_paramCount < idx)
-        {
-            m_paramCount++;
-            param = new AllocaInst(m_sizeTy, std::string("param") + utostr_32(m_paramCount) + ".addr");
-            m_entry->getInstList().insert(instAnchor, param);
-        }
-    }
-    return param;
-}
-
-
-Argument* PMachine::getVaList(uint idx)
-{
-    // idx cannot be 0, as this is the argc (meta-param)!
-    assert(idx != 0);
-
-    // We currently do not support moving the va_list.
-    assert(m_vaListIndex <= idx || !m_vaList);
-
-    // There can be only one va_list!
-    if (!m_vaList)
-    {
-        if (idx > 1)
-        {
-            // If idx is not the last one then make it (by adding the preceding params).
-            getParameter(idx - 1);
-        }
-
-        m_vaList.reset(new Argument(m_sizeTy->getPointerTo(), "vaList"));
-        m_vaListIndex = idx;
-    }
-    return m_vaList.get();
 }
 
 
@@ -1028,26 +737,26 @@ void PMachine::castAccToSizeType()
 void PMachine::storeAcc()
 {
     Value *val = castValueToSizeType(m_acc);
-    new StoreInst(val, m_accAddr, m_bb);
+    new StoreInst(val, m_accAddr, false, GetWorld().getTypeAlignment(val), m_bb);
 }
 
 
 Value* PMachine::loadAcc()
 {
-    return new LoadInst(m_accAddr, "", m_bb);
+    return new LoadInst(m_accAddr, "", false, GetWorld().getTypeAlignment(m_accAddr->getAllocatedType()), m_bb);
 }
 
 
 void PMachine::storePrevAcc()
 {
     Value *val = castValueToSizeType(m_acc);
-    new StoreInst(val, m_paccAddr, m_bb);
+    new StoreInst(val, m_paccAddr, false, GetWorld().getTypeAlignment(val), m_bb);
 }
 
 
 Value* PMachine::loadPrevAcc()
 {
-    return new LoadInst(m_paccAddr, "", m_bb);
+    return new LoadInst(m_paccAddr, "", false, GetWorld().getTypeAlignment(m_paccAddr->getAllocatedType()), m_bb);
 }
 
 
@@ -1287,7 +996,7 @@ bool PMachine::linkOp(uint8_t opcode)
     assert(m_temp == nullptr && m_tempCount == 0);
     m_tempCount = getUInt(opcode);
     m_temp = new AllocaInst(ArrayType::get(m_sizeTy, m_tempCount), "temp", m_bb);
-    m_temp->setAlignment(m_sizeTy->getBitWidth() / 8);
+    m_temp->setAlignment(GetWorld().getTypeAlignment(m_sizeTy));
     return true;
 }
 
@@ -1407,7 +1116,7 @@ bool PMachine::classOp(uint8_t opcode)
 
 bool PMachine::selfOp(uint8_t opcode)
 {
-    assert(m_self);
+    assert(m_self != nullptr);
     emitSend(m_self.get());
     return true;
 }
@@ -1463,7 +1172,7 @@ bool PMachine::pprevOp(uint8_t opcode)
 bool PMachine::pToaOp(uint8_t opcode)
 {
     Value *prop = getIndexedPropPtr(opcode);
-    m_acc = new LoadInst(prop, "", m_bb);
+    m_acc = new LoadInst(prop, "", false, GetWorld().getElementTypeAlignment(prop), m_bb);
     castAccToSizeType();
     return true;
 }
@@ -1473,7 +1182,7 @@ bool PMachine::aTopOp(uint8_t opcode)
 {
     castAccToSizeType();
     Value *prop = getIndexedPropPtr(opcode);
-    new StoreInst(m_acc, prop, m_bb);
+    new StoreInst(m_acc, prop, false, GetWorld().getTypeAlignment(m_acc), m_bb);
     return true;
 }
 
@@ -1481,7 +1190,7 @@ bool PMachine::aTopOp(uint8_t opcode)
 bool PMachine::pTosOp(uint8_t opcode)
 {
     Value *prop = getIndexedPropPtr(opcode);
-    prop = new LoadInst(prop, "", m_bb);
+    prop = new LoadInst(prop, "", false, GetWorld().getElementTypeAlignment(prop), m_bb);
     prop = castValueToSizeType(prop);
     callPush(prop);
     return true;
@@ -1492,7 +1201,7 @@ bool PMachine::sTopOp(uint8_t opcode)
 {
     Value *val = callPop();
     Value *prop = getIndexedPropPtr(opcode);
-    new StoreInst(val, prop, m_bb);
+    new StoreInst(val, prop, false, GetWorld().getTypeAlignment(val), m_bb);
     return true;
 }
 
@@ -1500,9 +1209,9 @@ bool PMachine::sTopOp(uint8_t opcode)
 bool PMachine::ipToaOp(uint8_t opcode)
 {
     Value *prop = getIndexedPropPtr(opcode);
-    Value *val = new LoadInst(prop, "", m_bb);
+    Value *val = new LoadInst(prop, "", false, GetWorld().getElementTypeAlignment(prop), m_bb);
     m_acc = BinaryOperator::CreateAdd(val, ConstantInt::get(val->getType(), 1), "", m_bb);
-    new StoreInst(m_acc, prop, m_bb);
+    new StoreInst(m_acc, prop, false, GetWorld().getTypeAlignment(m_acc), m_bb);
     castAccToSizeType();
     return true;
 }
@@ -1511,9 +1220,9 @@ bool PMachine::ipToaOp(uint8_t opcode)
 bool PMachine::dpToaOp(uint8_t opcode)
 {
     Value *prop = getIndexedPropPtr(opcode);
-    Value *val = new LoadInst(prop, "", m_bb);
+    Value *val = new LoadInst(prop, "", false, GetWorld().getElementTypeAlignment(prop), m_bb);
     m_acc = BinaryOperator::CreateSub(val, ConstantInt::get(val->getType(), 1), "", m_bb);
-    new StoreInst(m_acc, prop, m_bb);
+    new StoreInst(m_acc, prop, false, GetWorld().getTypeAlignment(m_acc), m_bb);
     castAccToSizeType();
     return true;
 }
@@ -1522,9 +1231,9 @@ bool PMachine::dpToaOp(uint8_t opcode)
 bool PMachine::ipTosOp(uint8_t opcode)
 {
     Value *prop = getIndexedPropPtr(opcode);
-    Value *val = new LoadInst(prop, "", m_bb);
+    Value *val = new LoadInst(prop, "", false, GetWorld().getElementTypeAlignment(prop), m_bb);
     val = BinaryOperator::CreateAdd(val, ConstantInt::get(val->getType(), 1), "", m_bb);
-    new StoreInst(val, prop, m_bb);
+    new StoreInst(val, prop, false, GetWorld().getTypeAlignment(val), m_bb);
     val = castValueToSizeType(val);
     callPush(val);
     return true;
@@ -1534,9 +1243,9 @@ bool PMachine::ipTosOp(uint8_t opcode)
 bool PMachine::dpTosOp(uint8_t opcode)
 {
     Value *prop = getIndexedPropPtr(opcode);
-    Value *val = new LoadInst(prop, "", m_bb);
+    Value *val = new LoadInst(prop, "", false, GetWorld().getElementTypeAlignment(prop), m_bb);
     val = BinaryOperator::CreateSub(val, ConstantInt::get(m_sizeTy, 1), "", m_bb);
-    new StoreInst(val, prop, m_bb);
+    new StoreInst(val, prop, false, GetWorld().getTypeAlignment(val), m_bb);
     val = castValueToSizeType(val);
     callPush(val);
     return true;
@@ -1599,41 +1308,25 @@ bool PMachine::ldstOp(uint8_t opcode)
     uint varIdx = getUInt(opcode);
 
     Value *var, *val;
-    if ((opcode & OP_VAR) == OP_PARM)
-    {
-        if ((opcode & OP_INDEX) != 0)
-        {
-            castAccToSizeType();
-            var = getVaList(varIdx);
-            var = GetElementPtrInst::CreateInBounds(var, m_acc, "", m_bb);
-        }
-        else
-        {
-            var = getParameter(varIdx);
-        }
-    }
-    else
-    {
-        var = getIndexedVariablePtr(opcode, varIdx);
-    }
-    
+    var = getIndexedVariablePtr(opcode, varIdx);
+
     switch (opcode & OP_TYPE)
     {
     default:
     case OP_LOAD:
-        val = new LoadInst(var, "", m_bb);
+        val = new LoadInst(var, "", false, GetWorld().getElementTypeAlignment(var), m_bb);
         break;
 
     case OP_INC:
-        val = new LoadInst(var, "", m_bb);
+        val = new LoadInst(var, "", false, GetWorld().getElementTypeAlignment(var), m_bb);
         val = BinaryOperator::CreateAdd(val, ConstantInt::get(m_sizeTy, 1), "", m_bb);
-        new StoreInst(val, var, m_bb);
+        new StoreInst(val, var, false, GetWorld().getTypeAlignment(val), m_bb);
         break;
 
     case OP_DEC:
-        val = new LoadInst(var, "", m_bb);
+        val = new LoadInst(var, "", false, GetWorld().getElementTypeAlignment(var), m_bb);
         val = BinaryOperator::CreateSub(val, ConstantInt::get(m_sizeTy, 1), "", m_bb);
-        new StoreInst(val, var, m_bb);
+        new StoreInst(val, var, false, GetWorld().getTypeAlignment(val), m_bb);
         break;
 
     case OP_STORE:
@@ -1657,7 +1350,7 @@ bool PMachine::ldstOp(uint8_t opcode)
                 val = callPop();
             }
         }
-        new StoreInst(val, var, m_bb);
+        new StoreInst(val, var, false, GetWorld().getTypeAlignment(val), m_bb);
         return true;
     }
 
@@ -1677,6 +1370,116 @@ bool PMachine::badOp(uint8_t opcode)
 {
     assert(0);
     return false;
+}
+
+
+static GlobalVariable* GetOrCreateDebugIndentVariable();
+static GlobalVariable* GetOrCreateDebugFormatString(Module *module);
+
+
+void PMachine::emitDebugLog()
+{
+    Function *func = m_entry->getParent();
+    assert(func != nullptr && "Function is not ready!");
+
+    Module *module = func->getParent();
+    LLVMContext &ctx = module->getContext();
+    PointerType *int8PtrTy = Type::getInt8PtrTy(ctx);
+
+    auto iArg = func->arg_begin();
+    if (!iArg->getType()->isPointerTy())
+    {
+        ++iArg;
+    }
+
+    StringRef name;
+    name = "DebugFunctionEntry";
+    Function *funcEntry = module->getFunction(name);
+    if (funcEntry == nullptr)
+    {
+        Type *params[] = { int8PtrTy, GetWorld().getSizeType()->getPointerTo() };
+        FunctionType *funcTy = FunctionType::get(Type::getVoidTy(ctx), params, false);
+        funcEntry = Function::Create(funcTy, GlobalValue::ExternalLinkage, name, module);
+    }
+
+    name = "DebugFunctionExit";
+    Function *funcExit = module->getFunction(name);
+    if (funcExit == nullptr)
+    {
+        FunctionType *funcTy = FunctionType::get(Type::getVoidTy(ctx), false);
+        funcExit = Function::Create(funcTy, GlobalValue::ExternalLinkage, name, module);
+    }
+
+    Constant *c = ConstantDataArray::getString(ctx, func->getName());
+    GlobalVariable *var = new GlobalVariable(*module,
+                                             c->getType(),
+                                             true,
+                                             GlobalValue::PrivateLinkage,
+                                             c);
+    var->setAlignment(GetWorld().getTypeAlignment(c->getType()));
+    var->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+
+    Instruction *entryPoint = &*m_entry->begin();
+    Value *strCast = CastInst::Create(Instruction::BitCast, var, int8PtrTy, "", entryPoint);
+    Value *args[] = { strCast, &*iArg };
+    CallInst::Create(funcEntry, args, "", entryPoint);
+
+
+    for (BasicBlock &bb : *func)
+    {
+        ReturnInst *ret = dyn_cast<ReturnInst>(bb.getTerminator());
+        if (ret != nullptr)
+        {
+            CallInst::Create(funcExit, "", ret);
+        }
+    }
+}
+
+
+static GlobalVariable* GetOrCreateDebugIndentVariable()
+{
+    StringRef name = "g_debugIndent";
+    World &world = GetWorld();
+    Module *mainModule = world.getScript(0)->getModule();
+
+    GlobalVariable *var = mainModule->getGlobalVariable(name);
+    if (var != nullptr)
+    {
+        return var;
+    }
+
+    LLVMContext &ctx = world.getContext();
+    IntegerType *int32Ty = Type::getInt32Ty(ctx);
+    var = new GlobalVariable(*mainModule,
+                             int32Ty,
+                             false,
+                             GlobalValue::ExternalLinkage,
+                             ConstantInt::getNullValue(int32Ty),
+                             name);
+    return var;
+}
+
+
+static GlobalVariable* GetOrCreateDebugFormatString(Module *module)
+{
+    StringRef name = "s_debugFormatStr";
+    GlobalVariable *var = module->getGlobalVariable(name);
+    if (var != nullptr)
+    {
+        return var;
+    }
+
+    LLVMContext &ctx = module->getContext();
+    StringRef str = "%*c%s";
+    Constant *c = ConstantDataArray::getString(ctx, str);
+    var = new GlobalVariable(*module,
+                                             c->getType(),
+                                             true,
+                                             GlobalValue::LinkOnceODRLinkage,
+                                             c);
+    var->setAlignment(GetWorld().getTypeAlignment(c->getType()));
+    var->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+    return var;
 }
 
 

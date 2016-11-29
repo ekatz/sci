@@ -12,121 +12,12 @@ using namespace llvm;
 BEGIN_NAMESPACE_SCI
 
 
-static ConstantStruct* CreateInitializer(StructType *s, const Property *begin, const Property *end, const Property *&ptr, GlobalVariable *name, GlobalVariable *vftbl)
+Object::Object(const ObjRes &res, Script &script) : Class(res, script), m_global(nullptr)
 {
-    std::vector<Constant *> args;
+    assert(res.isClass() || getMethodCount() == getSuper()->getMethodCount());
 
-    for (auto i = s->element_begin(), e = s->element_end(); i != e; ++i)
-    {
-        Constant *c;
-        if ((*i)->isIntegerTy())
-        {
-            assert(ptr < end);
-            if (ptr < begin)
-            {
-                int idx = ObjRes::VALUES_OFFSET - (begin - ptr);
-                switch (idx)
-                {
-                case -1:
-                    c = ConstantExpr::getPtrToInt(vftbl, *i);
-                    break;
-
-                case ObjRes::NAME_OFFSET:
-                    c = ConstantExpr::getPtrToInt(name, *i);
-                    break;
-
-                default:
-                    c = ConstantInt::get(*i, static_cast<uint16_t>(ptr->getDefaultValue()));
-                    break;
-                }
-            }
-            else
-            {
-                c = GetWorld().getConstantValue(ptr->getDefaultValue());
-            }
-            ptr++;
-        }
-        else
-        {
-            c = CreateInitializer(cast<StructType>(*i), begin, end, ptr, name, vftbl);
-        }
-        args.push_back(c);
-    }
-
-    return static_cast<ConstantStruct *>(ConstantStruct::get(s, args));
-}
-
-
-static ConstantStruct* CreateInitializer(StructType *s, const Property *props, uint len, GlobalVariable *vftbl, GlobalVariable *name)
-{
-    // Make one room for the vftbl.
-    const Property *ptr = props - 1;
-    return CreateInitializer(s, props + ObjRes::VALUES_OFFSET, props + len, ptr, name, vftbl);
-}
-
-
-static bool AddElementIndex(SmallVector<Value *, 16> &indices, StructType *s, uint &idx)
-{
-    size_t pos = indices.size();
-
-    // Make place for the value.
-    indices.push_back(nullptr);
-
-    uint n = 0;
-    for (auto i = s->element_begin(), e = s->element_end(); i != e; ++i, ++n)
-    {
-        if ((*i)->isIntegerTy())
-        {
-            if (idx == 0)
-            {
-                indices[pos] = ConstantInt::get(Type::getInt32Ty(s->getContext()), n);
-                return true;
-            }
-
-            idx--;
-        }
-        else
-        {
-            if (AddElementIndex(indices, cast<StructType>(*i), idx))
-            {
-                indices[pos] = ConstantInt::get(Type::getInt32Ty(s->getContext()), n);
-                return true;
-            }
-        }
-    }
-
-    // Remove the value.
-    indices.pop_back();
-    return false;
-}
-
-
-static SmallVector<Value *, 16> CreateElementSelectorIndices(StructType *s, uint idx)
-{
-    SmallVector<Value *, 16> indices;
-    indices.push_back(Constant::getNullValue(GetWorld().getSizeType()));
-    if (!AddElementIndex(indices, s, idx))
-    {
-        indices.pop_back();
-    }
-    return indices;
-}
-
-
-Object::Object(const ObjRes &res, Script &script) : Class(res, script)
-{
-    assert(getMethodCount() == getSuper()->getMethodCount());
-
-    const char *name = m_script.getDataAt(res.nameSel);
-    std::string nameOrdinal = "obj@";
-    if (name == nullptr || name[0] == '\0')
-    {
-        nameOrdinal += utostr_32(getId());
-        name = nameOrdinal.data();
-    }
-
-    m_global = new GlobalVariable(getModule(), m_type, false, GlobalValue::InternalLinkage, nullptr, name);
-    m_ctor = createConstructor();
+    m_global = new GlobalVariable(getModule(), m_type, false, GlobalValue::InternalLinkage, nullptr, m_type->getName());
+    m_global->setAlignment(16);
     setInitializer();
 }
 
@@ -148,74 +39,70 @@ StringRef Object::getName() const
 }
 
 
-Function* Object::createConstructor() const
+void Object::setInitializer() const
 {
-    assert(m_global != nullptr);
-    assert(m_vftbl != nullptr);
+    // Make one room for the species.
+    const Property *ptr = m_props - 1;
+    ConstantStruct *initStruct = createInitializer(m_type,
+                                                   m_props + (ObjRes::VALUES_OFFSET - ObjRes::INFO_OFFSET),
+                                                   m_props + m_propCount,
+                                                   ptr);
 
-    World &world = GetWorld();
-    LLVMContext &ctx = world.getContext();
-    IntegerType *sizeTy = world.getSizeType();
-    IntegerType *i16Ty = Type::getInt16Ty(ctx);
-
-    std::string ctorName = "?ctor@";
-    ctorName += getName();
-
-    PointerType *clsPtrTy = m_type->getPointerTo();
-    FunctionType *ctorFuncTy = FunctionType::get(clsPtrTy, clsPtrTy, false);
-
-    Function *ctorFunc = Function::Create(ctorFuncTy, Function::ExternalLinkage, ctorName, &getModule());
-    BasicBlock *bb = BasicBlock::Create(ctx, "", ctorFunc);
-    Argument *selfArg = &*ctorFunc->arg_begin();
-    selfArg->setName("self");
-
-    SmallVector<Value *, 16> indices;
-    GetElementPtrInst *elem;
-    Value *val;
-
-    // Add the virtual table.
-    indices = CreateElementSelectorIndices(m_type, 0);
-    elem = GetElementPtrInst::CreateInBounds(m_type, selfArg, indices, "-vftbl-", bb);
-    val = ConstantExpr::getPtrToInt(m_vftbl, sizeTy);
-    new StoreInst(val, elem, bb);
-
-    for (uint i = 0, n = m_propCount; i < n; ++i)
-    {
-        indices = CreateElementSelectorIndices(m_type, i + 1);
-        elem = GetElementPtrInst::CreateInBounds(m_type, selfArg, indices, m_props[i].getName(), bb);
-        if (i < ObjRes::NAME_OFFSET)
-        {
-            val = ConstantInt::get(i16Ty, static_cast<uint16_t>(m_props[i].getDefaultValue()));
-        }
-        else if (i == ObjRes::NAME_OFFSET)
-        {
-            const char *str = m_script.getDataAt(static_cast<uint16_t>(m_props[1].getDefaultValue()));
-            if (str == nullptr)
-            {
-                str = "";
-            }
-            val = ConstantExpr::getPtrToInt(m_script.getString(str), sizeTy);
-        }
-        else
-        {
-            val = world.getConstantValue(m_props[i].getDefaultValue());
-        }
-        new StoreInst(val, elem, bb);
-    }
-
-    ReturnInst::Create(ctx, selfArg, bb);
-    return ctorFunc;
+    m_global->setInitializer(initStruct);
 }
 
 
-void Object::setInitializer() const
+ConstantStruct* Object::createInitializer(StructType *s, const Property *begin, const Property *end, const Property *&ptr) const
 {
-    ConstantStruct *initStruct = CreateInitializer(m_type,
-                                                   m_props,
-                                                   m_propCount,
-                                                   m_vftbl,
-                                                   m_script.getString(m_global->getName()));
-    m_global->setInitializer(initStruct);
+    std::vector<Constant *> args;
+
+    for (auto i = s->element_begin(), e = s->element_end(); i != e; ++i)
+    {
+        Constant *c;
+        if ((*i)->isIntegerTy())
+        {
+            assert(ptr < end);
+            if (ptr < begin)
+            {
+                int idx = (ObjRes::VALUES_OFFSET - ObjRes::INFO_OFFSET) - (begin - ptr);
+                switch (idx)
+                {
+                case -1:
+                    c = ConstantExpr::getPtrToInt(m_species, *i);
+                    break;
+
+                case (ObjRes::NAME_OFFSET - ObjRes::INFO_OFFSET):
+                    c = ConstantExpr::getPtrToInt(m_script.getString(m_global->getName()), *i);
+                    break;
+
+                default:
+                    c = ConstantInt::get(*i, static_cast<uint16_t>(ptr->getDefaultValue()));
+                    break;
+                }
+            }
+            else
+            {
+                int16_t val = ptr->getDefaultValue();
+                c = m_script.getLocalString(static_cast<uint16_t>(val));
+                if (c != nullptr)
+                {
+                    c = ConstantExpr::getPtrToInt(c, *i);
+                }
+                else
+                {
+                    c = GetWorld().getConstantValue(val);
+                }
+            }
+            ptr++;
+        }
+        else
+        {
+            c = createInitializer(cast<StructType>(*i), begin, end, ptr);
+        }
+        args.push_back(c);
+    }
+
+    return static_cast<ConstantStruct *>(ConstantStruct::get(s, args));
 }
 
 

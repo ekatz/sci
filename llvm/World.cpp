@@ -1,12 +1,14 @@
 #include "World.hpp"
 #include "Script.hpp"
-#include "Class.hpp"
+#include "Object.hpp"
 #include "Procedure.hpp"
 #include "Resource.hpp"
 #include "Passes/StackReconstructionPass.hpp"
 #include "Passes/SplitSendPass.hpp"
-#include "Passes/AnalyzeMessagePass.hpp"
-#include "Passes/AnalyzeObjectsPass.hpp"
+#include "Passes/MutateCallIntrinsicsPass.hpp"
+#include "Passes/TranslateClassIntrinsicPass.hpp"
+#include "Passes/ExpandScriptIDPass.hpp"
+#include "Passes/FixCodePass.hpp"
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/Intrinsics.h>
 
@@ -38,22 +40,12 @@ World& GetWorld()
 
 World::World() :
     m_dataLayout(""),
-    m_ctx(getGlobalContext()),
+    m_sizeTy(nullptr),
+    m_scriptCount(0),
     m_classes(nullptr),
     m_classCount(0)
 {
-    m_sizeTy = Type::getInt32Ty(m_ctx);
-
-    Type *i16Ty = Type::getInt16Ty(m_ctx);
-    Type *elems[] = {
-        m_sizeTy,                   // vftbl
-        i16Ty,                      // species
-        i16Ty,                      // super
-        i16Ty,                      // info
-        m_sizeTy,                   // name
-        ArrayType::get(m_sizeTy, 0) // vars
-    };
-    m_absClassTy = StructType::create(m_ctx, elems);
+    setDataLayout(m_dataLayout);
 }
 
 
@@ -65,7 +57,7 @@ World::~World()
         {
             if (m_classes[i].m_type != nullptr)
             {
-                m_classes[i].~Class();
+                m_classes[i].~Object();
             }
         }
         free(m_classes);
@@ -91,6 +83,12 @@ ConstantInt* World::getConstantValue(int16_t val) const
 void World::setDataLayout(const llvm::DataLayout &dl)
 {
     m_dataLayout = dl;
+    m_sizeTy = Type::getIntNTy(m_ctx, m_dataLayout.getPointerSizeInBits());
+    Type *elems[] = {
+        m_sizeTy,                   // species
+        ArrayType::get(m_sizeTy, 0) // vars
+    };
+    m_absClassTy = StructType::create(m_ctx, elems);
 }
 
 
@@ -102,9 +100,10 @@ bool World::load()
         return false;
     }
 
+    m_intrinsics.reset(new Intrinsic());
     m_classCount = ResHandleSize(res) / sizeof(ResClassEntry);
-    size_t size = m_classCount * sizeof(Class);
-    m_classes = reinterpret_cast<Class *>(malloc(size));
+    size_t size = m_classCount * sizeof(Object);
+    m_classes = reinterpret_cast<Object *>(malloc(size));
     memset(m_classes, 0, size);
     for (uint i = 0, n = m_classCount; i < n; ++i)
     {
@@ -124,17 +123,34 @@ bool World::load()
     }
 
 
-
+    DumpScriptModule(764);
   //  DumpScriptModule(999);
     StackReconstructionPass().run();
-    SplitSendPass().run();
-  //  AnalyzeObjectsPass().run();
-    AnalyzeMessagePass().run();
+    printf("Finished stack reconstruction!\n");
 
-    DumpScriptModule(999);
-    DumpScriptModule(997);
-    DumpScriptModule(255);
-    DumpScriptModule(0);
+    SplitSendPass().run();
+    printf("Finished splitting Send Message calls!\n");
+
+    FixCodePass().run();
+    printf("Finished fixing code issues!\n");
+
+    TranslateClassIntrinsicPass().run();
+    printf("Finished translating class intrinsic!\n");
+
+    ExpandScriptIDPass().run();
+    printf("Finished expanding KScriptID calls!\n");
+
+    MutateCallIntrinsicsPass().run();
+    printf("Finished mutating Call intrinsics!\n");
+
+    for (Script &script : scripts())
+    {
+        DumpScriptModule(script.getId());
+    }
+//     DumpScriptModule(999);
+//     DumpScriptModule(997);
+//     DumpScriptModule(255);
+//     DumpScriptModule(0);
     return true;
 }
 
@@ -147,8 +163,10 @@ Script* World::acquireScript(uint id)
         Handle hunk = ResLoad(RES_SCRIPT, id);
         if (hunk != nullptr)
         {
+            printf("%d\n", ResHandleSize(hunk));
             script = new Script(id, hunk);
             m_scripts[id].reset(script);
+            m_scriptCount++;
         }
     }
     return script;
@@ -194,14 +212,14 @@ StringRef World::getSelectorName(uint id)
 }
 
 
-Class* World::getClass(uint id)
+Object* World::getClass(uint id)
 {
     if (id >= m_classCount)
     {
         return nullptr;
     }
 
-    Class *cls = &m_classes[id];
+    Object *cls = &m_classes[id];
     if (cls->m_type == nullptr)
     {
         if (!cls->m_script.load() || cls->m_type == nullptr)
@@ -213,15 +231,15 @@ Class* World::getClass(uint id)
 }
 
 
-Class* World::addClass(const ObjRes &res, Script &script)
+Object* World::addClass(const ObjRes &res, Script &script)
 {
     assert(selector_cast<uint>(res.speciesSel) < m_classCount);
     assert(&script == &m_classes[res.speciesSel].m_script);
 
-    Class *cls = &m_classes[res.speciesSel];
+    Object *cls = &m_classes[res.speciesSel];
     if (cls->m_type == nullptr)
     {
-        new(cls) Class(res, script);
+        new(cls) Object(res, script);
     }
     return cls;
 }

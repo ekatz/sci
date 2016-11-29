@@ -9,6 +9,7 @@
 struct ObjRes;
 struct ExportTable;
 struct RelocTable;
+struct SegHeader;
 
 BEGIN_NAMESPACE_SCI
 
@@ -24,6 +25,7 @@ public:
     uint getId() const { return m_id; }
     llvm::Module* getModule() const { return m_module.get(); }
     llvm::GlobalVariable* getString(StringRef str);
+    llvm::GlobalVariable* getLocalString(uint offset);
 
     Procedure* getProcedure(uint offset) const;
     ArrayRef<Procedure> getProcedures() const;
@@ -71,6 +73,8 @@ private:
     std::unique_ptr<llvm::Module> m_module;
 
     std::map<std::string, llvm::GlobalVariable *> m_strings;
+    std::unique_ptr<SegHeader *[]> m_stringSegs;
+    uint m_stringSegCount;
 
     Object *m_objects;
     uint m_objectCount;

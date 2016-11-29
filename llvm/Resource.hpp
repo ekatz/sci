@@ -113,15 +113,15 @@ struct ObjRes
     }
 
     uint getPropertyCount() const {
-        return static_cast<uint>(varSelNum);
+        return static_cast<uint>(varSelNum) - static_cast<uint>(ObjRes::INFO_OFFSET);
     }
 
     const int16_t* getPropertyValues() const {
-        return sels;
+        return sels + ObjRes::INFO_OFFSET;
     }
 
     const ObjID* getPropertySelectors() const {
-        return reinterpret_cast<const ObjID *>(sels) + varSelNum;
+        return reinterpret_cast<const ObjID *>(getPropertyValues() + varSelNum);
     }
 
     uint getMethodCount() const {
@@ -148,6 +148,14 @@ inline bool IsUnsignedValue(int16_t val)
 {
     // If this seems like a flag, then it is unsigned.
     return ((((uint16_t)val & 0xE000) != 0xE000) && ((((uint16_t)val & 0xF000) | 0x8000) == (uint16_t)val));
+}
+
+
+inline uintptr_t WidenValue(int16_t val)
+{
+    return IsUnsignedValue(val) ?
+        static_cast<uint64_t>(static_cast<uint16_t>(val)) :
+        static_cast<uint64_t>(static_cast<int16_t>(val));
 }
 
 

@@ -120,11 +120,13 @@ bool SelectorTable::addSelector(void *ptr, uint selector, uint index, bool isMet
     }
     else if (data.index != index)
     {
+#if 0
         if (data.index != (uint16_t)-2)
         {
             if (isMethod)
                 printf("%s [%d -> %d]\n", getSelectorName(selector).data(), data.index, index);
         }
+#endif
         data.index = (uint16_t)-2;
     }
 

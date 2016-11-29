@@ -30,7 +30,7 @@ Function* Method::load()
         std::string name = getName();
         name += '@';
         name += m_class.getName();
-        Procedure::load(name);
+        Procedure::load(name, &m_class);
     }
     return m_func;
 }

@@ -1,8 +1,5 @@
 #include "World.hpp"
-#include <llvm/ADT/Triple.h>
 #include <llvm/IR/LLVMContext.h>
-#include <llvm/CodeGen/CommandFlags.h>
-#include <llvm/Support/TargetRegistry.h>
 
 extern "C" {
 #include "../SCI/src/ErrMsg.c"
@@ -18,33 +15,51 @@ extern "C" {
 
 using namespace llvm;
 
-
-static cl::opt<std::string>
-opt_targetTriple("target", cl::desc("Generate code for the given target"));
-
+cl::opt<bool> opt_ptrSize64("ptr-64",
+                            cl::desc("Use 64-bit pointers or not"),
+                            cl::init(true));
 
 int main(int argc, char *argv[])
 {
-#if 0
-    std::string triple = Triple::normalize(opt_targetTriple);
-    if (triple.empty())
+    cl::ParseCommandLineOptions(argc, argv);
+    
+    if (opt_ptrSize64)
     {
-        triple = sys::getDefaultTargetTriple();
+        sci::GetWorld().setDataLayout(DataLayout("p:64:64"));
+    }
+    else
+    {
+        sci::GetWorld().setDataLayout(DataLayout("p:32:32"));
+    }
+    /*
+    Triple triple = Triple(Triple::normalize(opt_targetTriple));
+    if (triple.getTriple().empty())
+    {
+        triple.setTriple(sys::getDefaultTargetTriple());
     }
 
     std::string err;
-    const Target *target = TargetRegistry::lookupTarget(triple, err);
+    const Target *target = TargetRegistry::lookupTarget(opt_march, triple, err);
     if (target == nullptr)
     {
         errs() << argv[0] << ": " << err;
         return 1;
     }
 
-    std::unique_ptr<TargetMachine> tm(
-        target->createTargetMachine(triple, getCPUStr(), getFeaturesStr(), InitTargetOptionsFromCodeGenFlags()));
+    if (opt_mcpu == "native")
+    {
+        opt_mcpu = sys::getHostCPUName();
+    }
 
-    assert(tm && "Could not allocate target machine!");
-#endif
+    auto y = getFeaturesStr();
+    auto z = InitTargetOptionsFromCodeGenFlags();
+    std::unique_ptr<TargetMachine> tm(
+        target->createTargetMachine(triple.getTriple(), opt_mcpu, "", InitTargetOptionsFromCodeGenFlags(), Optional<Reloc::Model>()));
+    errs() << target->getName() << '\n';
+    errs() << triple.getTriple() << '\n';
+    errs() << tm->getPointerSize() << '\n';
+    assert(tm && "Could not allocate target machine!");*/
+
     g_isExternal = true;
     InitResource(NULL);
 
