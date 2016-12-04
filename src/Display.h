@@ -4,8 +4,13 @@
 #include "GrTypes.h"
 #include "Palette.h"
 
+#define DISPLAYWIDTH  640
+#define DISPLAYHEIGHT 480
+
+#ifdef __WINDOWS__
 extern HDC   g_hDcWnd;
 extern HGLRC g_hWgl;
+#endif
 
 void InitDisplay(void);
 void EndDisplay(void);
