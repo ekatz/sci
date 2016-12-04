@@ -176,3 +176,60 @@ void LogMessage(int level, const char *format, ...)
     }
     va_end(args);
 }
+
+#if defined(DEBUG) && (MAX_LOG_LEVEL >= LOG_LEVEL_DEBUG)
+
+#include "PMachine.h"
+
+static uint s_debugIndent = 0;
+
+void DebugFunctionEntry(Obj *obj, uint selector)
+{
+    char        selName[40];
+    char        buf[128];
+    char       *p;
+    const char *objName;
+    uintptr_t   i;
+
+    buf[2] = '\0';
+    p      = buf;
+    for (i = 0; i < g_vars.parm[0]; ++i) {
+        p += (size_t)sprintf(p, ", %X", g_vars.parm[i + 1]);
+    }
+
+    if (obj != NULL) {
+        objName = GetObjName(obj);
+        if (objName == NULL) {
+            objName = "Class";
+        }
+        LogMessage(LOG_LEVEL_DEBUG,
+                   "%*c%s@%s@%u(%s)",
+                   s_debugIndent * 2,
+                   ' ',
+                   GetSelectorName(selector, selName),
+                   objName,
+                   g_thisScript,
+                   buf + 2);
+    } else {
+        LogMessage(LOG_LEVEL_DEBUG,
+                   "%*cproc@%x@%u(%s)",
+                   s_debugIndent * 2,
+                   ' ',
+                   (uint)(g_pc - (uint8_t *)g_scriptHandle),
+                   g_thisScript,
+                   buf + 2);
+    }
+    s_debugIndent++;
+}
+
+void DebugFunctionExit()
+{
+    s_debugIndent--;
+}
+
+#else
+
+void DebugFunctionEntry(Obj *obj, uint selector) {}
+void DebugFunctionExit() {}
+
+#endif

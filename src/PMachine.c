@@ -1882,7 +1882,11 @@ static void DoCall(uint parmCount)
     g_vars.parm = g_bp - (parmCount + g_restArgsCount);
     *g_vars.parm += g_restArgsCount;
     g_restArgsCount = 0;
+
+    DebugFunctionEntry(NULL, (uint)-1);
     ExecuteCode();
+    DebugFunctionExit();
+
     g_bp        = g_vars.parm - 1; // Toss the params count.
     g_sp        = g_bp;
     g_vars.temp = prevTempVar;
