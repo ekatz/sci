@@ -176,6 +176,7 @@
     <ClCompile Include="..\..\..\src\SaveGame.c" />
     <ClCompile Include="..\..\..\src\Script.c" />
     <ClCompile Include="..\..\..\src\Sound.c" />
+    <ClCompile Include="..\..\..\src\Sync.c" />
     <ClCompile Include="..\..\..\src\Text.c" />
     <ClCompile Include="..\..\..\src\Timer.c" />
     <ClCompile Include="..\..\..\src\Trig.c" />
@@ -216,6 +217,7 @@
     <ClInclude Include="..\..\..\src\Script.h" />
     <ClInclude Include="..\..\..\src\Selector.h" />
     <ClInclude Include="..\..\..\src\Sound.h" />
+    <ClInclude Include="..\..\..\src\Sync.h" />
     <ClInclude Include="..\..\..\src\Text.h" />
     <ClInclude Include="..\..\..\src\Timer.h" />
     <ClInclude Include="..\..\..\src\Trig.h" />

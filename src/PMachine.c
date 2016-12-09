@@ -9,6 +9,7 @@
 #include "Resource.h"
 #include "Selector.h"
 #include "Sound.h"
+#include "Sync.h"
 
 #define PSTACKSIZE (10 * 1024)
 

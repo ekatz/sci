@@ -59,7 +59,6 @@ void KSaveGame(argList);
 void KRestoreGame(argList);
 void KRestartGame(argList);
 void KGameIsRestarting(argList);
-void KDoSync(argList);
 void KNewList(argList);
 void KDisposeList(argList);
 void KNewNode(argList);

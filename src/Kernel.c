@@ -640,13 +640,6 @@ void KGameIsRestarting(argList)
     }
 }
 
-void KDoSync(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
 void KGlobalToLocal(argList)
 {
     RPoint     pt;
