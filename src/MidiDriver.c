@@ -68,7 +68,7 @@ static void __cdecl SampleEnd() {}
 static void __cdecl SampleCheck(uint16_t channel, uint8_t loop) {}
 static void __cdecl AskDriver() {}
 
-static DriverFunc s_funcs[] = {
+static const DriverFunc s_funcs[] = {
     (DriverFunc)PatchReq,
     (DriverFunc)Init,
     (DriverFunc)Terminate,

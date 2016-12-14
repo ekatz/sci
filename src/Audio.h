@@ -46,4 +46,6 @@ uint AudioRate(uint hertz);
 
 void KDoAudio(uintptr_t *args);
 
+int AudioDrv(int function, uintptr_t qualifier);
+
 #endif // AUDIO_H

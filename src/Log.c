@@ -229,7 +229,7 @@ void DebugFunctionExit()
 
 #else
 
-void DebugFunctionEntry(Obj *obj, uint selector) {}
+void DebugFunctionEntry(struct Obj *obj, uint selector) {}
 void DebugFunctionExit() {}
 
 #endif

@@ -503,7 +503,6 @@ static void FixTable(SegHeader *seg,
     byte     *heapEntry;
     uint16_t *entry;
     uint16_t *fixPtr;
-    uint16_t  relPtr;
     uint16_t  tableType;
     uint      i, numEntries;
 

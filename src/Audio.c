@@ -47,6 +47,10 @@ static size_t       s_playingNum  = (size_t)-1;
 
 static void InitAudioDrv(void);
 static int  ReadAudioFile(void *buffer, uint size);
+static uint FindAudEntry(Handle    audioMap,
+                         ushort   *volNum,
+                         uint32_t *offset,
+                         size_t    resNum);
 static void PanicAudio(int err) {}
 
 bool InitAudioDriver(void)
@@ -85,7 +89,6 @@ bool SelectAudio(size_t num)
     uint32_t offset;
     size_t   len;
     int      fd;
-    bool     res = false;
 
     g_acc   = 0;
     path[0] = '\0';
@@ -555,7 +558,7 @@ void KDoAudio(argList)
             break;
 
         case LOC:
-            AudioLoc();
+            g_acc = AudioLoc();
             break;
 
         case RATE:
