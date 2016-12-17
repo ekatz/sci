@@ -1,5 +1,6 @@
 #include "Midi.h"
 #include "MidiDriver.h"
+#include "Mutex.h"
 #include "Sound.h"
 
 #ifdef PlaySound
@@ -199,12 +200,15 @@ static bool    restoring   = false; // Tells ParseNode not to send anything
 #define DisableSoundServer() ++processSnds
 #define EnableSoundServer()  --processSnds
 
+static Mutex s_mutex;
+
 int DoSound(int function, ...)
 {
     int     res = 0;
     Sound  *node;
     va_list args;
     va_start(args, function);
+    LockMutex(&s_mutex);
 
     // If the function was SMasterVol, SProcesss, SSetReverb, SSoundOn, SInit or
     // STerminate, then the first argument was an int value, not an address.
@@ -219,6 +223,10 @@ int DoSound(int function, ...)
 
         case SInit:
             res = Init(va_arg(args, char *));
+            break;
+
+        case STerminate:
+            Terminate();
             break;
 
         case SProcess:
@@ -360,6 +368,7 @@ int DoSound(int function, ...)
             break;
     }
 
+    UnlockMutex(&s_mutex);
     va_end(args);
     return res;
 }
@@ -420,7 +429,7 @@ static uint MasterVol(uint8_t bar)
 {
     // If the volume is 255, then we just want a return value.
     if (bar != 255) {
-        // Insure that the volume is 15 or less.
+        // Ensure that the volume is 15 or less.
         if (bar > 15) {
             bar = 15;
         }
@@ -546,9 +555,10 @@ static uint PlaySound(Sound *node, uint8_t bedSound)
             node->tChannel[i]   = 0xFE;
         } else {
             node->tChannel[i] = channel;
-            node->tCommand[i] = channel | 0xB0;
-            node->tRest[i] =
-              (track[12] != TIMINGOVER) ? (ushort)track[12] : (ushort)0x80F0;
+            node->tCommand[i] = channel | CONTROLLER;
+            node->tRest[i]    = (track[12] != TIMINGOVER)
+                               ? (ushort)track[12]
+                               : (ushort)((0x80 << 8) | 240);
             node->tChannel[i] &= 0x0F;
             if ((channel & 0x10) != 0) {
                 node->tIndex[i] = 3;
@@ -1072,7 +1082,8 @@ static void ParseNode(Sound *node, uint8_t playPos)
 {
     uint8_t *data;
     uint8_t  realChnl; // The channel# data is being sent on
-    uint8_t  trackChannel, channel, command, rest;
+    uint8_t  trackChannel, channel, command;
+    uint16_t rest;
     uint8_t  track, i;
 
     // Put the PlayList position of the node in the 4 hi-bits of playPos.
@@ -1102,7 +1113,7 @@ static void ParseNode(Sound *node, uint8_t playPos)
             realChnl  = trackChannel;
             ghostChnl = true;
         } else {
-            uint8_t nodeChannel = playPos | trackChannel & 0x0F;
+            uint8_t nodeChannel = playPos | (trackChannel & 0x0F);
             for (i = 0; i < LISTSIZE; ++i) {
                 if (ChList[i] == nodeChannel) {
                     realChnl = i;
@@ -1127,10 +1138,9 @@ static void ParseNode(Sound *node, uint8_t playPos)
             if (--node->tRest[track] == (0x80 << 8)) {
                 rest = GetByte();
                 if (rest == TIMINGOVER) {
-                    node->tRest[track] = (0x80 << 8) | 240;
-                } else {
-                    node->tRest[track] = rest;
+                    rest = (0x80 << 8) | 240;
                 }
+                node->tRest[track] = rest;
             }
         } else {
             while (true) {
@@ -1172,10 +1182,9 @@ static void ParseNode(Sound *node, uint8_t playPos)
                 rest = GetByte();
                 if (rest != 0) {
                     if (rest == TIMINGOVER) {
-                        node->tRest[track] = (0x80 << 8) | (240 - 1);
-                    } else {
-                        node->tRest[track] = (uint8_t)(rest - 1);
+                        rest = (0x80 << 8) | 240;
                     }
+                    node->tRest[track] = rest - 1;
                     break;
                 }
             }
@@ -1554,7 +1563,6 @@ static uint8_t *ControlChnl(uint8_t  command,
     if (command == PCHANGE) {
         uint8_t  cue;
         uint16_t rest;
-        uint     i;
 
         cue = GetByte();
 
@@ -1566,17 +1574,17 @@ static uint8_t *ControlChnl(uint8_t  command,
             }
 
             node->tRest[track]    = rest;
-            node->tCommand[track] = 0xCF;
+            node->tCommand[track] = PCHANGE | 15;
 
-            for (i = 0; i < LISTSIZE; ++i) {
-                node->tLoopPoint[i]   = node->tIndex[i];
-                node->tLoopRest[i]    = node->tRest[i];
-                node->tLoopCommand[i] = node->tCommand[i];
-            }
-
+            memcpy(node->tLoopPoint, node->tIndex, sizeof(node->tIndex));
+            memcpy(node->tLoopRest, node->tRest, sizeof(node->tRest));
+            memcpy(node->tLoopCommand, node->tCommand, sizeof(node->tCommand));
             node->sLoopTime = node->sTimer;
 
+            // Go back 1 byte.
             node->tIndex[track]--;
+            data--;
+
             node->tRest[track] = 0;
         } else if (!restoring) {
             // Set the signal property of the sound node.
@@ -1729,7 +1737,6 @@ static uint8_t PreemptChannel(uint8_t *numVoices)
             pri     = ChPri[n];
             channel = n;
         }
-        ++n;
     }
 
     if (channel != (uint8_t)-1) {
@@ -1747,27 +1754,27 @@ static void UpdateChannel(Sound *node, uint8_t num, uint8_t channel)
 {
     uint8_t volume, damper;
 
-    Driver(DController, 0, ALLNOFF, 0);
-    Driver(DController, 0, NUMNOTES, (node->cPriVoice[channel] & 0xF));
+    Driver(DController, num, ALLNOFF, 0);
+    Driver(DController, num, NUMNOTES, (node->cPriVoice[channel] & 0xF));
     Driver(DProgramChange, num, node->cProgram[channel], 0);
     VolRequest[num] = (uint8_t)-1;
 
     volume = ScaleVolume(node->cVolume[channel], node->sVolume);
-    Driver(DController, 0, VOLCTRL, volume);
-    Driver(DController, 0, PANCTRL, node->cPan[channel]);
-    Driver(DController, 0, MODCTRL, node->cModulation[channel]);
+    Driver(DController, num, VOLCTRL, volume);
+    Driver(DController, num, PANCTRL, node->cPan[channel]);
+    Driver(DController, num, MODCTRL, node->cModulation[channel]);
 
     damper = 0;
     if ((node->cDamprPbend[channel] & DAMPER_FLAG) != 0) {
         damper = MIDI_MAXBYTE;
     }
-    Driver(DController, 0, DAMPRCTRL, damper);
+    Driver(DController, num, DAMPRCTRL, damper);
     Driver(DPitchBend,
            num,
            MIDI_LSB(node->cDamprPbend[channel]),
            MIDI_MSB(node->cDamprPbend[channel]));
 
-    Driver(DController, 0, CURNOTE, node->cCurNote[channel]);
+    Driver(DController, num, CURNOTE, node->cCurNote[channel]);
 }
 
 // Update channel list.
@@ -1975,7 +1982,7 @@ static void DoChannelList(void)
                                 ChBed[newChannel]   = FALSE;
 
                                 ChNew[channel]   = nodeChannel;
-                                ChPri[channel]   = 0;
+                                ChPri[channel]   = pri;
                                 ChVoice[channel] = nodeVoices;
                                 numVoices -= nodeVoices;
                             }
@@ -2050,8 +2057,11 @@ static void DoChannelList(void)
         for (n = 0; n < LISTSIZE; ++n) {
             if (ChNew[n] != (uint8_t)-1) {
                 // Locate the last open channel on the ChList.
-                while (ChList[channel] != (uint8_t)-1) {
-                    --channel;
+                for (channel = hiChnl; (int8_t)loChnl <= (int8_t)channel;
+                     --channel) {
+                    if (ChList[channel] == (uint8_t)-1) {
+                        break;
+                    }
                 }
 
                 // Copy the channel to ChList, and update the channel.
@@ -2074,9 +2084,9 @@ static void DoChannelList(void)
         // If any channels were active before but are not now,
         // turn it's notes off and reset it's NUMNOTES.
         if (ChOld[n] != (LISTSIZE - 1) && ChList[n] == (uint8_t)-1) {
-            Driver(DController, 0, DAMPRCTRL, 0);
-            Driver(DController, 0, ALLNOFF, 0);
-            Driver(DController, 0, NUMNOTES, 0);
+            Driver(DController, n, DAMPRCTRL, 0);
+            Driver(DController, n, ALLNOFF, 0);
+            Driver(DController, n, NUMNOTES, 0);
         }
     }
 
@@ -2161,7 +2171,7 @@ static void DoChangeVol(Sound  *node,
     node->sVolume = newVol;
 
     // If the node isn't on the PlayList, then exit.
-    if (playPos != (uint8_t)-1) {
+    if (playPos == (uint8_t)-1) {
         return;
     }
 
@@ -2171,7 +2181,7 @@ static void DoChangeVol(Sound  *node,
     for (i = 0; i < LISTSIZE; ++i) {
         nodeChannel = ChList[i];
         if (nodeChannel != (uint8_t)-1 && (nodeChannel & 0xF0) == playPos) {
-            n   = ChList[i] & 0x0F;
+            n   = nodeChannel & 0x0F;
             vol = ScaleVolume(node->cVolume[n], node->sVolume);
             if (vRequest) {
                 VolRequest[i] = vol;
@@ -2242,6 +2252,8 @@ static void SoundServer(void)
         return;
     }
 
+    LockMutex(&s_mutex);
+
     // Update the channel list if anything happened in the last interrupt to
     // warrant it.
     if (updateChnls) {
@@ -2282,6 +2294,7 @@ static void SoundServer(void)
     // Volume requests, and service the driver.
     DoVolRequests();
     Driver(DService, 0, 0, 0);
+    UnlockMutex(&s_mutex);
 }
 
 static void SampleActive(Sound *node)
@@ -2354,6 +2367,7 @@ static void CALLBACK TimerCallback(UINT      uTimerID,
 
 void InstallSoundServer(void)
 {
+    CreateMutex(&s_mutex, true);
     // timeBeginPeriod(16);
     timeSetEvent(16, 1, &TimerCallback, (DWORD_PTR)g_hWndMain, TIME_PERIODIC);
 }

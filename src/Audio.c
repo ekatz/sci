@@ -373,7 +373,7 @@ int AudioDrv(int function, uintptr_t qualifier)
             if (s_audioPlaying) {
                 ((uintptr_t *)qualifier)[0] = RTickCount() - s_audioStopTick;
             } else {
-                ((uintptr_t *)qualifier)[0] = 0;
+                ((uintptr_t *)qualifier)[0] = (uintptr_t)-1;
             }
             return (int)((uintptr_t *)qualifier)[0];
 
@@ -570,7 +570,7 @@ void KDoAudio(argList)
             break;
 
         case DACFOUND:
-            SelectDAC((ushort)arg(2));
+            g_acc = SelectDAC((ushort)arg(2));
             break;
 
         case 10:

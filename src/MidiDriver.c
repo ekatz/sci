@@ -100,7 +100,7 @@ static void SendRawMsg(DWORD msg)
 }
 
 static void SendMsg(uint16_t channel,
-                    uint16_t command,
+                    uint8_t  command,
                     uint8_t  data1,
                     uint8_t  data2)
 {
@@ -110,7 +110,7 @@ static void SendMsg(uint16_t channel,
     if (channel == 10) {
         channel = 15;
     }
-    msg = channel | command;
+    msg = (uint8_t)channel | command;
     msg |= (DWORD)data1 << 8;
     msg |= (DWORD)data2 << 16;
     SendRawMsg(msg);
