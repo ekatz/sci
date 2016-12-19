@@ -1,9 +1,10 @@
 #include "Display.h"
 #include "Graphics.h"
-#ifdef __WINDOWS__
+#if defined(__WINDOWS__)
 #include <GL/gl.h>
-#else
+#elif defined(__IOS__)
 #include <OpenGLES/ES1/gl.h>
+#include <dispatch/dispatch.h>
 #endif
 
 typedef struct Rgb {
@@ -13,10 +14,13 @@ typedef struct Rgb {
 } Rgb;
 
 static Rgb s_clut[PAL_CLUT_SIZE] = { 0 };
+static Rgb s_pixels[MAXWIDTH * MAXHEIGHT] = { 0 };
 
-#ifdef __WINDOWS__
+#if defined(__WINDOWS__)
 HDC   g_hDcWnd = NULL;
 HGLRC g_hWgl   = NULL;
+#elif defined(__IOS__)
+static dispatch_queue_t s_dispatchQueue = NULL;
 #endif
 
 static GLuint        s_texture       = 0;
@@ -33,15 +37,18 @@ static const GLfloat s_vertices[] = {
      1.f, -1.f
 };
 
-#ifndef __WINDOWS__
+#if defined(__IOS__)
 void SwapBuffers(void);
+void DispatchDisplay(void *);
 #endif
 
 void InitDisplay(void)
 {
-#ifdef __WINDOWS__
+#if defined(__WINDOWS__)
     g_hWgl = wglCreateContext(g_hDcWnd);
     wglMakeCurrent(g_hDcWnd, g_hWgl);
+#elif defined(__IOS__)
+    s_dispatchQueue = dispatch_queue_create(NULL, 0);
 #endif
 
     glClearColor(0.0, 0.0, 0.0, 1.0);
@@ -54,6 +61,11 @@ void InitDisplay(void)
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+#if defined(__IOS__)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+#endif
 }
 
 void EndDisplay(void)
@@ -70,8 +82,6 @@ void Display(int      top,
              uint8_t *bits,
              uint     mapSet)
 {
-    static Rgb s_pixels[MAXWIDTH * MAXHEIGHT] = { 0 };
-
     int      width;
     int      i;
     uint8_t *index;
@@ -135,11 +145,24 @@ void Display(int      top,
         return;
     }
 
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+#if defined(__IOS__)
+    dispatch_async_f(s_dispatchQueue, NULL, DispatchDisplay);
+}
 
+void DoDisplay(void)
+{
+#endif
+
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+#if defined(__IOS__)
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+#endif
     glEnable(GL_TEXTURE_2D);
-#ifdef __WINDOWS__
+#if defined(__WINDOWS__)
     glEnableClientState(GL_TEXTURE_COORD_ARRAY_EXT);
+#elif defined(__IOS__)
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 #endif
     glEnableClientState(GL_VERTEX_ARRAY);
 
@@ -163,15 +186,15 @@ void Display(int      top,
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
     glDisableClientState(GL_VERTEX_ARRAY);
-#ifdef __WINDOWS__
+#if defined(__WINDOWS__)
     glDisableClientState(GL_TEXTURE_COORD_ARRAY_EXT);
+#elif defined(__IOS__)
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
 #endif
     glDisable(GL_TEXTURE_2D);
 
-#ifdef __WINDOWS__
+#if defined(__WINDOWS__)
     SwapBuffers(g_hDcWnd);
-#else
-    SwapBuffers();
 #endif
 }
 
