@@ -2,6 +2,7 @@
 #include "MidiDriver.h"
 #include "Mutex.h"
 #include "Sound.h"
+#include <stdarg.h>
 
 #ifdef PlaySound
 #undef PlaySound
@@ -2346,6 +2347,8 @@ static void DoSamples(void)
     }
 }
 
+#if defined(__WINDOWS__)
+
 extern HWND g_hWndMain;
 uint        g_sysTime = 0;
 
@@ -2365,9 +2368,48 @@ static void CALLBACK TimerCallback(UINT      uTimerID,
     SoundServer();
 }
 
+#else
+
+#include "Timer.h"
+uint g_sysTime = 0;
+
+void *TimerThread(void *argument)
+{
+    static uint s_timeLag = 25;
+
+    while (true) {
+        Sleep(16);
+
+        if (--s_timeLag != 0) {
+            ++g_sysTime;
+        } else {
+            s_timeLag = 25;
+        }
+
+        SoundServer();
+    }
+    return NULL;
+}
+
+#endif
+
 void InstallSoundServer(void)
 {
     CreateMutex(&s_mutex, true);
+
+#if defined(__WINDOWS__)
     // timeBeginPeriod(16);
     timeSetEvent(16, 1, &TimerCallback, (DWORD_PTR)g_hWndMain, TIME_PERIODIC);
+#else
+    {
+        pthread_t          thread;
+        struct sched_param param;
+        pthread_attr_t     attr;
+        pthread_attr_init(&attr);
+        param.sched_priority = sched_get_priority_max(SCHED_FIFO);
+        pthread_attr_setschedparam(&attr, &param);
+        pthread_attr_setschedpolicy(&attr, SCHED_FIFO);
+        pthread_create(&thread, &attr, TimerThread, NULL);
+    }
+#endif
 }

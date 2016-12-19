@@ -1,5 +1,8 @@
 #include "MidiDriver.h"
 #include "Midi.h"
+#ifdef __IOS__
+#include <CoreMIDI/CoreMIDI.h>
+#endif
 
 #define MAX_VOLUME_BAR 15
 
@@ -15,7 +18,6 @@ static uint8_t s_volBarToScale[MAX_VOLUME_BAR + 1] = { 1,    8,    0x11, 0x19,
 static bool    s_soundOn      = true;
 static uint8_t s_volumeBar    = MAX_VOLUME_BAR;
 static uint8_t s_mainVolScale = 127;
-static uint    s_uDeviceID    = (uint)-1;
 
 #if 0
 static uint s_devID = 22;
@@ -34,7 +36,14 @@ static uint8_t s_loChnl    = 0;
 static uint8_t s_hiChnl    = 8;
 #endif
 
-static HMIDIOUT s_hMidiOut = NULL;
+#ifdef __WINDOWS__
+static uint     s_uDeviceID = MIDI_MAPPER;
+static HMIDIOUT s_hMidiOut  = NULL;
+#elif __IOS__
+MIDIClientRef   s_midiClient = 0;
+MIDIPortRef     s_midiPort   = 0;
+MIDIEndpointRef s_midiDest   = 0;
+#endif
 
 typedef int(__cdecl *DriverFunc)(uint16_t channel,
                                  uint8_t  data1,
@@ -94,16 +103,12 @@ uint Driver(int function, uint16_t channel, uint8_t data1, uint8_t data2)
     return s_funcs[function](channel, data1, data2);
 }
 
-static void SendRawMsg(DWORD msg)
-{
-    midiOutShortMsg(s_hMidiOut, msg);
-}
-
 static void SendMsg(uint16_t channel,
                     uint8_t  command,
                     uint8_t  data1,
                     uint8_t  data2)
 {
+#ifdef __WINDOWS__
     DWORD msg;
 
     // al = channel, ah = command, ch = data1, cl = data2
@@ -113,7 +118,19 @@ static void SendMsg(uint16_t channel,
     msg = (uint8_t)channel | command;
     msg |= (DWORD)data1 << 8;
     msg |= (DWORD)data2 << 16;
-    SendRawMsg(msg);
+    midiOutShortMsg(s_hMidiOut, msg);
+#elif __IOS__
+    Byte msg[3] = { (uint8_t)channel | command, data1, data2 };
+
+    Byte            buffer[sizeof(MIDIPacketList) + sizeof(msg)];
+    MIDIPacketList *packetList = (MIDIPacketList *)buffer;
+    MIDITimeStamp   timeStamp  = 0; // AudioGetCurrentHostTime();
+
+    MIDIPacket *packet = MIDIPacketListInit(packetList);
+    MIDIPacketListAdd(
+      packetList, sizeof(buffer), packet, timeStamp, sizeof(msg), msg);
+    MIDISend(s_midiPort, s_midiDest, packetList);
+#endif
 }
 
 static void TurnOffNote(uint16_t channel, uint8_t note)
@@ -223,7 +240,34 @@ static uint __cdecl PatchReq(void)
 
 static uint __cdecl Init(void)
 {
+#ifdef __WINDOWS__
     midiOutOpen(&s_hMidiOut, s_uDeviceID, 0, 0, CALLBACK_NULL);
+#elif __IOS__
+    OSStatus    result;
+    CFStringRef name;
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, false);
+    name =
+      CFStringCreateWithCString(NULL, "SciMidiClient", kCFStringEncodingASCII);
+    result = MIDIClientCreate(name, NULL, NULL, &s_midiClient);
+    CFRelease(name);
+    if (result != noErr) {
+        LogError("Failed to create MIDI client!");
+    }
+
+    name =
+      CFStringCreateWithCString(NULL, "SciMidiOutput", kCFStringEncodingASCII);
+    result = MIDIOutputPortCreate(s_midiClient, name, &s_midiPort);
+    CFRelease(name);
+    if (result != noErr) {
+        LogError("Failed to create MIDI output port!");
+    }
+
+    s_midiDest = MIDIGetDestination(0);
+    if (s_midiDest == 0) {
+        LogError("Failed to get MIDI output destination (%u)!",
+                 MIDIGetNumberOfDestinations());
+    }
+#endif
     return (((uint)s_loChnl | ((uint)s_hiChnl << 8)) << 16) | 0x2108;
     // ax = 2108h, cl = s_loChnl, ch = s_hiChnl
 }
@@ -239,8 +283,21 @@ static void ClearChannels(void)
 static void __cdecl Terminate(void)
 {
     ClearChannels();
+
+#ifdef __WINDOWS__
     midiOutClose(s_hMidiOut);
     s_hMidiOut = NULL;
+#elif __IOS__
+    if (s_midiPort != 0) {
+        MIDIPortDispose(s_midiPort);
+        s_midiPort = 0;
+    }
+
+    if (s_midiClient != 0) {
+        MIDIClientDispose(s_midiClient);
+        s_midiClient = 0;
+    }
+#endif
 }
 
 static void __cdecl PitchBend(uint16_t channel, uint8_t lsb, uint8_t msb)
@@ -273,15 +330,8 @@ static void __cdecl Controller(uint16_t channel,
 
 static void __cdecl ProgramChange(uint16_t channel, uint8_t program)
 {
-    DWORD msg;
-
     //    byte_2743[channel] = program;
 
     // ax = channel, cl = program
-    if (channel == 10) {
-        channel = 15;
-    }
-    msg = channel | PCHANGE;
-    msg |= (DWORD)program << 8;
-    SendRawMsg(msg);
+    SendMsg(channel, PCHANGE, program, 0);
 }
