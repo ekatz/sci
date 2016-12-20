@@ -18,12 +18,12 @@ static double   s_scaledTps   = TICKS_PER_SECOND;
 #if defined(__IOS__)
 static mach_timebase_info_data_t s_timebaseInfo = { 0 };
 
-static uint64_t AbsoluteTimeToNanoseconds(uint64_t absoluteTime)
+uint64_t AbsoluteTimeToNanoseconds(uint64_t absoluteTime)
 {
     return (absoluteTime * s_timebaseInfo.numer) / s_timebaseInfo.denom;
 }
 
-static uint64_t NanosecondsToAbsoluteTime(uint64_t nanoseconds)
+uint64_t NanosecondsToAbsoluteTime(uint64_t nanoseconds)
 {
     return (nanoseconds * s_timebaseInfo.denom) / s_timebaseInfo.numer;
 }

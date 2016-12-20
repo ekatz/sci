@@ -21,6 +21,11 @@ void InitTimer(void);
 // Returns the system time in nanoseconds.
 uint64_t GetHighResolutionTime(void);
 
+#if defined(__IOS__)
+uint64_t AbsoluteTimeToNanoseconds(uint64_t absoluteTime);
+uint64_t NanosecondsToAbsoluteTime(uint64_t nanoseconds);
+#endif
+
 #if !defined(__WINDOWS__)
 // Sleep for the amount of milliseconds.
 void Sleep(uint milliseconds);

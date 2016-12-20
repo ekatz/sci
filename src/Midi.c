@@ -4,6 +4,11 @@
 #include "Sound.h"
 #include <stdarg.h>
 
+#if defined(__IOS__)
+#include "Timer.h"
+#include <mach/mach_time.h>
+#endif
+
 #ifdef PlaySound
 #undef PlaySound
 #endif
@@ -2370,22 +2375,13 @@ static void CALLBACK TimerCallback(UINT      uTimerID,
 
 #else
 
-#include "Timer.h"
-uint g_sysTime = 0;
-
 void *TimerThread(void *argument)
 {
-    static uint s_timeLag = 25;
-
+    const uint64_t timeToWait = NanosecondsToAbsoluteTime(15625000ULL);
+    uint64_t       now        = mach_absolute_time();
     while (true) {
-        Sleep(16);
-
-        if (--s_timeLag != 0) {
-            ++g_sysTime;
-        } else {
-            s_timeLag = 25;
-        }
-
+        mach_wait_until(now + timeToWait);
+        now = mach_absolute_time();
         SoundServer();
     }
     return NULL;
