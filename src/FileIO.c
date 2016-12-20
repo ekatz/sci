@@ -251,7 +251,7 @@ bool nextfile(DirEntry *dta)
             s_dirp = NULL;
             return false;
         }
-    } while (!MatchSpec(dta->name, s_findSpec));
+    } while (!MatchSpec(entry.d_name, s_findSpec));
 
     strncpy(dta->name, entry.d_name, ARRAYSIZE(dta->name) - 1);
     dta->name[ARRAYSIZE(dta->name) - 1] = '\0';
