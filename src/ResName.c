@@ -1,5 +1,6 @@
 #include "ResName.h"
 #include "ErrMsg.h"
+#include "FileIO.h"
 #include "Resource.h"
 
 bool g_newResName = true;
@@ -70,7 +71,6 @@ const char *ResName(int resType)
 
 int ROpenResFile(int resType, size_t resNum, char *name)
 {
-    char        path[256];
     char        fullName[100];
     const char *mask;
     int         fd = -1;
@@ -81,8 +81,7 @@ int ROpenResFile(int resType, size_t resNum, char *name)
     }
 
     makeName(fullName, mask, name, resType, resNum);
-    sprintf(path, "%s%s", g_resDir, fullName);
-    fd = open(path, O_RDONLY | O_BINARY);
+    fd = fileopen(fullName, O_RDONLY);
     if (fd != -1) {
         strcpy(name, fullName);
     } else {

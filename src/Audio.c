@@ -1,9 +1,9 @@
 #if defined(__APPLE__)
 #include <MacTypes.h>
 #endif
-
 #include "Audio.h"
 #include "ErrMsg.h"
+#include "FileIO.h"
 #include "Input.h"
 #include "Kernel.h"
 #include "PMachine.h"
@@ -184,17 +184,16 @@ void EndAudio(void)
 
 bool SelectAudio(size_t num)
 {
-    char     path[256];
+    char     fileName[64];
     uint32_t offset;
     size_t   len;
     int      fd;
 
-    g_acc   = 0;
-    path[0] = '\0';
+    g_acc       = 0;
+    fileName[0] = '\0';
     if (s_audioType == RES_AUDIO && FindPatchEntry(RES_AUDIO, num)) {
-        char fileName[64];
-        sprintf(path, "%s%s", g_resDir, ResNameMake(fileName, RES_AUDIO, num));
-        fd = open(path, O_RDONLY | O_BINARY);
+        ResNameMake(fileName, RES_AUDIO, num);
+        fd = fileopen(fileName, O_RDONLY);
         if (fd == -1) {
             return false;
         }
@@ -217,14 +216,12 @@ bool SelectAudio(size_t num)
 
         if (volNum != s_audioVolNum) {
             if (s_audioType == RES_AUDIO) {
-                char fileName[32];
                 sprintf(fileName, "AUDIO%03u.%03u", s_dacType, volNum);
                 fd = ROpenResFile(RES_AUDIO, volNum, fileName);
                 if (fd == -1) {
                     return false;
                 }
                 close(fd);
-                sprintf(path, "%s%s", g_resDir, fileName);
             }
             s_audioVolNum = volNum;
         }
@@ -237,7 +234,7 @@ bool SelectAudio(size_t num)
             uintptr_t len;
         } audArgs;
 
-        audArgs.path   = (*path != '\0') ? (uintptr_t)path : 0;
+        audArgs.path   = (*fileName != '\0') ? (uintptr_t)fileName : 0;
         audArgs.offset = offset;
         audArgs.len    = len;
         if (AudioDrv(A_SELECT, (uintptr_t)(&audArgs)) != 0) {
@@ -391,8 +388,8 @@ int AudioDrv(int function, uintptr_t qualifier)
                 if (s_fd != -1) {
                     close(s_fd);
                 }
-                s_fd = open((const char *)((uintptr_t *)qualifier)[0],
-                            O_RDONLY | O_BINARY);
+                s_fd =
+                  fileopen((const char *)((uintptr_t *)qualifier)[0], O_RDONLY);
                 if (s_fd == -1) {
                     return -1;
                 }

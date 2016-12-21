@@ -169,6 +169,7 @@
     <ClCompile Include="..\..\..\src\Mutex.c" />
     <ClCompile Include="..\..\..\src\Object.c" />
     <ClCompile Include="..\..\..\src\Palette.c" />
+    <ClCompile Include="..\..\..\src\Path.c" />
     <ClCompile Include="..\..\..\src\Picture.c" />
     <ClCompile Include="..\..\..\src\PMachine.c" />
     <ClCompile Include="..\..\..\src\ResName.c" />
@@ -208,6 +209,7 @@
     <ClInclude Include="..\..\..\src\Mutex.h" />
     <ClInclude Include="..\..\..\src\Object.h" />
     <ClInclude Include="..\..\..\src\Palette.h" />
+    <ClInclude Include="..\..\..\src\Path.h" />
     <ClInclude Include="..\..\..\src\Picture.h" />
     <ClInclude Include="..\..\..\src\PMachine.h" />
     <ClInclude Include="..\..\..\src\ResName.h" />

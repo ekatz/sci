@@ -49,25 +49,9 @@ static bool  FindDirEntry(ushort   *volNum,
                           int       resType,
                           size_t    resNum);
 
-void InitResource(const char *resDir)
+void InitResource(void)
 {
     InitList(&g_loadList);
-
-    g_resDir[0] = '\0';
-    if (resDir != NULL) {
-        size_t len = strlen(resDir);
-        if (len != 0 && len < 255) {
-            memcpy(g_resDir, resDir, len);
-            if (resDir[len - 1] != '\\' || resDir[len - 1] != '/') {
-#ifdef __WINDOWS__
-                g_resDir[len++] = '\\';
-#else
-                g_resDir[len++] = '/';
-#endif
-            }
-            g_resDir[len] = '\0';
-        }
-    }
 
     s_resourceMap = LoadResMap(RESMAPNAME);
     if (s_resourceMap == NULL) {
@@ -79,13 +63,11 @@ void InitResource(const char *resDir)
 
 static void *LoadResMap(const char *mapName)
 {
-    char   path[256];
     int    fd;
     size_t size;
     void  *buffer = NULL;
 
-    sprintf(path, "%s%s", g_resDir, mapName);
-    fd = open(path, O_RDONLY | O_BINARY);
+    fd = fileopen(mapName, O_RDONLY);
     if (fd >= 0) {
         size   = (size_t)filelength(fd);
         buffer = malloc(size);
@@ -108,7 +90,7 @@ Handle DoLoad(int resType, size_t resNum)
     int          fd             = -1;
     Handle       outHandle      = NULL;
 
-#ifdef __WINDOWS__
+#if defined(__WINDOWS__) || defined(__IOS__)
     if (RES_SOUND == resType) {
         resNum += 1000;
     }
@@ -138,7 +120,7 @@ Handle DoLoad(int resType, size_t resNum)
     } else {
         ushort   volNum = 0;
         uint32_t offset = 0;
-#ifdef __WINDOWS__
+#if defined(__WINDOWS__) || defined(__IOS__)
         if (RES_SOUND == resType) {
             resNum -= 1000;
         }
@@ -153,10 +135,8 @@ Handle DoLoad(int resType, size_t resNum)
         // TODO: write the real code, that support different volNums
 
         if (s_resVolFd == -1 || s_resVolNum != volNum) {
-            char path[256];
             sprintf(fileName, "%s.%03u", RESVOLNAME, volNum);
-            sprintf(path, "%s%s", g_resDir, fileName);
-            s_resVolFd  = open(path, O_RDONLY | O_BINARY);
+            s_resVolFd  = fileopen(fileName, O_RDONLY);
             s_resVolNum = volNum;
         }
 

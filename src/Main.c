@@ -10,6 +10,7 @@
 #include "Palette.h"
 #include "Picture.h"
 #include "Resource.h"
+#include "Sound.h"
 #include "Text.h"
 #include "Timer.h"
 #include "VolLoad.h"
@@ -20,10 +21,14 @@ HWND g_hWndMain = NULL;
 
 void Run(void)
 {
+    g_picRect.top = 0;
+
+    InitPath(NULL, NULL);
+
     InstallSoundServer();
 
     InitTimer();
-    InitResource(NULL);
+    InitResource();
     InitScripts();
 
     CInitGraph();
@@ -181,10 +186,10 @@ int CALLBACK WinMain(_In_ HINSTANCE hInstance,
     }
 
     bounds      = GetBounds();
-    rect.top    = bounds->top;
-    rect.left   = bounds->left;
-    rect.bottom = bounds->bottom;
-    rect.right  = bounds->right;
+    rect.top    = 0;             // bounds->top;
+    rect.left   = 0;             // bounds->left;
+    rect.bottom = DISPLAYHEIGHT; // bounds->bottom;
+    rect.right  = DISPLAYWIDTH;  // bounds->right;
     AdjustWindowRect(&rect, WS_CLIPCHILDREN | WS_OVERLAPPEDWINDOW, FALSE);
 
     hWnd = CreateWindow("SciWin",

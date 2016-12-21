@@ -10,6 +10,7 @@
 #include "Menu.h"
 #include "Mouse.h"
 #include "PMachine.h"
+#include "Path.h"
 #include "Picture.h"
 #include "Resource.h"
 #include "SaveGame.h"
@@ -1092,7 +1093,7 @@ void KStrSplit(argList)
 
 void KGetCWD(argList)
 {
-    ret(getcwd((char *)arg(1), 68));
+    ret(strcpy((char *)arg(1), GetSaveDosDir()));
 }
 
 void KGetFarText(argList)
@@ -1438,7 +1439,7 @@ void KDeviceInfo(argList)
 
 void KGetSaveDir(argList)
 {
-    ret(g_saveDir);
+    ret(GetSaveDosDir());
 }
 
 void KCheckSaveGame(argList)
@@ -1499,7 +1500,6 @@ void KCoordPri(argList)
 
 void KFileIO(argList)
 {
-    char     path[256];
     DirEntry findFileEntry;
     char    *buf;
     int      mode;
@@ -1517,8 +1517,7 @@ void KFileIO(argList)
             } else {
                 mode = O_RDONLY;
             }
-            sprintf(path, "%s%s", g_resDir, buf);
-            fd = open(path, O_BINARY | mode);
+            fd = fileopen(buf, mode);
             ret(fd);
             break;
 

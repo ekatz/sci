@@ -3,6 +3,4 @@
 
 #include "Types.h"
 
-extern char g_saveDir[];
-
 #endif // SAVEGAME_H

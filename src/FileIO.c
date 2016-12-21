@@ -1,8 +1,30 @@
 #include "FileIO.h"
+#include "Path.h"
 #ifndef __WINDOWS__
 #include <copyfile.h>
 #include <dirent.h>
 #endif
+
+#ifndef O_BINARY
+#define O_BINARY 0
+#endif
+
+int fileopen(const char *name, int mode)
+{
+    int  fd;
+    char path[PATH_MAX];
+
+    if (mode == O_RDONLY) {
+        DosToLocalPath(path, name, true);
+        fd = open(path, mode | O_BINARY);
+        if (fd != -1) {
+            return fd;
+        }
+    }
+
+    DosToLocalPath(path, name, false);
+    return open(path, mode | O_BINARY);
+}
 
 char *fgets_no_eol(char *str, int len, int fd)
 {
@@ -53,15 +75,20 @@ bool fexists(const char *filename)
 
 int fcopy(const char *srcFilename, const char *dstFilename)
 {
+    char srcPath[PATH_MAX];
+    char dstPath[PATH_MAX];
 #ifdef __WINDOWS__
     int fd;
     int length;
 
-    if (CopyFile(srcFilename, dstFilename, TRUE) == FALSE) {
+    DosToLocalPath(srcPath, srcFilename, false);
+    DosToLocalPath(dstPath, dstFilename, false);
+
+    if (CopyFile(srcPath, dstPath, TRUE) == FALSE) {
         return -1;
     }
 
-    if ((fd = open(dstFilename, O_RDONLY | O_BINARY)) == -1) {
+    if ((fd = open(dstPath, O_RDONLY | O_BINARY)) == -1) {
         return -1;
     }
     length = (int)filelength(fd);
@@ -71,10 +98,13 @@ int fcopy(const char *srcFilename, const char *dstFilename)
     int input, output;
     int result;
 
-    if ((input = open(srcFilename, O_RDONLY)) == -1) {
+    DosToLocalPath(srcPath, srcFilename, false);
+    DosToLocalPath(dstPath, dstFilename, false);
+
+    if ((input = open(srcPath, O_RDONLY)) == -1) {
         return -1;
     }
-    if ((output = open(dstFilename, O_RDWR | O_CREAT)) == -1) {
+    if ((output = open(dstPath, O_RDWR | O_CREAT)) == -1) {
         close(input);
         return -1;
     }
@@ -151,15 +181,22 @@ static bool MatchSpec(const char *str, const char *spec)
 
 bool firstfile(const char *spec, uint atr, DirEntry *dta)
 {
+    char path[PATH_MAX];
 #ifdef __WINDOWS__
     WIN32_FIND_DATAA findFileData;
 
     if (s_hFind != INVALID_HANDLE_VALUE) {
         FindClose(s_hFind);
     }
+
+    DosToLocalPath(path, spec, true);
     s_hFind = FindFirstFileA(spec, &findFileData);
     if (s_hFind == INVALID_HANDLE_VALUE) {
-        return false;
+        DosToLocalPath(path, spec, false);
+        s_hFind = FindFirstFileA(spec, &findFileData);
+        if (s_hFind == INVALID_HANDLE_VALUE) {
+            return false;
+        }
     }
 
     strncpy(dta->name, findFileData.cFileName, ARRAYSIZE(dta->name) - 1);
@@ -169,49 +206,30 @@ bool firstfile(const char *spec, uint atr, DirEntry *dta)
                 (uint64_t)findFileData.nFileSizeLow;
     return true;
 #else
-    char path[260];
-    const char *cp;
-    size_t specLen, pathLen;
-
     if (s_dirp != NULL) {
         closedir(s_dirp);
         s_dirp = NULL;
     }
 
-    pathLen = 0;
-    if (*spec != '/') {
-        path[0] = '.';
-        path[1] = '/';
-        pathLen = 2;
-    }
-
-    cp = spec;
-    specLen = strlen(spec);
-    spec += specLen;
-    while (cp != spec) {
-        char c = *(--spec);
-        if (c == '/' || c == '\\') {
-            specLen -= (spec - cp) + 1;
-            while (cp != spec) {
-                c = *cp++;
-                if (c == '\\') {
-                    c = '/';
-                }
-                path[pathLen++] = c;
-            }
-            ++spec;
-            break;
-        }
-    }
-    path[pathLen] = '\0';
-
-    if (specLen == 0) {
+    DosToLocalPath(path, spec, true);
+    spec = strrchr(path, '/');
+    if (spec == NULL) {
         return false;
     }
-    memcpy(s_findSpec, spec, specLen);
-    s_findSpec[specLen] = '\0';
+    *spec++ = '\0';
+    strcpy(s_findSpec, spec);
 
     s_dirp = opendir(path);
+    if (s_dirp == NULL) {
+        DosToLocalPath(path, spec, false);
+        spec = strrchr(path, '/');
+        if (spec == NULL) {
+            return false;
+        }
+        *spec++ = '\0';
+
+        s_dirp = opendir(path);
+    }
     return nextfile(dta);
 #endif
 }

@@ -2,7 +2,7 @@
 #include "Midi.h"
 #if defined(__WINDOWS__)
 #elif defined(__IOS__)
-#include "Resource.h"
+#include "Path.h"
 #include <AudioToolbox/AUGraph.h>
 #else
 #include <CoreMIDI/CoreMIDI.h>
@@ -324,8 +324,7 @@ static uint __cdecl Init(void)
                          &usesReverb,
                          sizeof(usesReverb));
 
-    strcpy(fontPath, g_resDir);
-    strcat(fontPath, "FreeFont.sf2");
+    DosToLocalPath(fontPath, "FreeFont.sf2", true);
     bankURL = CFURLCreateFromFileSystemRepresentation(
       kCFAllocatorDefault, (const UInt8 *)fontPath, strlen(fontPath), false);
     result = AudioUnitSetProperty(s_synthUnit,

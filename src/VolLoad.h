@@ -6,7 +6,7 @@
 #include "Types.h"
 
 // Init global resource list.
-void InitResource(const char *resDir);
+void InitResource(void);
 
 Handle DoLoad(int resType, size_t resNum);
 
