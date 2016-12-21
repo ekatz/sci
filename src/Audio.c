@@ -1,3 +1,7 @@
+#if defined(__APPLE__)
+#include <MacTypes.h>
+#endif
+
 #include "Audio.h"
 #include "ErrMsg.h"
 #include "Input.h"
@@ -7,7 +11,11 @@
 #include "Resource.h"
 #include "Timer.h"
 
+#if defined(__WINDOWS__)
 #pragma comment(lib, "Winmm.lib")
+#elif defined(__IOS__)
+#include <AudioToolbox/AudioToolbox.h>
+#endif
 
 #define CDAUDIOMAP        "CDAUDIO.MAP"
 #define AUDIO_BUFFER_SIZE (28 * 1024)
@@ -21,29 +29,120 @@ typedef struct ResAudEntry {
 } ResAudEntry;
 #pragma pack(pop)
 
-extern HWND g_hWndMain;
+static bool   s_audioInit     = false;
+static bool   s_audioPlaying  = false;
+static bool   s_audioStopping = false;
+static bool   s_memCheck      = false;
+static uint   s_audioStopTick = 0;
+static int    s_fd            = -1;
+static uint   s_fileSize      = 0;
+static uint   s_dataRead      = 0;
+static bool   s_useAudio      = true;
+static bool   s_audioDrv      = false;
+static uint   s_audioRate     = 0;
+static int    s_audioType     = 0;
+static Handle s_audioMap      = NULL;
+static ushort s_audioVolNum   = (ushort)-1;
+static ushort s_dacType       = (ushort)-1;
+static size_t s_playingNum    = (size_t)-1;
 
-static bool         s_audioInit     = false;
-static bool         s_audioPlaying  = false;
-static bool         s_audioStopping = false;
-static bool         s_memCheck      = false;
-static uint8_t      s_audioBufferId = 0;
-static uint         s_audioStopTick = 0;
-static WAVEFORMATEX waveFormat      = { 0 };
-static HWAVEOUT     s_hWaveOut      = NULL;
-static char        *s_audioBuffer0 = NULL, *s_audioBuffer1 = NULL;
+#if defined(__WINDOWS__)
+extern HWND         g_hWndMain;
+static WAVEFORMATEX waveFormat    = { 0 };
+static HWAVEOUT     s_hWaveOut    = NULL;
 static WAVEHDR      s_waveOutHdr0 = { 0 }, s_waveOutHdr1 = { 0 };
-static int          s_fd          = -1;
-static uint         s_fileSize    = 0;
-static uint         s_dataRead    = 0;
-static bool         s_useAudio    = true;
-static bool         s_audioDrv    = false;
-static uint         s_audioRate   = 0;
-static int          s_audioType   = 0;
-static Handle       s_audioMap    = NULL;
-static ushort       s_audioVolNum = (ushort)-1;
-static ushort       s_dacType     = (ushort)-1;
-static size_t       s_playingNum  = (size_t)-1;
+static char        *s_audioBuffer0 = NULL, *s_audioBuffer1 = NULL;
+static uint8_t      s_audioBufferId = 0;
+#elif defined(__IOS__)
+static AudioComponentInstance s_outputInstance;
+static char                  *s_audioBuffer       = NULL;
+static uint                   s_audioBufferOffset = 0;
+
+static int ReadAudioFile(void *buffer, uint size);
+
+static OSStatus AudioCallback(void                       *inRefCon,
+                              AudioUnitRenderActionFlags *ioActionFlags,
+                              const AudioTimeStamp       *inTimeStamp,
+                              UInt32                      inBusNumber,
+                              UInt32                      inNumberFrames,
+                              AudioBufferList            *ioData)
+{
+    AudioBuffer *abuf;
+    void        *ptr;
+    UInt32       remaining, len;
+    UInt32       i;
+
+    if (!s_audioPlaying || s_audioStopping || s_dataRead == 0) {
+        for (i = 0; i < ioData->mNumberBuffers; ++i) {
+            abuf = &ioData->mBuffers[i];
+            memset(abuf->mData, 0x80, abuf->mDataByteSize);
+        }
+
+        AudioOutputUnitStop(s_outputInstance);
+        s_audioPlaying = false;
+        return noErr;
+    }
+
+    for (i = 0; i < ioData->mNumberBuffers; ++i) {
+        abuf      = &ioData->mBuffers[i];
+        remaining = abuf->mDataByteSize;
+        ptr       = abuf->mData;
+        while (remaining > 0) {
+            if (s_audioBufferOffset >= s_dataRead) {
+                s_audioBufferOffset = 0;
+                ReadAudioFile(s_audioBuffer, AUDIO_BUFFER_SIZE);
+                if (s_dataRead == 0) {
+                    memset(ptr, 0x80, remaining);
+                    while (++i < ioData->mNumberBuffers) {
+                        abuf = &ioData->mBuffers[i];
+                        memset(abuf->mData, 0x80, abuf->mDataByteSize);
+                    }
+
+                    AudioOutputUnitStop(s_outputInstance);
+                    s_audioPlaying = false;
+                    break;
+                }
+            }
+
+            len = s_dataRead - s_audioBufferOffset;
+            if (len > remaining) {
+                len = remaining;
+            }
+            memcpy(ptr, s_audioBuffer + s_audioBufferOffset, len);
+            ptr = (uint8_t *)ptr + len;
+            remaining -= len;
+            s_audioBufferOffset += len;
+        }
+    }
+
+    /*
+    if (s_audioBufferId == 0)
+    {
+        s_audioBufferId = 1;
+        s_waveOutHdr1.dwBufferLength = s_dataRead;
+        res = waveOutWrite(s_hWaveOut, &s_waveOutHdr1, sizeof(WAVEHDR));
+        if (res != MMSYSERR_NOERROR)
+        {
+            PanicAudio(res);
+        }
+        memcpy(ioData->mBuffers[0].mData)
+        ReadAudioFile(s_audioBuffer0, AUDIO_BUFFER_SIZE);
+    }
+    else
+    {
+        s_audioBufferId = 0;
+        s_waveOutHdr0.dwBufferLength = s_dataRead;
+        res = waveOutWrite(s_hWaveOut, &s_waveOutHdr0, sizeof(WAVEHDR));
+        if (res != MMSYSERR_NOERROR)
+        {
+            PanicAudio(res);
+        }
+        ReadAudioFile(s_audioBuffer1, AUDIO_BUFFER_SIZE);
+    }*/
+
+    return noErr;
+}
+#endif
 
 static void InitAudioDrv(void);
 static int  ReadAudioFile(void *buffer, uint size);
@@ -249,7 +348,9 @@ void Audio_14F05(uint a)
 
 int AudioDrv(int function, uintptr_t qualifier)
 {
+#if defined(__WINDOWS__)
     MMRESULT res;
+#endif
 
     switch (function) {
         case A_INIT:
@@ -257,6 +358,7 @@ int AudioDrv(int function, uintptr_t qualifier)
                 return 0;
             }
 
+#if defined(__WINDOWS__)
             if (waveOutGetNumDevs() == 0) {
                 LogError("No audio device!");
                 return -1;
@@ -277,6 +379,9 @@ int AudioDrv(int function, uintptr_t qualifier)
 
             s_audioBuffer0 = (char *)malloc(2 * AUDIO_BUFFER_SIZE);
             s_audioBuffer1 = s_audioBuffer0 + AUDIO_BUFFER_SIZE;
+#elif defined(__IOS__)
+            s_audioBuffer = (char *)malloc(AUDIO_BUFFER_SIZE);
+#endif
             InitAudioDrv();
             return 0;
 
@@ -300,7 +405,11 @@ int AudioDrv(int function, uintptr_t qualifier)
 
         case A_WPLAY:
             s_memCheck = true;
+#if defined(__WINDOWS__)
             ReadAudioFile(s_audioBuffer0, 2 * AUDIO_BUFFER_SIZE);
+#elif defined(__IOS__)
+            ReadAudioFile(s_audioBuffer, AUDIO_BUFFER_SIZE);
+#endif
             return 0;
 
         case A_PLAY:
@@ -310,8 +419,15 @@ int AudioDrv(int function, uintptr_t qualifier)
             if (s_memCheck) {
                 s_memCheck = false;
             } else {
+#if defined(__WINDOWS__)
                 ReadAudioFile(s_audioBuffer0, 2 * AUDIO_BUFFER_SIZE);
+#elif defined(__IOS__)
+                ReadAudioFile(s_audioBuffer, AUDIO_BUFFER_SIZE);
+#endif
             }
+            s_audioPlaying  = true;
+            s_audioStopTick = RTickCount();
+#if defined(__WINDOWS__)
             if ((unsigned __int16)s_dataRead >= AUDIO_BUFFER_SIZE) {
                 s_waveOutHdr0.dwBufferLength = AUDIO_BUFFER_SIZE;
                 s_dataRead -= AUDIO_BUFFER_SIZE;
@@ -319,13 +435,17 @@ int AudioDrv(int function, uintptr_t qualifier)
                 s_waveOutHdr0.dwBufferLength = s_dataRead;
                 s_dataRead                   = 0;
             }
+            s_audioBufferId = 0;
             res = waveOutWrite(s_hWaveOut, &s_waveOutHdr0, sizeof(WAVEHDR));
             if (res != MMSYSERR_NOERROR) {
                 PanicAudio(res);
             }
-            s_audioBufferId = 0;
-            s_audioPlaying  = true;
-            s_audioStopTick = RTickCount();
+#elif defined(__IOS__)
+            s_audioBufferOffset = 0;
+            if (AudioOutputUnitStart(s_outputInstance)) {
+                LogError("Unable to start audio unit.");
+            }
+#endif
             return 0;
 
         case A_STOP:
@@ -341,6 +461,7 @@ int AudioDrv(int function, uintptr_t qualifier)
             return (int)s_audioRate;
 
         case A_FILLBUFF:
+#if defined(__WINDOWS__)
             if (s_audioPlaying) {
                 if (s_dataRead != 0 && !s_audioStopping) {
                     if (s_audioBufferId == 0) {
@@ -367,6 +488,9 @@ int AudioDrv(int function, uintptr_t qualifier)
                     s_audioPlaying = false;
                 }
             }
+#else
+            assert(false);
+#endif
             return 0;
 
         case A_LOC:
@@ -378,6 +502,7 @@ int AudioDrv(int function, uintptr_t qualifier)
             return (int)((uintptr_t *)qualifier)[0];
 
         case A_TERMINATE:
+#if defined(__WINDOWS__)
             if (s_hWaveOut != NULL) {
                 waveOutReset(s_hWaveOut);
                 waveOutClose(s_hWaveOut);
@@ -388,6 +513,17 @@ int AudioDrv(int function, uintptr_t qualifier)
                 free(s_audioBuffer0);
                 s_audioBuffer1 = s_audioBuffer0 = NULL;
             }
+#elif defined(__IOS__)
+            if (s_audioInit) {
+                AudioOutputUnitStop(s_outputInstance);
+                AudioComponentInstanceDispose(s_outputInstance);
+                s_audioInit = false;
+            }
+            if (s_audioBuffer != NULL) {
+                free(s_audioBuffer);
+                s_audioBuffer = NULL;
+            }
+#endif
             return 0;
 
         default:
@@ -397,6 +533,7 @@ int AudioDrv(int function, uintptr_t qualifier)
 
 static void InitAudioDrv(void)
 {
+#if defined(__WINDOWS__)
     MMRESULT res;
 
     res = waveOutOpen(&s_hWaveOut,
@@ -430,6 +567,62 @@ static void InitAudioDrv(void)
     if (res != MMSYSERR_NOERROR) {
         PanicAudio(res);
     }
+#elif defined(__IOS__)
+    struct AURenderCallbackStruct callback = {};
+    AudioComponent                outputComp;
+    AudioComponentDescription     desc;
+    AudioStreamBasicDescription   streamFormat;
+
+    streamFormat.mFormatID         = kAudioFormatLinearPCM;
+    streamFormat.mFormatFlags      = kLinearPCMFormatFlagIsPacked;
+    streamFormat.mChannelsPerFrame = 1;
+    streamFormat.mSampleRate       = 11025;
+    streamFormat.mBitsPerChannel   = 8;
+    streamFormat.mFramesPerPacket  = 1;
+    streamFormat.mBytesPerFrame =
+      streamFormat.mBitsPerChannel * streamFormat.mChannelsPerFrame / 8;
+    streamFormat.mBytesPerPacket =
+      streamFormat.mBytesPerFrame * streamFormat.mFramesPerPacket;
+
+    // Locate the default output audio unit.
+    desc.componentType         = kAudioUnitType_Output;
+    desc.componentSubType      = kAudioUnitSubType_RemoteIO;
+    desc.componentManufacturer = kAudioUnitManufacturer_Apple;
+    desc.componentFlags        = 0;
+    desc.componentFlagsMask    = 0;
+
+    outputComp = AudioComponentFindNext(NULL, &desc);
+    if (outputComp == NULL) {
+        LogError("Failed to open default audio device.");
+    }
+
+    if (AudioComponentInstanceNew(outputComp, &s_outputInstance) != noErr) {
+        LogError("Failed to open default audio device.");
+    }
+
+    if (AudioUnitInitialize(s_outputInstance) != noErr) {
+        LogError("Unable to initialize audio unit instance.");
+    }
+
+    if (AudioUnitSetProperty(s_outputInstance,
+                             kAudioUnitProperty_StreamFormat,
+                             kAudioUnitScope_Input,
+                             0,
+                             &streamFormat,
+                             sizeof(streamFormat))) {
+        LogError("Failed to set audio unit input property.");
+    }
+
+    callback.inputProc = AudioCallback;
+    if (AudioUnitSetProperty(s_outputInstance,
+                             kAudioUnitProperty_SetRenderCallback,
+                             kAudioUnitScope_Input,
+                             0,
+                             &callback,
+                             sizeof(callback))) {
+        LogError("Unable to attach an IOProc to the selected audio unit.");
+    }
+#endif
 
     s_audioInit = true;
 }
