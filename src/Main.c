@@ -10,6 +10,7 @@
 #include "Palette.h"
 #include "Picture.h"
 #include "Resource.h"
+#include "Restart.h"
 #include "Sound.h"
 #include "Text.h"
 #include "Timer.h"
@@ -59,7 +60,7 @@ void Run(void)
     InitPicture();
 
     // We return here on a restart.
-    // setjmp(restartBuf);
+    setjmp(g_restartBuf);
 
     // Turn control over to the pseudo-machine.
     PMachine();

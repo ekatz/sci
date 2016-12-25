@@ -10,4 +10,7 @@ void LocalToDosPath(char *dosPath, const char *localPath);
 
 const char *GetSaveDosDir();
 
+// Make sure that the last character of the directory is NOT a '/' or '\'.
+char *CleanDir(char *dir);
+
 #endif // PATH_H

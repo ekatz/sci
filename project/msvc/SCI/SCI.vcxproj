@@ -165,6 +165,7 @@
     <ClCompile Include="..\..\..\src\Menu.c" />
     <ClCompile Include="..\..\..\src\Midi.c" />
     <ClCompile Include="..\..\..\src\MidiDriver.c" />
+    <ClCompile Include="..\..\..\src\Motion.c" />
     <ClCompile Include="..\..\..\src\Mouse.c" />
     <ClCompile Include="..\..\..\src\Mutex.c" />
     <ClCompile Include="..\..\..\src\Object.c" />
@@ -206,6 +207,7 @@
     <ClInclude Include="..\..\..\src\Menu.h" />
     <ClInclude Include="..\..\..\src\Midi.h" />
     <ClInclude Include="..\..\..\src\MidiDriver.h" />
+    <ClInclude Include="..\..\..\src\Motion.h" />
     <ClInclude Include="..\..\..\src\Mouse.h" />
     <ClInclude Include="..\..\..\src\Mutex.h" />
     <ClInclude Include="..\..\..\src\Object.h" />

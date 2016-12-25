@@ -93,7 +93,20 @@ void LocalToDosPath(char *dosPath, const char *localPath)
 
 const char *GetSaveDosDir()
 {
-    return "C:\\";
+    static char s_dosSaveDir[64 + 1] = "C:\\";
+    return s_dosSaveDir;
+}
+
+char *CleanDir(char *dir)
+{
+    char *dp;
+
+    dp = &dir[strlen(dir) - 1];
+    if (*dp == '/' || *dp == '\\') {
+        *dp = '\0';
+    }
+
+    return dir;
 }
 
 static void LocalizePathSeparator(char *path, size_t len)
