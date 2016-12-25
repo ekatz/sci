@@ -206,27 +206,36 @@ bool firstfile(const char *spec, uint atr, DirEntry *dta)
                 (uint64_t)findFileData.nFileSizeLow;
     return true;
 #else
+    char *cp;
+
     if (s_dirp != NULL) {
         closedir(s_dirp);
         s_dirp = NULL;
     }
 
     DosToLocalPath(path, spec, true);
-    spec = strrchr(path, '/');
-    if (spec == NULL) {
-        return false;
+    cp = strrchr(path, '/');
+    if (cp != NULL) {
+        *cp++ = '\0';
+
+        if (*cp != '\0') {
+            strcpy(s_findSpec, cp);
+        } else {
+            s_findSpec[0] = '*';
+            s_findSpec[1] = '\0';
+        }
+    } else {
+        s_findSpec[0] = '*';
+        s_findSpec[1] = '\0';
     }
-    *spec++ = '\0';
-    strcpy(s_findSpec, spec);
 
     s_dirp = opendir(path);
     if (s_dirp == NULL) {
         DosToLocalPath(path, spec, false);
-        spec = strrchr(path, '/');
-        if (spec == NULL) {
-            return false;
+        cp = strrchr(path, '/');
+        if (cp != NULL) {
+            *cp = '\0';
         }
-        *spec++ = '\0';
 
         s_dirp = opendir(path);
     }
