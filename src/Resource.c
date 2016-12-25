@@ -60,6 +60,7 @@ Handle ResLoad(int resType, size_t resNum)
 void ResUnLoad(int resType, size_t resNum)
 {
     LoadLink *scan;
+    LoadLink *tmp;
 
     if (resNum != ALL_IDS) {
         scan = FindResEntry(resType, resNum);
@@ -74,7 +75,9 @@ void ResUnLoad(int resType, size_t resNum)
             free((Handle)scan);
         }
     } else {
-        while ((scan = FromNode(FirstNode(&g_loadList), LoadLink)) != NIL) {
+        for (scan = FromNode(FirstNode(&g_loadList), LoadLink); scan != NIL;
+             scan = tmp) {
+            tmp = FromNode(NextNode(ToNode(scan)), LoadLink);
             if (scan->type == resType) {
                 ResUnLoad(resType, scan->num);
             }

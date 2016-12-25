@@ -27,8 +27,6 @@ extern uint16_t   g_baseTable[];
 extern RGrafPort *g_rThePort;
 extern RRect      g_theRect;
 
-extern uint16_t   g_wordBits[];
-
 // Load video driver and do general initialization.
 bool CInitGraph(void);
 
@@ -126,6 +124,9 @@ void RInvertRect(RRect *rect);
 
 // Call fill rect to fill in background color.
 void REraseRect(RRect *rect);
+
+// Return bit significant mask of all controls this rectangle encompasses.
+uint OnControl(uint mapSet, const RRect *rect);
 
 // Save virtual bitmaps bounded by rect, in buffer we allocate locally.
 Handle SaveBits(const RRect *rect, uint mapSet);

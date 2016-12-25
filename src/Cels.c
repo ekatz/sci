@@ -180,7 +180,7 @@ Cel *GetCelPointer(View *view, uint loopNum, uint celNum)
     if (loopNum >= (uint)view->numLoops) {
         loopNum = view->numLoops - 1;
     }
-    s_mirrored = (view->mirrorBits & g_wordBits[loopNum]) != 0;
+    s_mirrored = ((uint)view->mirrorBits & (1U << loopNum)) != 0;
     if (s_mirrored) {
         --loopNum;
     }
