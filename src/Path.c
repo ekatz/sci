@@ -51,7 +51,11 @@ void DosToLocalPath(char *localPath, const char *dosPath, bool homeRes)
 
     localPath += localLen;
     if (*dosPath != '\\' && *dosPath != '/' && localLen != 0) {
+#if defined(__WINDOWS__)
         *localPath++ = '\\';
+#else
+        *localPath++ = '/';
+#endif
         localLen++;
     }
 
