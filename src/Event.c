@@ -84,6 +84,7 @@ bool RGetNextEvent(ushort mask, REventRecord *event)
     } else {
         // Use his storage.
         MakeNullEvent(event);
+        Sleep(5);
     }
 
     UnlockMutex(&s_mutex);
