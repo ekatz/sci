@@ -288,22 +288,22 @@ static void Expand256(Cel *cel)
             if ((dbyte & REPEATC) != 0) {
                 if ((dbyte & REPSKIP) == 0) {
                     // Get the color byte and point to next color.
-                    *buf-- = *data++;
+                    *--buf = *data++;
                 }
             }
             // Unique bytes.
             else {
                 while (run != 0) {
-                    *buf-- = *data++;
+                    *--buf = *data++;
                     --run;
                 }
             }
 
-            *buf-- = dbyte;
+            *--buf = dbyte;
         }
 
         num = (uint)(bufEnd - buf);
-        memcpy(dataBegin, buf + 1, num);
+        memcpy(dataBegin, buf, num);
         dataBegin += num;
     }
 }
