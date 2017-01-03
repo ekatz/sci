@@ -6,6 +6,7 @@
 #include "Event.h"
 #include "FarData.h"
 #include "FileIO.h"
+#include "Format.h"
 #include "Graphics.h"
 #include "Menu.h"
 #include "Mouse.h"
@@ -997,9 +998,9 @@ void KFormat(argList)
                         } else {
                             strArg = GetTextPointer((uint)theArg);
                         }
-                        text += sprintf(text, theStr, strArg);
+                        text += sci_sprintf(text, theStr, strArg);
                     } else {
-                        text += sprintf(text, theStr, theArg);
+                        text += sci_sprintf(text, theStr, theArg);
                     }
                     break;
                 }
