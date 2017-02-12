@@ -28,7 +28,6 @@ typedef struct LoadLink {
 } LoadLink;
 
 extern List g_loadList;
-extern char g_resDir[];
 
 // Return handle to resource.
 Handle ResLoad(int resType, size_t resNum);

@@ -38,6 +38,8 @@ typedef struct DirEntry {
 #define F_SUBDIR   0x10
 #define F_DIRTY    0x20
 
+int fileopen(const char *name, int mode);
+
 char *fgets_no_eol(char *str, int len, int fd);
 
 bool fexists(const char *filename);

@@ -4,11 +4,15 @@
 #include "Input.h"
 #include "Kernel.h"
 #include "Menu.h"
+#include "Motion.h"
 #include "Object.h"
 #include "Palette.h"
 #include "Resource.h"
+#include "Restart.h"
+#include "SaveGame.h"
 #include "Selector.h"
 #include "Sound.h"
+#include "Sync.h"
 
 #define PSTACKSIZE (10 * 1024)
 
@@ -420,10 +424,10 @@ kFunc s_kernelDispTbl[] = { KLoad,
 
 #define KERNELMAX ARRAYSIZE(s_kernelDispTbl)
 
-static bool s_gameStarted = false;
-Obj        *g_theGameObj  = NULL;
-Obj        *g_object      = NULL;
-Obj        *g_super       = NULL;
+bool g_gameStarted = false;
+Obj *g_theGameObj  = NULL;
+Obj *g_object      = NULL;
+Obj *g_super       = NULL;
 
 uint g_restArgsCount = 0;
 
@@ -458,7 +462,7 @@ void PMachine(void)
     ObjID   startMethod;
 
     g_theGameObj = NULL;
-    if (!s_gameStarted) {
+    if (!g_gameStarted) {
         LoadClassTbl();
         g_restArgsCount = 0;
         void *stack     = malloc(PSTACKSIZE);
@@ -475,8 +479,8 @@ void PMachine(void)
 
     g_sp = g_pStack;
 
-    if (!s_gameStarted) {
-        s_gameStarted = true;
+    if (!g_gameStarted) {
+        g_gameStarted = true;
         startMethod   = s_play;
     } else {
         startMethod = s_replay;
@@ -1882,7 +1886,11 @@ static void DoCall(uint parmCount)
     g_vars.parm = g_bp - (parmCount + g_restArgsCount);
     *g_vars.parm += g_restArgsCount;
     g_restArgsCount = 0;
+
+    DebugFunctionEntry(NULL, (uint)-1);
     ExecuteCode();
+    DebugFunctionExit();
+
     g_bp        = g_vars.parm - 1; // Toss the params count.
     g_sp        = g_bp;
     g_vars.temp = prevTempVar;

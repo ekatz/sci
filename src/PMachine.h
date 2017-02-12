@@ -33,6 +33,7 @@ typedef union PVars {
     };
 } PVars;
 
+extern bool g_gameStarted;
 extern Obj *g_theGameObj;
 extern Obj *g_object;
 extern Obj *g_super;

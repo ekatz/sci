@@ -295,9 +295,6 @@ static void QuickMessage(Obj *obj, uint argc)
     uint       selector;
     uint       frameSize;
     int        idx;
-#ifdef DEBUG
-    char selName[40];
-#endif
 
     prevScriptNum    = g_thisScript;
     prevScriptHandle = g_scriptHandle;
@@ -340,11 +337,6 @@ static void QuickMessage(Obj *obj, uint argc)
         idx =
           FindSelector(obj->props, OBJHEADER(obj)->varSelNum, (ObjID)selector);
         if (idx >= 0) {
-#ifdef DEBUG
-            LogDebug("PROP ------ %s -> %s",
-                     GetObjName(obj),
-                     GetSelectorName(selector, selName));
-#endif
             // A query -- load value into accumulator.
             if (frameSize == 0) {
                 SetAcc(obj->vars[idx]);
@@ -399,22 +391,11 @@ static void QuickMessage(Obj *obj, uint argc)
             prevTempVar     = g_vars.temp;
             g_restArgsCount = 0;
             g_pc            = (uint8_t *)g_scriptHandle + funcOffsets[idx];
-#ifdef DEBUG
-            const char *origObjName = GetObjName(origObj);
-            const char *objName     = GetObjName(obj);
-            LogInfo("ENTER ------ [%s] %s -> %s [Script: %u, obj: %p, %p]",
-                    origObjName,
-                    objName,
-                    GetSelectorName(selector, selName),
-                    g_thisScript,
-                    origObj,
-                    obj);
-#endif
+
+            DebugFunctionEntry(obj, selector);
             ExecuteCode();
-#ifdef DEBUG
-            LogInfo(
-              "LEAVE ------ [%s] %s -> %s", origObjName, objName, selName);
-#endif
+            DebugFunctionExit();
+
             g_vars.temp  = prevTempVar;
             g_vars.local = localVar;
             obj          = origObj;

@@ -5,6 +5,7 @@
 
 #define MAXMASKS 10
 
+#ifndef __MACTYPES__
 typedef struct ResType {
     const char *name;
     const char *defaultMask;
@@ -12,6 +13,7 @@ typedef struct ResType {
 } ResType;
 
 extern ResType g_resTypes[];
+#endif
 
 char *ResNameMake(char *dest, int resType, size_t resNum);
 char *ResNameMakeWildCard(char *dest, int resType);

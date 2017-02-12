@@ -7,7 +7,7 @@
 #define LOG_LEVEL_INFO    3
 #define LOG_LEVEL_DEBUG   4
 
-#define MAX_LOG_LEVEL LOG_LEVEL_DEBUG
+#define MAX_LOG_LEVEL LOG_LEVEL_INFO
 
 #ifndef __WINDOWS__
 void MessageBox(const char *title, const char *text);
@@ -67,5 +67,9 @@ void LogMessage(int level, const char *format, ...);
 #endif
 
 #endif
+
+struct Obj;
+void DebugFunctionEntry(struct Obj *obj, unsigned int selector);
+void DebugFunctionExit();
 
 #endif // LOG_H

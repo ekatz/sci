@@ -313,7 +313,7 @@ void PauseSnd(Obj *soundObj, bool stopStart)
     Sound *sn;
 
     if (soundObj == NULL) {
-        DoSound(SPause, 0, (int)stopStart);
+        DoSound(SPause, NULL, (int)stopStart);
     } else {
         sn = (Sound *)GetProperty(soundObj, s_nodePtr);
         if (sn != NULL) {
@@ -369,7 +369,7 @@ void SetSndPri(Obj *soundObj, int newPri)
     if (sn != NULL) {
         // If the value is -1, then simply clear the fixed priority flag
         // in the sound node and in the flags property of the sound object.
-        if (newPri == -1) {
+        if ((short)newPri == (short)-1) {
             sn->sFixedPri = FALSE;
             SetProperty(soundObj,
                         s_flags,
@@ -391,7 +391,7 @@ void SetSndLoop(Obj *soundObj, int newLoop)
 
     sn = (Sound *)GetProperty(soundObj, s_nodePtr);
     if (sn != NULL) {
-        if (newLoop == -1) {
+        if ((short)newLoop == (short)-1) {
             SetProperty(soundObj, s_loop, (uintptr_t)-1);
             sn->sLoop = TRUE;
         } else {
@@ -448,22 +448,19 @@ void MidiSend(Obj *soundObj, int channel, int command, int value1, int value2)
     if (command == PBEND) {
         if (value1 > 8191) {
             value1 = 8191;
-        }
-        if (value1 < -8192) {
+        } else if ((short)value1 < (short)-8192) {
             value1 = -8192;
         }
     } else {
         if (value1 > 127) {
             value1 = 127;
-        }
-        if (value1 < 0) {
+        } else if ((short)value1 < (short)0) {
             value1 = 0;
         }
 
         if (value2 > 127) {
             value2 = 127;
-        }
-        if (value2 < 0) {
+        } else if ((short)value2 < (short)0) {
             value2 = 0;
         }
     }
@@ -488,7 +485,7 @@ void MidiSend(Obj *soundObj, int channel, int command, int value1, int value2)
                 break;
 
             case PBEND:
-                DoSound(SPBend, sn, channel, value1 + 8192);
+                DoSound(SPBend, sn, channel, value1);
                 break;
         }
     }
@@ -592,6 +589,9 @@ void KDoSound(argList)
 
         case HOLDSOUND:
             HoldSnd(soundObj, (int)arg(3));
+            break;
+
+        case MUTESOUND:
             break;
 
         case SETVOL:

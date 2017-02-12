@@ -75,6 +75,18 @@
 #define EXPORT_API
 #endif
 
+#if !defined(__WINDOWS__)
+#define SANDBOX_ENABLED 1
+#endif
+
+#if !defined(PATH_MAX)
+#if defined(MAX_PATH)
+#define PATH_MAX MAX_PATH
+#else
+#define PATH_MAX 1024
+#endif
+#endif
+
 
 #ifdef __WINDOWS__
 typedef intptr_t    ssize_t;
@@ -121,10 +133,6 @@ typedef void*   Handle;
 typedef uword   ObjID;
 
 typedef	bool (*boolfptr)(const char*);
-
-#ifndef O_BINARY
-#define O_BINARY 0
-#endif
 
 
 #ifndef CONTAINING_RECORD

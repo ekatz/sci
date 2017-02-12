@@ -180,7 +180,7 @@ Cel *GetCelPointer(View *view, uint loopNum, uint celNum)
     if (loopNum >= (uint)view->numLoops) {
         loopNum = view->numLoops - 1;
     }
-    s_mirrored = (view->mirrorBits & g_wordBits[loopNum]) != 0;
+    s_mirrored = ((uint)view->mirrorBits & (1U << loopNum)) != 0;
     if (s_mirrored) {
         --loopNum;
     }
@@ -288,22 +288,22 @@ static void Expand256(Cel *cel)
             if ((dbyte & REPEATC) != 0) {
                 if ((dbyte & REPSKIP) == 0) {
                     // Get the color byte and point to next color.
-                    *buf-- = *data++;
+                    *--buf = *data++;
                 }
             }
             // Unique bytes.
             else {
                 while (run != 0) {
-                    *buf-- = *data++;
+                    *--buf = *data++;
                     --run;
                 }
             }
 
-            *buf-- = dbyte;
+            *--buf = dbyte;
         }
 
         num = (uint)(bufEnd - buf);
-        memcpy(dataBegin, buf + 1, num);
+        memcpy(dataBegin, buf, num);
         dataBegin += num;
     }
 }

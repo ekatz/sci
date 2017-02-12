@@ -1,8 +1,12 @@
 #ifndef SAVEGAME_H
 #define SAVEGAME_H
 
-#include "Types.h"
+#include "Kernel.h"
 
-extern char g_saveDir[];
+void KSaveGame(argList);
+void KRestoreGame(argList);
+void KGetSaveDir(argList);
+void KCheckSaveGame(argList);
+void KGetSaveFiles(argList);
 
 #endif // SAVEGAME_H

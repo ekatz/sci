@@ -6,10 +6,12 @@
 #include "Event.h"
 #include "FarData.h"
 #include "FileIO.h"
+#include "Format.h"
 #include "Graphics.h"
 #include "Menu.h"
 #include "Mouse.h"
 #include "PMachine.h"
+#include "Path.h"
 #include "Picture.h"
 #include "Resource.h"
 #include "SaveGame.h"
@@ -59,13 +61,6 @@ typedef struct SortNode {
     Obj     *sortObject;
     intptr_t sortKey;
 } SortNode;
-
-typedef struct KNode {
-    Node     link;
-    intptr_t nVal;
-} KNode;
-
-int g_gameRestarted = 0;
 
 #define ret(val) g_acc = ((uintptr_t)(val))
 
@@ -604,49 +599,6 @@ void KJoystick(argList)
 #endif
 }
 
-void KGetSaveFiles(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
-void KSaveGame(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
-void KRestoreGame(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
-void KRestartGame(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
-void KGameIsRestarting(argList)
-{
-    ret(g_gameRestarted);
-    if (argCount != 0 && arg(1) == FALSE) {
-        g_gameRestarted = 0;
-    }
-}
-
-void KDoSync(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
 void KGlobalToLocal(argList)
 {
     RPoint     pt;
@@ -921,8 +873,9 @@ void KWait(argList)
 
     ticks = (uint)arg(1);
 
-#if 1
-    if (ticks != 0) {
+#if 0
+    if (ticks != 0)
+    {
         WaitUntil(ticks + s_lastTick);
     }
 
@@ -1045,9 +998,9 @@ void KFormat(argList)
                         } else {
                             strArg = GetTextPointer((uint)theArg);
                         }
-                        text += sprintf(text, theStr, strArg);
+                        text += sci_sprintf(text, theStr, strArg);
                     } else {
-                        text += sprintf(text, theStr, theArg);
+                        text += sci_sprintf(text, theStr, theArg);
                     }
                     break;
                 }
@@ -1099,7 +1052,12 @@ void KStrSplit(argList)
 
 void KGetCWD(argList)
 {
-    ret(getcwd((char *)arg(1), 68));
+    const char *cwd = GetSaveDosDir();
+    char       *buf = (char *)arg(1);
+    if (buf != cwd) {
+        strcpy(buf, cwd);
+    }
+    ret(buf);
 }
 
 void KGetFarText(argList)
@@ -1112,258 +1070,38 @@ void KReadNumber(argList)
     ret(atoi((const char *)arg(1)));
 }
 
-void KBaseSetter(argList)
-{
-    Obj  *actor;
-    int   theY;
-    View *view;
-
-    actor = (Obj *)arg(1);
-    view  = (View *)ResLoad(RES_VIEW, IndexedProp(actor, actView));
-
-    GetCelRectNative(view,
-                     (uint)IndexedProp(actor, actLoop),
-                     (uint)IndexedProp(actor, actCel),
-                     (int)IndexedProp(actor, actX),
-                     (int)IndexedProp(actor, actY),
-                     (int)IndexedProp(actor, actZ),
-                     IndexedPropAddr(actor, actBR));
-
-    theY                            = 1 + (int)IndexedProp(actor, actY);
-    IndexedProp(actor, actBRBottom) = (uintptr_t)theY;
-    IndexedProp(actor, actBR) =
-      (uintptr_t)(theY - (int)IndexedProp(actor, actYStep));
-}
-
-void KDirLoop(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
-void KCantBeHere(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
+// Return V|P|C bits encompassed by rectangle.
 void KOnControl(argList)
 {
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
+    RRect      r;
+    RGrafPort *oldPort;
 
-void KInitBresen(argList)
-{
-    Obj *motion, *client;
-    bool xAxis;
-    int  DX, DY, toX, toY, dx, dy, incr, i1, i2, di;
-    int  tdx, tdy, watchDog;
-    int  skipFactor;
+    RGetPort(&oldPort);
+    RSetPort(&g_picWind->port);
 
-    motion     = (Obj *)arg(1);
-    client     = (Obj *)IndexedProp(motion, motClient);
-    skipFactor = (argCount >= 2) ? (int)arg(2) : 1;
+    // First argument is bitmap to examine.
 
-    toX = (int)IndexedProp(motion, motX);
-    toY = (int)IndexedProp(motion, motY);
+    // Next two arguments are X/Y of upper/left of rectangle.
+    r.left = (int16_t)arg(2);
+    r.top  = (int16_t)arg(3);
 
-    tdx = (int)IndexedProp(client, actXStep) * skipFactor;
-    tdy = (int)IndexedProp(client, actYStep) * skipFactor;
+    // Optional fourth and fifth arguments are X/Y of bottom/right.
+    if (argCount == 5) {
+        r.right  = (int16_t)arg(4);
+        r.bottom = (int16_t)arg(5);
 
-    watchDog = (tdx > tdy) ? tdx : tdy;
-    watchDog *= 2;
-
-    // Get distances to be moved.
-    DX = toX - (int)IndexedProp(client, actX);
-    DY = toY - (int)IndexedProp(client, actY);
-
-    // Compute basic step sizes.
-    while (true) {
-        dx = tdx;
-        dy = tdy;
-
-        if (abs(DX) >= abs(DY)) {
-            // Then motion will be along the x-axis.
-            xAxis = true;
-            if (DX < 0) {
-                dx = -dx;
-            }
-            dy = (DX) ? dx * DY / DX : 0;
-        } else {
-            // Our major motion is along the y-axis.
-            xAxis = false;
-            if (DY < 0) {
-                dy = -dy;
-            }
-            dx = (DY) ? dy * DX / DY : 0;
-        }
-
-        // Compute increments and decision variable.
-        i1   = (xAxis) ? 2 * (dx * DY - dy * DX) : 2 * (dy * DX - dx * DY);
-        incr = 1;
-        if ((xAxis && DY < 0) || (!xAxis && DX < 0)) {
-            i1   = -i1;
-            incr = -1;
-        }
-
-        i2 = i1 - 2 * ((xAxis) ? DX : DY);
-        di = i1 - ((xAxis) ? DX : DY);
-
-        if ((xAxis && DX < 0) || (!xAxis && DY < 0)) {
-            i1 = -i1;
-            i2 = -i2;
-            di = -di;
-        }
-
-        // Limit x step to avoid over stepping Y step size.
-        if (xAxis && tdx > tdy) {
-            if (tdx != 0 && abs(dy + incr) > tdy) {
-                if ((--watchDog) == 0) {
-                    RAlert(E_BRESEN);
-                    exit(1);
-                }
-                --tdx;
-                continue;
-            }
-        }
-#if 0
-        // DON'T modify X
-        else
-        {
-            if (tdy && abs(dx + incr) > tdx)
-            {
-                --tdy;
-                continue;
-            }
-        }
-#endif
-
-        break;
-    }
-
-    // Set the various variables we've computed.
-    IndexedProp(motion, motDX)    = (uintptr_t)dx;
-    IndexedProp(motion, motDY)    = (uintptr_t)dy;
-    IndexedProp(motion, motI1)    = (uintptr_t)i1;
-    IndexedProp(motion, motI2)    = (uintptr_t)i2;
-    IndexedProp(motion, motDI)    = (uintptr_t)di;
-    IndexedProp(motion, motIncr)  = (uintptr_t)incr;
-    IndexedProp(motion, motXAxis) = (uintptr_t)xAxis;
-}
-
-void KDoBresen(argList)
-{
-    Obj     *motion, *client;
-    int      x, y, toX, toY, i1, i2, di, si1, si2, sdi;
-    int      dx, dy, incr;
-    bool     xAxis;
-    uint     moveCount;
-    uint8_t *aniState[500];
-
-    motion = (Obj *)arg(1);
-    client = (Obj *)IndexedProp(motion, motClient);
-    g_acc  = 0;
-
-    IndexedProp(client, actSignal) =
-      IndexedProp(client, actSignal) & (~blocked);
-
-    moveCount = (uint)IndexedProp(motion, motMoveCnt) + 1;
-    if ((uint)IndexedProp(client, actMoveSpeed) < moveCount) {
-        // Get properties in variables for speed and convenience.
-        x     = (int)IndexedProp(client, actX);
-        y     = (int)IndexedProp(client, actY);
-        toX   = (int)IndexedProp(motion, motX);
-        toY   = (int)IndexedProp(motion, motY);
-        xAxis = (bool)IndexedProp(motion, motXAxis);
-        dx    = (int)IndexedProp(motion, motDX);
-        dy    = (int)IndexedProp(motion, motDY);
-        incr  = (int)IndexedProp(motion, motIncr);
-        si1 = i1 = (int)IndexedProp(motion, motI1);
-        si2 = i2 = (int)IndexedProp(motion, motI2);
-        sdi = di = (int)IndexedProp(motion, motDI);
-
-        IndexedProp(motion, motXLast) = (uintptr_t)x;
-        IndexedProp(motion, motYLast) = (uintptr_t)y;
-
-        // Save the current animation state before moving the client.
-        memcpy(aniState,
-               client->vars,
-               sizeof(uintptr_t) * OBJHEADER(client)->varSelNum);
-
-        if ((xAxis && (abs(toX - x) <= abs(dx))) ||
-            (!xAxis && (abs(toY - y) <= abs(dy)))) {
-            //
-            // We're within a step size of the destination -- set client's x & y
-            // to it.
-            //
-
-            x = toX;
-            y = toY;
-        } else {
-            //
-            // Move one step.
-            //
-
-            x += dx;
-            y += dy;
-            if (di < 0) {
-                di += i1;
-            } else {
-                di += i2;
-                if (xAxis) {
-                    y += incr;
-                } else {
-                    x += incr;
-                }
-            }
-        }
-
-        // Update client's properties.
-        IndexedProp(client, actX) = (uintptr_t)x;
-        IndexedProp(client, actY) = (uintptr_t)y;
-
-        // Check position validity for this cel.
-        if ((g_acc = InvokeMethod(client, s_cantBeHere, 0)) != 0) {
-            // Client can't be here -- restore the original state and mark the
-            // client as blocked.
-            memcpy(client->vars,
-                   aniState,
-                   sizeof(uintptr_t) * OBJHEADER(client)->varSelNum);
-            i1 = si1;
-            i2 = si2;
-            di = sdi;
-
-            IndexedProp(client, actSignal) =
-              blocked | IndexedProp(client, actSignal);
-        }
-
-        IndexedProp(motion, motI1)      = (uintptr_t)i1;
-        IndexedProp(motion, motI2)      = (uintptr_t)i2;
-        IndexedProp(motion, motDI)      = (uintptr_t)di;
-        IndexedProp(motion, motMoveCnt) = moveCount;
-
-        if (x == toX && y == toY) {
-            InvokeMethod(motion, s_moveDone, 0);
-        }
     } else {
-        IndexedProp(motion, motMoveCnt) = moveCount;
+        // Make rectangle enclose one point.
+        r.right  = r.left + 1;
+        r.bottom = r.top + 1;
     }
-}
 
-void KDoAvoider(argList) {}
+    // Call the real function with this rectangle.
+    ret(OnControl((uint)arg(1), &r));
+    RSetPort(oldPort);
+}
 
 void KAvoidPath(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
-}
-
-void KSetJump(argList)
 {
 #ifndef NOT_IMPL
 #error Not finished
@@ -1421,11 +1159,36 @@ void KCheckFreeSpace(argList)
 #endif
 }
 
+// Return TRUE if the passed path is valid, FALSE otherwise.
+// Implementation is to do a firstfile() for the directory, specifying directory
+// only.
 void KValidPath(argList)
 {
-#ifndef NOT_IMPL
-#error Not finished
-#endif
+    const char *path;
+    size_t      len;
+    DirEntry    dta;
+
+    path = (const char *)arg(1);
+
+    len = strlen(path);
+    if (len != 0 && (path[len - 1] == '/' || path[len - 1] == '\\')) {
+        len--;
+    }
+
+    if (len == 0) {
+        // Current directory is valid.
+        ret(TRUE);
+    } else if (len == 2 && path[1] == ':') {
+        // Current directory on a specified drive is same as validity of drive.
+        ret(path[0] == 'c' || path[0] == 'C' || path[0] == 'r' ||
+            path[0] == 'R');
+    } else if (firstfile(path, F_HIDDEN | F_SYSTEM | F_SUBDIR, &dta)) {
+        // Check to see if the path is a subdirectory.
+        ret((dta.atr | F_SUBDIR) != 0);
+    } else {
+        // Not valid.
+        ret(FALSE);
+    }
 }
 
 void KProfiler(argList)
@@ -1441,18 +1204,6 @@ void KDeviceInfo(argList)
 #error Not finished
 #endif
     ret(0);
-}
-
-void KGetSaveDir(argList)
-{
-    ret(g_saveDir);
-}
-
-void KCheckSaveGame(argList)
-{
-#ifndef NOT_IMPL
-#error Not finished
-#endif
 }
 
 void KFlushResources(argList)
@@ -1506,7 +1257,6 @@ void KCoordPri(argList)
 
 void KFileIO(argList)
 {
-    char     path[256];
     DirEntry findFileEntry;
     char    *buf;
     int      mode;
@@ -1524,8 +1274,7 @@ void KFileIO(argList)
             } else {
                 mode = O_RDONLY;
             }
-            sprintf(path, "%s%s", g_resDir, buf);
-            fd = open(path, O_BINARY | mode);
+            fd = fileopen(buf, mode);
             ret(fd);
             break;
 

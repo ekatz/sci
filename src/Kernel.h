@@ -1,7 +1,12 @@
 #ifndef KERNEL_H
 #define KERNEL_H
 
-#include "Types.h"
+#include "List.h"
+
+typedef struct KNode {
+    Node     link;
+    intptr_t nVal;
+} KNode;
 
 typedef uintptr_t *kArgs;
 typedef void (*kFunc)(kArgs);
@@ -54,12 +59,6 @@ void KSetSynonyms(argList);
 void KHaveMouse(argList);
 void KSetCursor(argList);
 void KJoystick(argList);
-void KGetSaveFiles(argList);
-void KSaveGame(argList);
-void KRestoreGame(argList);
-void KRestartGame(argList);
-void KGameIsRestarting(argList);
-void KDoSync(argList);
 void KNewList(argList);
 void KDisposeList(argList);
 void KNewNode(argList);
@@ -92,15 +91,8 @@ void KStrSplit(argList);
 void KGetCWD(argList);
 void KGetFarText(argList);
 void KReadNumber(argList);
-void KBaseSetter(argList);
-void KDirLoop(argList);
-void KCantBeHere(argList);
 void KOnControl(argList);
-void KInitBresen(argList);
-void KDoBresen(argList);
-void KDoAvoider(argList);
 void KAvoidPath(argList);
-void KSetJump(argList);
 void KSetDebug(argList);
 void KInspectObj(argList);
 void KShowSends(argList);
@@ -112,8 +104,6 @@ void KCheckFreeSpace(argList);
 void KValidPath(argList);
 void KProfiler(argList);
 void KDeviceInfo(argList);
-void KGetSaveDir(argList);
-void KCheckSaveGame(argList);
 void KFlushResources(argList);
 void KMemorySegment(argList);
 void KIntersections(argList);

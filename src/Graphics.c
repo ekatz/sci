@@ -231,10 +231,6 @@ RGrafPort *g_rThePort = NULL;
 // Normalized rectangle.
 RRect g_theRect = { 0 };
 
-uint16_t g_wordBits[] = { 0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0020,
-                          0x0040, 0x0080, 0x0100, 0x0200, 0x0400, 0x0800,
-                          0x1000, 0x2000, 0x4000, 0x8000 };
-
 static void InitGraph(void);
 static void EndGraph(void);
 static void ClearScreen(void);
@@ -713,6 +709,64 @@ void RInvertRect(RRect *rect)
 void REraseRect(RRect *rect)
 {
     RFillRect(rect, VMAP, g_rThePort->bkColor, 0, 0);
+}
+
+uint OnControl(uint mapSet, const RRect *rect)
+{
+    uint8_t *vMap;
+    uint     base;
+    uint     inter;
+    int      hRun, vRun, i, j;
+    uint     mask, bit;
+
+    // Get rect into local.
+    memcpy(&g_theRect, rect, sizeof(RRect));
+
+    if (!RSectRect(&g_theRect, &g_rThePort->portRect, &g_theRect)) {
+        // No rectangle left to check.
+        return 0;
+    }
+
+    // Make it global.
+    SOffsetRect(&g_theRect, g_rThePort);
+
+    // Determine vertical run-count.
+    vRun = g_theRect.bottom - g_theRect.top;
+    // Determine horizontal run-count.
+    hRun = g_theRect.right - g_theRect.left;
+
+    // Set up base address of first line.
+    base = g_baseTable[g_theRect.top];
+    base += (uint)g_theRect.left;
+
+    // Calculate interline advance value.
+    inter = (uint)(VROWBYTES - hRun);
+
+    // Do all the lines.
+    mask = 0;
+    vMap = &g_pcHndl[base];
+    for (i = 0; i < vRun; ++i) {
+        // Priority pixel is in high nibble.
+        if ((mapSet & PMAP) != 0) {
+            for (j = 0; j < hRun; ++j) {
+                bit = *vMap >> 4;
+                mask |= 1U << bit;
+                ++vMap;
+            }
+        }
+        // Control pixel is in low nibble.
+        else {
+            for (j = 0; j < hRun; ++j) {
+                bit = *vMap & ODDON;
+                mask |= 1U << bit;
+                ++vMap;
+            }
+        }
+
+        // Advance to next line.
+        vMap += inter;
+    }
+    return mask;
 }
 
 Handle SaveBits(const RRect *rect, uint mapSet)

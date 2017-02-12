@@ -125,7 +125,7 @@ void DisposeAllScripts(void)
 {
     Script *script;
 
-    while ((script = FromNode(FirstNode(&g_loadList), Script)) != NIL) {
+    while ((script = FromNode(FirstNode(&s_scriptList), Script)) != NIL) {
         TossScript(script, false);
     }
 }
@@ -146,9 +146,9 @@ static void TossScript(Script *script, bool checkClones)
 
     // Dispose the heap resource.
     TossScriptClasses(num);
-    TossScriptObjects(script->heap);
 
     if (script->heap != NULL) {
+        TossScriptObjects(script->heap);
         DisposeHeapHandle(script->heap);
     }
 
@@ -503,7 +503,6 @@ static void FixTable(SegHeader *seg,
     byte     *heapEntry;
     uint16_t *entry;
     uint16_t *fixPtr;
-    uint16_t  relPtr;
     uint16_t  tableType;
     uint      i, numEntries;
 

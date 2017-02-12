@@ -10,8 +10,7 @@ typedef struct ResPatchEntry {
     uint16_t resNum;
 } ResPatchEntry;
 
-List g_loadList    = LIST_INITIALIZER;
-char g_resDir[256] = { 0 };
+List g_loadList = LIST_INITIALIZER;
 
 static Handle s_patches = NULL;
 
@@ -61,6 +60,7 @@ Handle ResLoad(int resType, size_t resNum)
 void ResUnLoad(int resType, size_t resNum)
 {
     LoadLink *scan;
+    LoadLink *tmp;
 
     if (resNum != ALL_IDS) {
         scan = FindResEntry(resType, resNum);
@@ -75,7 +75,9 @@ void ResUnLoad(int resType, size_t resNum)
             free((Handle)scan);
         }
     } else {
-        while ((scan = FromNode(FirstNode(&g_loadList), LoadLink)) != NIL) {
+        for (scan = FromNode(FirstNode(&g_loadList), LoadLink); scan != NIL;
+             scan = tmp) {
+            tmp = FromNode(NextNode(ToNode(scan)), LoadLink);
             if (scan->type == resType) {
                 ResUnLoad(resType, scan->num);
             }
@@ -138,14 +140,12 @@ void DisposeResHandle(Handle handle)
 
 Handle LoadHandle(const char *fileName)
 {
-    char   path[256];
     Handle theHandle;
     size_t len;
     int    fd;
 
     // Open the file.
-    sprintf(path, "%s%s", g_resDir, fileName);
-    if ((fd = open(path, O_RDONLY | O_BINARY)) == -1) {
+    if ((fd = fileopen(fileName, O_RDONLY)) == -1) {
         return NULL;
     }
 
@@ -176,15 +176,13 @@ void InitPatches(void)
 {
     int            npatches = 0;
     int            resType;
-    char           path[256];
     char           fileName[64];
     ResPatchEntry *entry;
     DirEntry       fileInfo;
 
     for (resType = RES_BASE; resType < (RES_BASE + NRESTYPES); ++resType) {
         ResNameMakeWildCard(fileName, resType);
-        sprintf(path, "%s%s", g_resDir, fileName);
-        if (firstfile(path, 0, &fileInfo)) {
+        if (firstfile(fileName, 0, &fileInfo)) {
             do {
                 if ((fileInfo.atr & F_SUBDIR) == 0 &&
                     isdigit(fileInfo.name[0])) {
@@ -203,8 +201,7 @@ void InitPatches(void)
 
     for (resType = RES_BASE; resType < (RES_BASE + NRESTYPES); ++resType) {
         ResNameMakeWildCard(fileName, resType);
-        sprintf(path, "%s%s", g_resDir, fileName);
-        if (firstfile(path, 0, &fileInfo)) {
+        if (firstfile(fileName, 0, &fileInfo)) {
             do {
                 if ((fileInfo.atr & F_SUBDIR) == 0 &&
                     isdigit(fileInfo.name[0])) {
