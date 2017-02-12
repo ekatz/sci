@@ -27,6 +27,7 @@ private:
     llvm::Value* castValueToSizeType(llvm::Value *val, llvm::BasicBlock *bb);
     llvm::Value* castValueToSizeType(llvm::Value *val);
     void castAccToSizeType();
+    void fixAccConstantInt();
     void storeAcc();
     llvm::Value* loadAcc();
     void storePrevAcc();

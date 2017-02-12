@@ -11,6 +11,7 @@ extern "C" {
 #include "../SCI/src/VolLoad.c"
 #include "../SCI/src/Crypt.c"
 #include "../SCI/src/FarData.c"
+uintptr_t g_globalVars[1];
 } // extern "C"
 
 using namespace llvm;

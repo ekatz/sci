@@ -6,17 +6,21 @@
 
 BEGIN_NAMESPACE_SCI
 
-class ExpandScriptIDPass
+class Script;
+
+class EmitScriptUtilitiesPass
 {
 public:
-    ExpandScriptIDPass();
-    ~ExpandScriptIDPass();
+    EmitScriptUtilitiesPass();
+    ~EmitScriptUtilitiesPass();
 
     void run();
 
 private:
-    void expand(CallKernelInst *call);
+    void expandScriptID(CallKernelInst *call);
+    void createDisposeScriptFunctions();
 
+    llvm::Function* getOrCreateDisposeScriptNumFunction(Script *script);
     llvm::Function* getOrCreateGetDispatchAddrFunction() const;
 };
 

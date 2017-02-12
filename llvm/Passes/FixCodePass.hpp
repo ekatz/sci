@@ -17,7 +17,8 @@ public:
 
 private:
     llvm::Function* createIsKindOfFunctionPrototype(llvm::Module *module) const;
-    llvm::Function* createIsKindOfMethodFunction(llvm::Module *module) const;
+    llvm::Function* createIsMemberOfFunctionPrototype(llvm::Module *module) const;
+    llvm::Function* createObjMethodFunction(llvm::Module *module, llvm::Function *externFunc) const;
 
     llvm::IntegerType *m_sizeTy;
 };

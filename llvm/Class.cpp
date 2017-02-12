@@ -126,12 +126,33 @@ Class::Class(const ObjRes &res, Script &script) :
     const char *nameSel = m_script.getDataAt(res.nameSel);
     if (nameSel != nullptr && nameSel[0] != '\0')
     {
-        nameStr = nameSel;
+        if (m_super != nullptr && m_super->getName() == "MenuBar@255")
+        {
+            nameStr = "TheMenuBar";
+        }
+        else
+        {
+            nameStr = nameSel;
+        }
     }
     else
     {
-        nameStr = res.isClass() ? "Class" : "obj";
-        nameStr += '@' + utostr(getId());
+        if (script.getId() == 255)
+        {
+            if (m_id == 9)
+            {
+                nameStr = "MenuBar";
+            }
+            else if (m_id == 10)
+            {
+                nameStr = "DItem";
+            }
+        }
+        if (nameStr.empty())
+        {
+            nameStr = res.isClass() ? "Class" : "obj";
+            nameStr += '@' + utostr(getId());
+        }
     }
     nameStr += '@' + utostr(m_script.getId());
     name = nameStr;
@@ -445,11 +466,7 @@ bool Class::loadMethods()
             return false;
         }
 
-        if (method->getScript().getId() != getScript().getId())
-        {
-            func = cast<Function>(getModule().getOrInsertFunction(func->getName(), func->getFunctionType()));
-        }
-
+        func = GetFunctionDecl(func, &getModule());
         offsInit[i] = ConstantExpr::getBitCast(func, elemTy);
     }
 

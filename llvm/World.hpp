@@ -39,6 +39,7 @@ public:
 
     Object* addClass(const ObjRes &res, Script &script);
     Object* getClass(uint id);
+    ArrayRef<Object> getClasses() const { return llvm::makeArrayRef(m_classes, m_classCount); }
     llvm::StructType* getAbstractClassType() const { return m_absClassTy; }
 
     SelectorTable& getSelectorTable() { return m_sels; }

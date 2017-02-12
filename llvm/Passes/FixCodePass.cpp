@@ -27,11 +27,26 @@ void FixCodePass::run()
     World &world = GetWorld();
 
     Object *obj = world.getClass(0);
-    Method *method = obj->getMethod(s_isKindOf);
-    Function *func = method->getFunction();
-    Module *module = func->getParent();
+    Method *method;
+    Function *func, *newFunc;
+    Module *module;
 
-    Function *newFunc = createIsKindOfMethodFunction(module);
+    method = obj->getMethod(s_isKindOf);
+    func = method->getFunction();
+    module = func->getParent();
+
+    newFunc = createObjMethodFunction(module, createIsKindOfFunctionPrototype(module));
+
+    newFunc->takeName(func);
+    func->replaceAllUsesWith(newFunc);
+    func->eraseFromParent();
+
+
+    method = obj->getMethod(s_isMemberOf);
+    func = method->getFunction();
+    module = func->getParent();
+
+    newFunc = createObjMethodFunction(module, createIsMemberOfFunctionPrototype(module));
 
     newFunc->takeName(func);
     func->replaceAllUsesWith(newFunc);
@@ -48,7 +63,16 @@ Function* FixCodePass::createIsKindOfFunctionPrototype(Module *module) const
 }
 
 
-Function* FixCodePass::createIsKindOfMethodFunction(Module *module) const
+Function* FixCodePass::createIsMemberOfFunctionPrototype(Module *module) const
+{
+    Type *params[] = { m_sizeTy, m_sizeTy };
+    FunctionType *funcTy = FunctionType::get(Type::getInt1Ty(m_sizeTy->getContext()), params, false);
+
+    return Function::Create(funcTy, GlobalValue::ExternalLinkage, "IsMemberOf", module);
+}
+
+
+Function* FixCodePass::createObjMethodFunction(Module *module, Function *externFunc) const
 {
     World &world = GetWorld();
     LLVMContext &ctx = world.getContext();
@@ -65,9 +89,8 @@ Function* FixCodePass::createIsKindOfMethodFunction(Module *module) const
     Value *obj2Var = GetElementPtrInst::CreateInBounds(&*++ai, c, "", bb);
     obj2Var = new LoadInst(obj2Var, "", false, world.getSizeTypeAlignment(), bb);
 
-    Function *isKindOfFunc = createIsKindOfFunctionPrototype(module);
     Value *args[] = { obj1Var, obj2Var };
-    Value *val = CallInst::Create(isKindOfFunc, args, "", bb);
+    Value *val = CallInst::Create(externFunc, args, "", bb);
     val = new ZExtInst(val, m_sizeTy, "", bb);
     ReturnInst::Create(ctx, val, bb);
     return func;

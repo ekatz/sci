@@ -16,7 +16,7 @@ Function* GetFunctionDecl(Function *orig, Module *module)
         func = Function::Create(orig->getFunctionType(), GlobalValue::ExternalLinkage, orig->getName(), module);
         func->copyAttributesFrom(orig);
 
-        if (orig->hasLocalLinkage())
+        if (!orig->hasExternalLinkage())
         {
             orig->setLinkage(GlobalValue::ExternalLinkage);
         }
@@ -42,7 +42,7 @@ GlobalVariable* GetGlobalVariableDecl(GlobalVariable *orig, Module *module)
         var->copyAttributesFrom(orig);
         var->setAlignment(orig->getAlignment());
 
-        if (orig->hasLocalLinkage())
+        if (!orig->hasExternalLinkage())
         {
             orig->setLinkage(GlobalValue::ExternalLinkage);
         }

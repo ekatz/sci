@@ -440,7 +440,7 @@ Function* PMachine::interpretFunction(const uint8_t *code, StringRef name, uint 
         };
         funcTy = FunctionType::get(m_retTy, params, false);
     }
-    Function *func = Function::Create(funcTy, GlobalValue::LinkOnceODRLinkage, name, getModule());
+    Function *func = Function::Create(funcTy, GlobalValue::InternalLinkage, name, getModule());
 
     auto iArg = func->arg_begin();
     if (m_self)
@@ -734,6 +734,19 @@ void PMachine::castAccToSizeType()
 }
 
 
+void PMachine::fixAccConstantInt()
+{
+    if (isa<ConstantInt>(m_acc))
+    {
+        int16_t v = static_cast<int16_t>(cast<ConstantInt>(m_acc)->getZExtValue());
+        if (v < 0)
+        {
+            m_acc = ConstantInt::get(m_sizeTy, static_cast<uint16_t>(v));
+        }
+    }
+}
+
+
 void PMachine::storeAcc()
 {
     Value *val = castValueToSizeType(m_acc);
@@ -775,6 +788,7 @@ void PMachine::callPush(llvm::Value *val)
 bool PMachine::bnotOp(uint8_t opcode)
 {
     castAccToSizeType();
+    fixAccConstantInt();
     m_acc = BinaryOperator::CreateNot(m_acc, "", m_bb);
     return true;
 }
@@ -828,6 +842,7 @@ bool PMachine::modOp(uint8_t opcode)
 bool PMachine::shrOp(uint8_t opcode)
 {
     castAccToSizeType();
+    fixAccConstantInt();
     Value *tos = callPop();
     m_acc = BinaryOperator::CreateLShr(tos, m_acc, "", m_bb);
     return true;
@@ -837,6 +852,7 @@ bool PMachine::shrOp(uint8_t opcode)
 bool PMachine::shlOp(uint8_t opcode)
 {
     castAccToSizeType();
+    fixAccConstantInt();
     Value *tos = callPop();
     m_acc = BinaryOperator::CreateShl(tos, m_acc, "", m_bb);
     return true;
@@ -846,6 +862,7 @@ bool PMachine::shlOp(uint8_t opcode)
 bool PMachine::xorOp(uint8_t opcode)
 {
     castAccToSizeType();
+    fixAccConstantInt();
     Value *tos = callPop();
     m_acc = BinaryOperator::CreateXor(tos, m_acc, "", m_bb);
     return true;
@@ -855,6 +872,7 @@ bool PMachine::xorOp(uint8_t opcode)
 bool PMachine::andOp(uint8_t opcode)
 {
     castAccToSizeType();
+    fixAccConstantInt();
     Value *tos = callPop();
     m_acc = BinaryOperator::CreateAnd(tos, m_acc, "", m_bb);
     return true;
@@ -864,6 +882,7 @@ bool PMachine::andOp(uint8_t opcode)
 bool PMachine::orOp(uint8_t opcode)
 {
     castAccToSizeType();
+    fixAccConstantInt();
     Value *tos = callPop();
     m_acc = BinaryOperator::CreateOr(tos, m_acc, "", m_bb);
     return true;
@@ -908,6 +927,18 @@ bool PMachine::cmpOp(uint8_t opcode)
     };
 
     CmpInst::Predicate pred = s_cmpTable[(opcode >> 1) - (OP_eq >> 1)];
+    switch (pred)
+    {
+    case CmpInst::ICMP_UGT:
+    case CmpInst::ICMP_UGE:
+    case CmpInst::ICMP_ULT:
+    case CmpInst::ICMP_ULE:
+        fixAccConstantInt();
+        break;
+
+    default:
+        break;
+    }
 
     castAccToSizeType();
     storePrevAcc();
@@ -953,7 +984,7 @@ bool PMachine::jmpOp(uint8_t opcode)
 
 bool PMachine::loadiOp(uint8_t opcode)
 {
-    m_acc = GetWorld().getConstantValue(static_cast<int16_t>(getSInt(opcode)));
+    m_acc = ConstantInt::get(m_sizeTy, static_cast<uint64_t>(getSInt(opcode)), true);
     return true;
 }
 
@@ -1386,10 +1417,16 @@ void PMachine::emitDebugLog()
     LLVMContext &ctx = module->getContext();
     PointerType *int8PtrTy = Type::getInt8PtrTy(ctx);
 
+    Value *self;
     auto iArg = func->arg_begin();
     if (!iArg->getType()->isPointerTy())
     {
+        self = &*iArg;
         ++iArg;
+    }
+    else
+    {
+        self = ConstantInt::get(m_sizeTy, 0);
     }
 
     StringRef name;
@@ -1397,7 +1434,7 @@ void PMachine::emitDebugLog()
     Function *funcEntry = module->getFunction(name);
     if (funcEntry == nullptr)
     {
-        Type *params[] = { int8PtrTy, GetWorld().getSizeType()->getPointerTo() };
+        Type *params[] = { int8PtrTy, m_sizeTy, m_sizeTy->getPointerTo() };
         FunctionType *funcTy = FunctionType::get(Type::getVoidTy(ctx), params, false);
         funcEntry = Function::Create(funcTy, GlobalValue::ExternalLinkage, name, module);
     }
@@ -1406,7 +1443,7 @@ void PMachine::emitDebugLog()
     Function *funcExit = module->getFunction(name);
     if (funcExit == nullptr)
     {
-        FunctionType *funcTy = FunctionType::get(Type::getVoidTy(ctx), false);
+        FunctionType *funcTy = FunctionType::get(Type::getVoidTy(ctx), m_sizeTy, false);
         funcExit = Function::Create(funcTy, GlobalValue::ExternalLinkage, name, module);
     }
 
@@ -1421,7 +1458,7 @@ void PMachine::emitDebugLog()
 
     Instruction *entryPoint = &*m_entry->begin();
     Value *strCast = CastInst::Create(Instruction::BitCast, var, int8PtrTy, "", entryPoint);
-    Value *args[] = { strCast, &*iArg };
+    Value *args[] = { strCast, self, &*iArg };
     CallInst::Create(funcEntry, args, "", entryPoint);
 
 
@@ -1430,56 +1467,9 @@ void PMachine::emitDebugLog()
         ReturnInst *ret = dyn_cast<ReturnInst>(bb.getTerminator());
         if (ret != nullptr)
         {
-            CallInst::Create(funcExit, "", ret);
+            CallInst::Create(funcExit, self, "", ret);
         }
     }
-}
-
-
-static GlobalVariable* GetOrCreateDebugIndentVariable()
-{
-    StringRef name = "g_debugIndent";
-    World &world = GetWorld();
-    Module *mainModule = world.getScript(0)->getModule();
-
-    GlobalVariable *var = mainModule->getGlobalVariable(name);
-    if (var != nullptr)
-    {
-        return var;
-    }
-
-    LLVMContext &ctx = world.getContext();
-    IntegerType *int32Ty = Type::getInt32Ty(ctx);
-    var = new GlobalVariable(*mainModule,
-                             int32Ty,
-                             false,
-                             GlobalValue::ExternalLinkage,
-                             ConstantInt::getNullValue(int32Ty),
-                             name);
-    return var;
-}
-
-
-static GlobalVariable* GetOrCreateDebugFormatString(Module *module)
-{
-    StringRef name = "s_debugFormatStr";
-    GlobalVariable *var = module->getGlobalVariable(name);
-    if (var != nullptr)
-    {
-        return var;
-    }
-
-    LLVMContext &ctx = module->getContext();
-    StringRef str = "%*c%s";
-    Constant *c = ConstantDataArray::getString(ctx, str);
-    var = new GlobalVariable(*module,
-                                             c->getType(),
-                                             true,
-                                             GlobalValue::LinkOnceODRLinkage,
-                                             c);
-    var->setAlignment(GetWorld().getTypeAlignment(c->getType()));
-    var->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
-    return var;
 }
 
 

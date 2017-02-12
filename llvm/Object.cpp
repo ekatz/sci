@@ -71,9 +71,11 @@ ConstantStruct* Object::createInitializer(StructType *s, const Property *begin, 
                     c = ConstantExpr::getPtrToInt(m_species, *i);
                     break;
 
-                case (ObjRes::NAME_OFFSET - ObjRes::INFO_OFFSET):
-                    c = ConstantExpr::getPtrToInt(m_script.getString(m_global->getName()), *i);
+                case (ObjRes::NAME_OFFSET - ObjRes::INFO_OFFSET): {
+                    const char *str = m_script.getDataAt(static_cast<uint16_t>(ptr->getDefaultValue()));
+                    c = ConstantExpr::getPtrToInt(m_script.getString(str), *i);
                     break;
+                }
 
                 default:
                     c = ConstantInt::get(*i, static_cast<uint16_t>(ptr->getDefaultValue()));
