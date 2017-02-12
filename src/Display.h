@@ -26,6 +26,6 @@ void GetDisplayCLUT(RPalette *pal);
 
 void SetDisplayCLUT(const RPalette *pal);
 
-bool DisplayCursor(bool show);
+int DisplayCursor(int show);
 
 #endif // DISPLAY_H

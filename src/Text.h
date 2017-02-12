@@ -30,6 +30,4 @@ void RDrawText(const char *str, uint first, uint count);
 
 void ShowText(const char *str, uint first, uint count);
 
-const char *GetTextPointer(uintptr_t native);
-
 #endif // TEXT_H

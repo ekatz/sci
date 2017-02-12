@@ -5,26 +5,16 @@
 #include "Selector.h"
 #include <stdarg.h>
 
-#define MINOBJECTADDR 0x2000
-
 // Bits in the -info- property.
 #define CLASSBIT  0x8000
 #define CLONEBIT  0x0001
 #define NODISPOSE 0x0002
 #define NODISPLAY 0x0004 // Don't display in ShowObj()
 
-typedef struct ResClassEntry {
-    uint16_t obj;       // pointer to Obj
-    uint16_t scriptNum; // script number
-} ResClassEntry;
-
-ClassEntry *g_classTbl           = NULL;
-uint        g_numClasses         = 0;
-uint        g_objOfs[OBJOFSSIZE] = { 0 };
+uint g_objOfs[OBJOFSSIZE] = { 0 };
 
 static void CheckObject(Obj *obj);
-static int  FindSelector(ObjID *list, uint n, ObjID sel);
-static void QuickMessage(Obj *obj, uint argc);
+static bool LookupMethod(const Obj *obj, uintptr_t sel, PfnMethod *method);
 
 void LoadPropOffsets(void)
 {
@@ -39,76 +29,32 @@ void LoadPropOffsets(void)
     }
 }
 
-void LoadClassTbl(void)
-{
-    ResClassEntry *res;
-    uint           i, n;
-
-    res          = (ResClassEntry *)ResLoad(RES_VOCAB, CLASSTBL_VOCAB);
-    g_numClasses = ResHandleSize(res) / sizeof(ResClassEntry);
-
-    g_classTbl = (ClassEntry *)malloc(g_numClasses * sizeof(ClassEntry));
-    for (i = 0, n = g_numClasses; i < n; ++i) {
-        g_classTbl[i].obj       = NULL;
-        g_classTbl[i].scriptNum = res[i].scriptNum;
-    }
-}
-
-Obj *GetClass(ObjID n)
-{
-    Obj *obj;
-
-    if (n == (ObjID)-1) {
-        return NULL;
-    }
-
-    obj = g_classTbl[n].obj;
-    if (obj == NULL) {
-        LoadScript(g_classTbl[n].scriptNum);
-        obj = g_classTbl[n].obj;
-    }
-    return obj;
-}
-
 bool IsObject(Obj *obj)
 {
-    // A pointer points to an object if it's non-NULL, not odd, and its magic
-    // field is OBJID.
-    return obj != NULL && ((uintptr_t)obj & 1) == 0 &&
-           OBJHEADER(obj)->magic == OBJID;
+    // A pointer points to an object if it's non-NULL and aligned to pointer
+    // size.
+    return obj != NULL && ((uintptr_t)obj & (sizeof(uintptr_t) - 1)) == 0;
 }
 
 Obj *Clone(Obj *obj)
 {
-    uint       size;
-    ObjHeader *newObjHeader;
-    Obj       *newObj;
-    Script    *sp;
+    size_t size;
+    Obj   *newObj;
 
     // Is 'obj' an object?
     CheckObject(obj);
 
     // Get memory and copy into it.
-    size         = OBJSIZE(OBJHEADER(obj)->varSelNum);
-    newObjHeader = (ObjHeader *)malloc(size);
-    memcpy(newObjHeader, OBJHEADER(obj), size);
+    size            = (size_t)obj->species->propSels->count * sizeof(uintptr_t);
+    newObj          = (Obj *)malloc(sizeof(Obj) + size);
+    newObj->species = obj->species;
+    memcpy(newObj->props, obj->props, size);
 
-    newObj = (Obj *)(newObjHeader + 1);
-
-    // If we're copying a class, set the new object's super to the class and
-    // turn off its class bit.
-    if ((newObj->info & CLASSBIT) != 0) {
-        newObj->super = obj;
-        newObj->info &= ~CLASSBIT;
-    }
+    // If we're copying a class, turn off its class bit.
+    newObj->props[PROP_INFO_OFFSET] &= ~CLASSBIT;
 
     // Mark the object as cloned.
-    newObj->info |= CLONEBIT;
-
-    // Increment script's reference count.
-    sp = OBJHEADER(newObj)->script;
-    sp->clones++;
-
+    newObj->props[PROP_INFO_OFFSET] |= CLONEBIT;
     return newObj;
 }
 
@@ -117,114 +63,108 @@ void DisposeClone(Obj *obj)
     // Is 'obj' an object?
     CheckObject(obj);
 
-    // Clear the object ID, decrement the script's reference count,
-    // and free the object's memory.
-    if ((obj->info & (CLONEBIT | NODISPOSE)) == CLONEBIT) {
-        Script *sp            = OBJHEADER(obj)->script;
-        OBJHEADER(obj)->magic = 0;
-        sp->clones--;
-        free(OBJHEADER(obj));
+    // Free the object's memory.
+    if ((obj->props[PROP_INFO_OFFSET] & (CLONEBIT | NODISPOSE)) == CLONEBIT) {
+        free(obj);
     }
-}
-
-void SendMessage(Obj *obj)
-{
-    Obj *prevObj = g_object;
-    g_object     = obj;
-    Messager(obj);
-    g_object = prevObj;
-}
-
-void Messager(Obj *obj)
-{
-    uint argc = GetByte();
-    argc /= sizeof(uint16_t);
-    argc += g_restArgsCount;
-    QuickMessage(obj, argc);
 }
 
 uintptr_t InvokeMethod(Obj *obj, ObjID sel, uint argc, ...)
 {
-    va_list    args;
-    Obj       *prevObj;
-    uintptr_t *prevBase;
+    va_list    argv;
+    uintptr_t *args = (uintptr_t *)alloca((argc + 1) * sizeof(uintptr_t *));
     uint       i;
 
-    va_start(args, argc);
-
-    // Set this as the current object.
-    prevObj  = g_object;
-    g_object = obj;
-
-    prevBase = g_bp;
-    g_bp     = g_sp;
-
-    Push(sel);
-    Push(argc);
-    for (i = 0; i < argc; ++i) {
-        Push(va_arg(args, uint16_t));
+    va_start(argv, argc);
+    args[0] = argc;
+    for (i = 1; i <= argc; ++i) {
+        args[i] = va_arg(argv, uint16_t);
     }
-    va_end(args);
+    va_end(argv);
 
-    QuickMessage(obj, argc + 2);
+    return CallMethod(obj, sel, args);
+}
 
-    g_sp     = g_bp;
-    g_bp     = prevBase;
-    g_object = prevObj;
-    return g_acc;
+uintptr_t CallMethod(Obj *obj, uintptr_t sel, uintptr_t args[])
+{
+    PfnMethod method;
+    if (!LookupMethod(obj, sel, &method)) {
+        PError(PE_BAD_SELECTOR, (uintptr_t)obj, sel);
+    }
+    return (*method)(obj, args);
+}
+
+uintptr_t SendMessage(Obj *obj, uintptr_t sel, uintptr_t args[])
+{
+    uintptr_t *prop = GetPropAddr(obj, sel);
+    if (prop != NULL) {
+        if (args[0] != 0) {
+            *prop = args[1];
+        }
+        return *prop;
+    }
+    return CallMethod(obj, sel, args);
 }
 
 bool RespondsTo(Obj *obj, uint selector)
 {
-    ObjID *funcs;
-
     // Is 'obj' an object?
     CheckObject(obj);
 
-    // Is 'selector' a property?
-    if (GetPropAddr(obj, selector)) {
-        return true;
+    if (GetPropAddr(obj, selector) == NULL) {
+        PfnMethod method;
+        if (!LookupMethod(obj, selector, &method)) {
+            return false;
+        }
     }
+    return true;
+}
 
-    // Search the method dictionary hierarchy.
-    do {
-        funcs = OBJHEADER(obj)->funcSelList;
-        if (FindSelector(funcs, funcs[-1], (ObjID)selector) >= 0) {
+bool IsKindOf(const Obj *obj1, const Obj *obj2)
+{
+    const Species *s1, *s2 = obj2->species;
+    for (s1 = obj1->species; s1 != NULL; s1 = s1->super) {
+        if (s1 == s2) {
             return true;
         }
+    }
+    return false;
+}
 
-        obj = obj->super;
-    } while (obj != NULL);
-
+bool IsMemberOf(const Obj *obj1, const Obj *obj2)
+{
+    if ((obj2->props[PROP_INFO_OFFSET] & CLASSBIT) != 0 &&
+        (obj1->props[PROP_INFO_OFFSET] & CLASSBIT) == 0) {
+        return (obj1->species == obj2->species ||
+                obj1->species->super == obj2->species);
+    }
     return false;
 }
 
 uintptr_t *GetPropAddr(Obj *obj, uint prop)
 {
-    int idx;
-
+    const Species *species  = obj->species;
+    const SelList *propSels = species->propSels;
+    unsigned int   i, n;
+    assert(prop != 0);
 #if 0
-    if (obj < MINOBJECTADDR)
+    if (prop == 0)
     {
-        return NULL;
+        return (uintptr_t *)&obj->species;
     }
 #endif
-
-    // Not an object -- odd address.
-    if ((((uintptr_t)obj) & 1) != 0) {
-        return NULL;
+    for (i = 0, n = propSels->count; i < n; ++i) {
+        if (propSels->sels[i] == (uint16_t)prop) {
+            return &obj->props[i];
+        }
     }
-
-    idx = FindSelector(obj->props, OBJHEADER(obj)->varSelNum, (ObjID)prop);
-    if (idx < 0) {
-        return NULL;
-    }
-
-    return &obj->vars[idx];
+    return NULL;
 }
 
-uintptr_t GetProperty(Obj *obj, uint prop)
+uintptr_t GetProperty(Obj *obj, uintptr_t prop)
 {
+    if (!IsObject(obj))
+        return 0;
     uintptr_t *var = GetPropAddr(obj, prop);
     if (var == NULL) {
         return 0;
@@ -232,8 +172,10 @@ uintptr_t GetProperty(Obj *obj, uint prop)
     return *var;
 }
 
-void SetProperty(Obj *obj, uint prop, uintptr_t value)
+void SetProperty(Obj *obj, uintptr_t prop, uintptr_t value)
 {
+    if (!IsObject(obj))
+        return;
     uintptr_t *var = GetPropAddr(obj, prop);
     if (var != NULL) {
         *var = value;
@@ -242,8 +184,7 @@ void SetProperty(Obj *obj, uint prop, uintptr_t value)
 
 const char *GetObjName(Obj *obj)
 {
-    uintptr_t *name = (uintptr_t *)GetPropAddr(obj, s_name);
-    return (name != 0) ? ((const char *)g_scriptHeap + *name) : NULL;
+    return (const char *)GetProperty(obj, s_name);
 }
 
 char *GetSelectorName(uint id, char *str)
@@ -277,147 +218,16 @@ static void CheckObject(Obj *obj)
     }
 }
 
-static void QuickMessage(Obj *obj, uint argc)
+static bool LookupMethod(const Obj *obj, uintptr_t sel, PfnMethod *method)
 {
-    uint       prevScriptNum;
-    Handle     prevScriptHandle;
-    Obj       *prevSuper;
-    Obj       *origObj;
-    ObjID     *funcs;
-    uintptr_t *prevLocalVar;
-    uintptr_t *prevParmVar;
-    uintptr_t *frame;
-    uintptr_t *parm;
-    uintptr_t *localVar;
-    uintptr_t *prevTempVar;
-    uint8_t   *retAddr;
-    uint16_t  *funcOffsets;
-    uint       selector;
-    uint       frameSize;
-    int        idx;
-
-    prevScriptNum    = g_thisScript;
-    prevScriptHandle = g_scriptHandle;
-
-    CheckObject(obj);
-
-    retAddr = g_pc;
-
-    prevSuper = g_super;
-    g_super   = obj->super;
-
-    prevLocalVar = g_vars.local;
-    g_vars.local = OBJHEADER(obj)->script->vars;
-
-    prevParmVar = g_vars.parm;
-
-    // Pointer to top of parameters.
-    frame = g_bp - argc;
-
-    parm = frame + 1;
-
-    // Check for completion of the send (no more messages).
-    while (argc != 0) {
-        // Get the message selector and move the parameter pointer past it.
-        selector = (uint)*parm++;
-
-        // Get the number of bytes of arguments for this message and
-        // adjust the number of bytes of parameters remaining accordingly.
-        frameSize = (uint)*parm; // Number of parameters
-        frameSize += g_restArgsCount;
-        argc -= frameSize; // Update byte count of parameters on stack
-        argc -= 2;         // Account for selector and number of parms
-
-        // Set up the new parameter variables and then point past the parameters
-        // to this send.
-        g_vars.parm = parm;
-        *parm++     = frameSize;
-        parm += frameSize;
-
-        idx =
-          FindSelector(obj->props, OBJHEADER(obj)->varSelNum, (ObjID)selector);
-        if (idx >= 0) {
-            // A query -- load value into accumulator.
-            if (frameSize == 0) {
-                SetAcc(obj->vars[idx]);
-            }
-            // Not a query -- set the property.
-            else {
-                obj->vars[idx] = g_vars.parm[1];
-            }
-            g_restArgsCount = 0;
-        }
-        // Not a property.
-        // Search up through the method dictionary hierarchy.
-        else {
-            origObj  = obj;
-            localVar = g_vars.local;
-
-            while (true) {
-                CheckObject(obj);
-
-                // Update current script number.
-                g_thisScript = OBJHEADER(obj)->script->num;
-
-                // Update current code handle.
-                g_scriptHandle = OBJHEADER(obj)->script->hunk;
-
-                // Get offset in hunk resource of method dictionary.
-                funcs = OBJHEADER(obj)->funcSelList;
-                idx   = FindSelector(funcs, funcs[-1], (ObjID)selector);
-                if (idx >= 0) {
-                    break;
-                }
-
-                // The selector is not a method for this class/object.
-                // Search its superclass.
-                obj = obj->super;
-                if (obj == NULL) {
-                    PError(PE_BAD_SELECTOR,
-                           (uintptr_t)g_object,
-                           (uintptr_t)selector);
-                }
-
-                // Get pointer to variables in class' scope.
-                g_vars.local = OBJHEADER(obj)->script->vars;
-            }
-
-            // Found the selector -- next list is method offsets.
-            funcOffsets = (uint16_t *)(OBJHEADER(obj)->funcSelList +
-                                       OBJHEADER(obj)->funcSelList[-1]);
-            // Skip the zero (barrier).
-            funcOffsets++;
-
-            prevTempVar     = g_vars.temp;
-            g_restArgsCount = 0;
-            g_pc            = (uint8_t *)g_scriptHandle + funcOffsets[idx];
-
-            DebugFunctionEntry(obj, selector);
-            ExecuteCode();
-            DebugFunctionExit();
-
-            g_vars.temp  = prevTempVar;
-            g_vars.local = localVar;
-            obj          = origObj;
+    const Species *species    = obj->species;
+    const SelList *methodSels = species->methodSels;
+    unsigned int   i, n;
+    for (i = 0, n = methodSels->count; i < n; ++i) {
+        if (methodSels->sels[i] == (uint16_t)sel) {
+            *method = species->methods[i];
+            return true;
         }
     }
-
-    g_bp           = frame;
-    g_vars.parm    = prevParmVar;
-    g_vars.local   = prevLocalVar;
-    g_pc           = retAddr;
-    g_super        = prevSuper;
-    g_scriptHandle = prevScriptHandle;
-    g_thisScript   = prevScriptNum;
-}
-
-static int FindSelector(ObjID *list, uint n, ObjID sel)
-{
-    uint i;
-    for (i = 0; i < n; ++i) {
-        if (list[i] == sel) {
-            return i;
-        }
-    }
-    return -1;
+    return false;
 }

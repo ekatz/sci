@@ -522,9 +522,9 @@ void ChangeSndState(Obj *soundObj)
     }
 }
 
-void KDoSound(argList)
+uintptr_t KDoSound(argList)
 {
-#define ret(val) g_acc = ((uintptr_t)(val))
+#define ret(val) return ((uintptr_t)(val))
 
     Obj *soundObj;
 
@@ -628,4 +628,5 @@ void KDoSound(argList)
             ChangeSndState(soundObj);
             break;
     }
+    return 0;
 }

@@ -6,8 +6,6 @@
 #include "Resource.h"
 #include "Sound.h"
 
-#define ret(val) g_acc = ((uintptr_t)(val))
-
 int     g_gameRestarted = 0;
 jmp_buf g_restartBuf;
 
@@ -38,10 +36,11 @@ void KRestartGame(argList)
 #endif
 }
 
-void KGameIsRestarting(argList)
+uintptr_t KGameIsRestarting(argList)
 {
-    ret(g_gameRestarted);
+    uintptr_t retval = (uintptr_t)g_gameRestarted;
     if (argCount != 0 && arg(1) == FALSE) {
         g_gameRestarted = 0;
     }
+    return retval;
 }

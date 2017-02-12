@@ -1,6 +1,7 @@
 #if defined(__APPLE__)
 #include <MacTypes.h>
 #endif
+
 #include "Audio.h"
 #include "ErrMsg.h"
 #include "FileIO.h"
@@ -33,7 +34,7 @@ static bool   s_audioInit     = false;
 static bool   s_audioPlaying  = false;
 static bool   s_audioStopping = false;
 static bool   s_memCheck      = false;
-static uint   s_audioStopTick = 0;
+static uint   s_audioPlayTime = 0;
 static int    s_fd            = -1;
 static uint   s_fileSize      = 0;
 static uint   s_dataRead      = 0;
@@ -182,14 +183,14 @@ void EndAudio(void)
     }
 }
 
-bool SelectAudio(size_t num)
+bool SelectAudio(size_t num, uintptr_t *retval)
 {
     char     fileName[64];
     uint32_t offset;
     size_t   len;
     int      fd;
 
-    g_acc       = 0;
+    *retval     = 0;
     fileName[0] = '\0';
     if (s_audioType == RES_AUDIO && FindPatchEntry(RES_AUDIO, num)) {
         ResNameMake(fileName, RES_AUDIO, num);
@@ -241,7 +242,7 @@ bool SelectAudio(size_t num)
             return false;
         }
 
-        g_acc = (len * 60) / s_audioRate;
+        *retval = (len * 60) / s_audioRate;
     } else {
         struct {
             uintptr_t volNum;
@@ -256,7 +257,7 @@ bool SelectAudio(size_t num)
             return false;
         }
 
-        g_acc = (len * 4) / 5;
+        *retval = (len * 4) / 5;
     }
     return true;
 }
@@ -423,7 +424,7 @@ int AudioDrv(int function, uintptr_t qualifier)
 #endif
             }
             s_audioPlaying  = true;
-            s_audioStopTick = RTickCount();
+            s_audioPlayTime = RTickCount();
 #if defined(__WINDOWS__)
             if ((unsigned __int16)s_dataRead >= AUDIO_BUFFER_SIZE) {
                 s_waveOutHdr0.dwBufferLength = AUDIO_BUFFER_SIZE;
@@ -492,7 +493,7 @@ int AudioDrv(int function, uintptr_t qualifier)
 
         case A_LOC:
             if (s_audioPlaying) {
-                ((uintptr_t *)qualifier)[0] = RTickCount() - s_audioStopTick;
+                ((uintptr_t *)qualifier)[0] = RTickCount() - s_audioPlayTime;
             } else {
                 ((uintptr_t *)qualifier)[0] = (uintptr_t)-1;
             }
@@ -701,21 +702,21 @@ static uint FindAudEntry(Handle    audioMap,
     return 0;
 }
 
-void KDoAudio(argList)
+uintptr_t KDoAudio(argList)
 {
     static uintptr_t word_1E476 = 0;
+    uintptr_t        retval     = 0;
 
     if (!s_audioDrv) {
-        g_acc = 0;
-        return;
+        return 0;
     }
 
     switch (arg(1)) {
         case WPLAY:
             s_playingNum = (size_t)-1;
-            if (SelectAudio(arg(2))) {
+            if (SelectAudio(arg(2), &retval)) {
                 s_playingNum = arg(2);
-                word_1E476   = g_acc;
+                word_1E476   = retval;
                 AudioStop(0);
                 AudioWPlay();
             }
@@ -723,12 +724,12 @@ void KDoAudio(argList)
 
         case PLAY:
             if (s_playingNum == (size_t)-1 || s_playingNum != arg(2)) {
-                if (!SelectAudio(arg(2))) {
+                if (!SelectAudio(arg(2), &retval)) {
                     break;
                 }
                 AudioStop(0);
             } else {
-                g_acc = word_1E476;
+                retval = word_1E476;
             }
             s_playingNum = (size_t)-1;
             AudioPlay(argCount >= 3 ? arg(3) : 1);
@@ -748,7 +749,7 @@ void KDoAudio(argList)
             break;
 
         case LOC:
-            g_acc = AudioLoc();
+            retval = AudioLoc();
             break;
 
         case RATE:
@@ -760,7 +761,7 @@ void KDoAudio(argList)
             break;
 
         case DACFOUND:
-            g_acc = SelectDAC((ushort)arg(2));
+            retval = SelectDAC((ushort)arg(2));
             break;
 
         case 10:
@@ -770,4 +771,5 @@ void KDoAudio(argList)
         default:
             break;
     }
+    return retval;
 }

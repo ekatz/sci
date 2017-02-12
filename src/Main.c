@@ -5,9 +5,11 @@
 #include "Event.h"
 #include "Graphics.h"
 #include "Menu.h"
+#include "Midi.h"
 #include "Mouse.h"
 #include "PMachine.h"
 #include "Palette.h"
+#include "Path.h"
 #include "Picture.h"
 #include "Resource.h"
 #include "Restart.h"
@@ -30,7 +32,6 @@ void Run(void)
 
     InitTimer();
     InitResource();
-    InitScripts();
 
     CInitGraph();
 

@@ -57,13 +57,14 @@ void RSetPalette(RPalette *srcPal, int mode)
 
     // Save to note any change requiring a SetCLUT call.
     valid = g_sysPalette.valid;
-
-    if (mode == PAL_REPLACE || srcPal->valid != g_sysPalette.valid) {
+    // TODO: this is a timing issue patch!!
+    // if (mode == PAL_REPLACE || srcPal->valid != g_sysPalette.valid)
+    {
         InsertPalette(srcPal, &g_sysPalette, mode);
 
         // Validate the source palette.
         srcPal->valid = g_sysPalette.valid;
-        if (valid != g_sysPalette.valid && g_picNotValid == 0) {
+        if (/*valid != g_sysPalette.valid &&*/ g_picNotValid == 0) {
             SetCLUT(&g_sysPalette);
         }
     }
@@ -195,9 +196,9 @@ static void SetPaletteFlags(RPalette *pal, uint first, uint last, uint8_t flags)
     }
 }
 
-void KPalette(argList)
+uintptr_t KPalette(argList)
 {
-#define ret(val) g_acc = ((uintptr_t)(val))
+#define ret(val) return ((uintptr_t)(val))
 
     Guns      aGun;
     RPalette *pal;
@@ -313,4 +314,5 @@ void KPalette(argList)
             ret(pal);
             break;
     }
+    ret(0);
 }

@@ -28,6 +28,8 @@
 #pragma warning(disable : 4100) // unreferenced formal parameter
 #endif
 
+extern void DisposeScript(uintptr_t num);
+
 // Pseudo selectors for SetMenu and Display.
 // Must be duplicated by (define)'s in SYSTEM.SH.
 #define p_at      100
@@ -62,9 +64,9 @@ typedef struct SortNode {
     intptr_t sortKey;
 } SortNode;
 
-#define ret(val) g_acc = ((uintptr_t)(val))
+#define ret(val) return ((uintptr_t)(val))
 
-void KLoad(argList)
+uintptr_t KLoad(argList)
 {
     Handle h = ResLoad((int)arg(1), (uint)arg(2));
     ret(h);
@@ -83,30 +85,21 @@ void KUnLoad(argList)
     }
 }
 
-void KLock(argList)
-{
+void KLock(argList){
 #ifndef NOT_IMPL
 #error Not finished
 #endif
 }
 
-void KScriptID(argList)
+uintptr_t KDisposeScript(argList)
 {
-    Obj *obj =
-      GetDispatchAddr((uint)arg(1), (argCount == 1) ? 0U : (uint)arg(2));
-    ret(obj);
+    uintptr_t retval = (argCount == 2) ? arg(2) : 0;
+
+    DisposeScript((uintptr_t)arg(1));
+    ret(retval);
 }
 
-void KDisposeScript(argList)
-{
-    if (argCount == 2) {
-        ret(arg(2));
-    }
-
-    DisposeScript((uint)arg(1));
-}
-
-void KClone(argList)
+uintptr_t KClone(argList)
 {
     Obj *theClone;
     int  numArgs;
@@ -128,13 +121,13 @@ void KDisposeClone(argList)
     DisposeClone((Obj *)arg(1));
 }
 
-void KIsObject(argList)
+uintptr_t KIsObject(argList)
 {
     bool b = IsObject((Obj *)arg(1));
     ret(b);
 }
 
-void KRespondsTo(argList)
+uintptr_t KRespondsTo(argList)
 {
     bool b = RespondsTo((Obj *)arg(1), (uint)arg(2));
     ret(b);
@@ -187,12 +180,13 @@ void KShow(argList)
     RSetPort(oldPort);
 }
 
-void KPicNotValid(argList)
+uintptr_t KPicNotValid(argList)
 {
-    ret(g_picNotValid);
+    uintptr_t retval = g_picNotValid;
     if (argCount != 0) {
         g_picNotValid = (uint)arg(1);
     }
+    ret(retval);
 }
 
 void KSetNowSeen(argList)
@@ -208,7 +202,7 @@ void KSetNowSeen(argList)
                      GetPropAddr(him, s_nsTop));
 }
 
-void KNumLoops(argList)
+uintptr_t KNumLoops(argList)
 {
     uint numLoops;
     Obj *him = (Obj *)arg(1);
@@ -217,7 +211,7 @@ void KNumLoops(argList)
     ret(numLoops);
 }
 
-void KNumCels(argList)
+uintptr_t KNumCels(argList)
 {
     uint numCels;
     Obj *him = (Obj *)arg(1);
@@ -227,14 +221,14 @@ void KNumCels(argList)
     ret(numCels);
 }
 
-void KCelWide(argList)
+uintptr_t KCelWide(argList)
 {
     int width =
       GetCelWide((View *)ResLoad(RES_VIEW, arg(1)), (uint)arg(2), (uint)arg(3));
     ret(width);
 }
 
-void KCelHigh(argList)
+uintptr_t KCelHigh(argList)
 {
     int height =
       GetCelHigh((View *)ResLoad(RES_VIEW, arg(1)), (uint)arg(2), (uint)arg(3));
@@ -264,7 +258,7 @@ void KDrawCel(argList)
     }
 }
 
-void KIsItSkip(argList)
+uintptr_t KIsItSkip(argList)
 {
     View *view;
 
@@ -314,7 +308,7 @@ void KHiliteControl(argList)
     RHiliteControl((Obj *)arg(1));
 }
 
-void KEditControl(argList)
+uintptr_t KEditControl(argList)
 {
     ret(EditControl((Obj *)arg(1), (Obj *)arg(2)));
 }
@@ -328,12 +322,13 @@ void KTextSize(argList)
         def = (int)arg(4);
     }
 
-    RTextSize(&rect, GetTextPointer(arg(2)), (int)arg(3), def);
+    RTextSize(&rect, (const char *)arg(2), (int)arg(3), def);
     RectToNative(&rect, (uintptr_t *)arg(1));
 }
 
-void KDisplay(argList)
+uintptr_t KDisplay(argList)
 {
+    uintptr_t  retval = 0;
     uintptr_t *lastArg;
     int        mess;
 
@@ -366,7 +361,7 @@ void KDisplay(argList)
         text = GetFarText((uint)arg1, (uint)arg(2), buffer);
         ++args;
     } else {
-        text = GetTextPointer(arg1);
+        text = (const char *)arg1;
     }
     ++args;
 
@@ -441,7 +436,7 @@ void KDisplay(argList)
                 }
 
                 // No further arguments accepted.
-                return;
+                return retval;
 
             default:
                 break;
@@ -460,7 +455,7 @@ void KDisplay(argList)
     MoveRect(&r, g_rThePort->pnLoc.h, g_rThePort->pnLoc.v); // reposition
 
     if (saveIt) {
-        ret(SaveBits(&r, VMAP));
+        retval = (uintptr_t)SaveBits(&r, VMAP);
     }
 
     // Opaque background.
@@ -480,18 +475,20 @@ void KDisplay(argList)
     newPenLoc         = g_rThePort->pnLoc;
     *g_rThePort       = savePort;
     g_rThePort->pnLoc = newPenLoc;
+    return retval;
 }
 
-void KGetEvent(argList)
+uintptr_t KGetEvent(argList)
 {
+    uintptr_t    retval;
     REventRecord evt;
     ushort       type;
 
     type = (ushort)arg(1);
     if ((type & leaveEvt) != 0) {
-        ret(REventAvail(type, &evt));
+        retval = (uintptr_t)REventAvail(type, &evt);
     } else {
-        ret(RGetNextEvent(type, &evt));
+        retval = (uintptr_t)RGetNextEvent(type, &evt);
     }
 
 #if 0
@@ -511,11 +508,12 @@ void KGetEvent(argList)
 #endif
 
     EventToObj(&evt, (Obj *)arg(2));
+    ret(retval);
 }
 
 // ARGS: top, left, bottom, right, title, type, priority, color, back.
 // Open the window with NO draw (vis false), then set port values.
-void KNewWindow(argList)
+uintptr_t KNewWindow(argList)
 {
     RRect    r;
     RWindow *wind;
@@ -543,7 +541,7 @@ void KDisposeWindow(argList)
     RDisposeWindow((RWindow *)arg(1), eraseOnly);
 }
 
-void KGetPort(argList)
+uintptr_t KGetPort(argList)
 {
     RGrafPort *oldPort;
 
@@ -580,7 +578,7 @@ void KSetPort(argList)
     }
 }
 
-void KHaveMouse(argList)
+uintptr_t KHaveMouse(argList)
 {
     ret(g_haveMouse);
 }
@@ -621,7 +619,7 @@ void KLocalToGlobal(argList)
     PointToNative(&pt, npt);
 }
 
-void KMapKeyToDir(argList)
+uintptr_t KMapKeyToDir(argList)
 {
     Obj         *sciEvent;
     REventRecord event;
@@ -647,14 +645,13 @@ void KSaid(argList)
 #endif
 }
 
-void KSetSynonyms(argList)
-{
+void KSetSynonyms(argList){
 #ifndef NOT_IMPL
 #error Not finished
 #endif
 }
 
-void KNewList(argList)
+uintptr_t KNewList(argList)
 {
     List *list;
 
@@ -679,7 +676,7 @@ void KDisposeList(argList)
     free(list);
 }
 
-void KNewNode(argList)
+uintptr_t KNewNode(argList)
 {
     KNode *node;
 
@@ -688,42 +685,42 @@ void KNewNode(argList)
     ret(node);
 }
 
-void KFirstNode(argList)
+uintptr_t KFirstNode(argList)
 {
     Node *node = (arg(1) != 0) ? FirstNode((List *)arg(1)) : NULL;
     ret(node);
 }
 
-void KLastNode(argList)
+uintptr_t KLastNode(argList)
 {
     Node *node = (arg(1) != 0) ? LastNode((List *)arg(1)) : NULL;
     ret(node);
 }
 
-void KEmptyList(argList)
+uintptr_t KEmptyList(argList)
 {
     bool b = (arg(1) == 0) || EmptyList((List *)arg(1));
     ret(b);
 }
 
-void KNextNode(argList)
+uintptr_t KNextNode(argList)
 {
     Node *node = NextNode((Node *)arg(1));
     ret(node);
 }
 
-void KPrevNode(argList)
+uintptr_t KPrevNode(argList)
 {
     Node *node = PrevNode((Node *)arg(1));
     ret(node);
 }
 
-void KNodeValue(argList)
+uintptr_t KNodeValue(argList)
 {
     ret(((KNode *)arg(1))->nVal);
 }
 
-void KAddAfter(argList)
+uintptr_t KAddAfter(argList)
 {
     Node *node = AddAfter((List *)arg(1), (Node *)arg(2), (Node *)arg(3));
     if (argCount == 4) {
@@ -732,7 +729,7 @@ void KAddAfter(argList)
     ret(node);
 }
 
-void KAddToFront(argList)
+uintptr_t KAddToFront(argList)
 {
     Node *node = AddToFront((List *)arg(1), (Node *)arg(2));
     if (argCount == 3) {
@@ -741,7 +738,7 @@ void KAddToFront(argList)
     ret(node);
 }
 
-void KAddToEnd(argList)
+uintptr_t KAddToEnd(argList)
 {
     Node *node = AddToEnd((List *)arg(1), (Node *)arg(2));
     if (argCount == 3) {
@@ -750,13 +747,13 @@ void KAddToEnd(argList)
     ret(node);
 }
 
-void KFindKey(argList)
+uintptr_t KFindKey(argList)
 {
     Node *node = FindKey((List *)arg(1), (intptr_t)arg(2));
     ret(node);
 }
 
-void KDeleteKey(argList)
+uintptr_t KDeleteKey(argList)
 {
     Node *theNode;
 
@@ -767,7 +764,7 @@ void KDeleteKey(argList)
     ret(theNode != NULL);
 }
 
-void KRandom(argList)
+uintptr_t KRandom(argList)
 {
     static uint s_seed = 0;
     uint        low, high, range;
@@ -776,6 +773,7 @@ void KRandom(argList)
     if (argCount == 2) {
         if (s_seed == 0) {
             s_seed = (uint)time(NULL);
+            srand(s_seed);
         }
 
         low   = (uint)arg(1);
@@ -795,17 +793,17 @@ void KRandom(argList)
     }
 }
 
-void KAbs(argList)
+uintptr_t KAbs(argList)
 {
     ret(abs((int)arg(1)));
 }
 
-void KSqrt(argList)
+uintptr_t KSqrt(argList)
 {
     ret((uint)round(sqrt((double)abs((int)arg(1)))));
 }
 
-void KGetAngle(argList)
+uintptr_t KGetAngle(argList)
 {
     RPoint sp, dp;
     int    angle;
@@ -818,7 +816,7 @@ void KGetAngle(argList)
     ret(angle);
 }
 
-void KGetDistance(argList)
+uintptr_t KGetDistance(argList)
 {
     int    dx, dy;
     double dySq;
@@ -837,38 +835,39 @@ void KGetDistance(argList)
     ret((uint)round(sqrt((double)(dx * dx) + dySq)));
 }
 
-void KSinMult(argList)
+uintptr_t KSinMult(argList)
 {
     double res = sin(((double)(intptr_t)arg(1)) / (180.0 / M_PI));
     ret((int)round(((double)(intptr_t)arg(2)) * res));
 }
 
-void KCosMult(argList)
+uintptr_t KCosMult(argList)
 {
     double res = cos(((double)(intptr_t)arg(1)) / (180.0 / M_PI));
     ret((int)round(((double)(intptr_t)arg(2)) * res));
 }
 
-void KSinDiv(argList)
+uintptr_t KSinDiv(argList)
 {
     double res = sin(((double)(intptr_t)arg(1)) / (180.0 / M_PI));
     ret((int)round(((double)(intptr_t)arg(2)) / res));
 }
 
-void KCosDiv(argList)
+uintptr_t KCosDiv(argList)
 {
     double res = cos(((double)(intptr_t)arg(1)) / (180.0 / M_PI));
     ret((int)round(((double)(intptr_t)arg(2)) / res));
 }
 
-void KATan(argList)
+uintptr_t KATan(argList)
 {
     ret(ATan((int)arg(1), (int)arg(2), (int)arg(3), (int)arg(4)));
 }
 
-void KWait(argList)
+uintptr_t KWait(argList)
 {
     static uint s_lastTick = 0;
+    uintptr_t   retval;
     uint        ticks, sysTicks;
 
     ticks = (uint)arg(1);
@@ -890,11 +889,12 @@ void KWait(argList)
     }
 #endif
 
-    ret(sysTicks - s_lastTick);
+    retval     = sysTicks - s_lastTick;
     s_lastTick = sysTicks;
+    ret(retval);
 }
 
-void KGetTime(argList)
+uintptr_t KGetTime(argList)
 {
     uint time;
 
@@ -906,7 +906,7 @@ void KGetTime(argList)
     ret(time);
 }
 
-void KStrEnd(argList)
+uintptr_t KStrEnd(argList)
 {
     const char *str = (const char *)arg(1);
     if (str != NULL) {
@@ -915,12 +915,12 @@ void KStrEnd(argList)
     ret(str);
 }
 
-void KStrCat(argList)
+uintptr_t KStrCat(argList)
 {
     ret(strcat((char *)arg(1), (const char *)arg(2)));
 }
 
-void KStrCmp(argList)
+uintptr_t KStrCmp(argList)
 {
     if (argCount == 2) {
         ret(strcmp((const char *)arg(1), (const char *)arg(2)));
@@ -929,12 +929,12 @@ void KStrCmp(argList)
     }
 }
 
-void KStrLen(argList)
+uintptr_t KStrLen(argList)
 {
     ret(strlen((const char *)arg(1)));
 }
 
-void KStrCpy(argList)
+uintptr_t KStrCpy(argList)
 {
     if (argCount == 2) {
         ret(strcpy((char *)arg(1), (const char *)arg(2)));
@@ -950,7 +950,7 @@ void KStrCpy(argList)
     }
 }
 
-void KFormat(argList)
+uintptr_t KFormat(argList)
 {
     char       *text;
     const char *format;
@@ -974,7 +974,7 @@ void KFormat(argList)
         format = GetFarText((uint)arg(2), (uint)arg(3), buffer);
         n = 4;
     } else {
-        format = GetTextPointer(arg(2));
+        format = (const char *)arg(2);
         n = 3;
     }
 
@@ -996,7 +996,7 @@ void KFormat(argList)
                             strArg =
                               GetFarText((uint)theArg, (uint)arg(n++), temp);
                         } else {
-                            strArg = GetTextPointer((uint)theArg);
+                            strArg = (const char *)theArg;
                         }
                         text += sci_sprintf(text, theStr, strArg);
                     } else {
@@ -1012,20 +1012,22 @@ void KFormat(argList)
     ret(arg(1));
 }
 
-void KStrAt(argList)
+uintptr_t KStrAt(argList)
 {
-    char *sp;
+    uintptr_t retval;
+    char     *sp;
 
-    sp = (char *)arg(1) + (int)arg(2);
-    ret(*sp);
+    sp     = (char *)arg(1) + (int)arg(2);
+    retval = (uintptr_t)*sp;
 
     // If a third argument is present, set the byte to that value.
     if (argCount == 3) {
         *sp = (char)arg(3);
     }
+    ret(retval);
 }
 
-void KStrSplit(argList)
+uintptr_t KStrSplit(argList)
 {
     char       *dst = (char *)arg(1);
     const char *src = (const char *)arg(2);
@@ -1050,7 +1052,7 @@ void KStrSplit(argList)
     ret(dst);
 }
 
-void KGetCWD(argList)
+uintptr_t KGetCWD(argList)
 {
     const char *cwd = GetSaveDosDir();
     char       *buf = (char *)arg(1);
@@ -1060,21 +1062,22 @@ void KGetCWD(argList)
     ret(buf);
 }
 
-void KGetFarText(argList)
+uintptr_t KGetFarText(argList)
 {
     ret(GetFarText((uint)arg(1), (uint)arg(2), (char *)arg(3)));
 }
 
-void KReadNumber(argList)
+uintptr_t KReadNumber(argList)
 {
     ret(atoi((const char *)arg(1)));
 }
 
 // Return V|P|C bits encompassed by rectangle.
-void KOnControl(argList)
+uintptr_t KOnControl(argList)
 {
     RRect      r;
     RGrafPort *oldPort;
+    uint       mask;
 
     RGetPort(&oldPort);
     RSetPort(&g_picWind->port);
@@ -1097,8 +1100,9 @@ void KOnControl(argList)
     }
 
     // Call the real function with this rectangle.
-    ret(OnControl((uint)arg(1), &r));
+    mask = OnControl((uint)arg(1), &r);
     RSetPort(oldPort);
+    ret(mask);
 }
 
 void KAvoidPath(argList)
@@ -1152,8 +1156,7 @@ void KStackUsage(argList)
 #endif
 }
 
-void KCheckFreeSpace(argList)
-{
+void KCheckFreeSpace(argList){
 #ifndef NOT_IMPL
 #error Not finished
 #endif
@@ -1162,7 +1165,7 @@ void KCheckFreeSpace(argList)
 // Return TRUE if the passed path is valid, FALSE otherwise.
 // Implementation is to do a firstfile() for the directory, specifying directory
 // only.
-void KValidPath(argList)
+uintptr_t KValidPath(argList)
 {
     const char *path;
     size_t      len;
@@ -1191,14 +1194,13 @@ void KValidPath(argList)
     }
 }
 
-void KProfiler(argList)
-{
+void KProfiler(argList){
 #ifndef NOT_IMPL
 #error Not finished
 #endif
 }
 
-void KDeviceInfo(argList)
+uintptr_t KDeviceInfo(argList)
 {
 #ifndef NOT_IMPL
 #error Not finished
@@ -1239,14 +1241,13 @@ void KMemory(argList)
 #endif
 }
 
-void KListOps(argList)
-{
+void KListOps(argList){
 #ifndef NOT_IMPL
 #error Not finished
 #endif
 }
 
-void KCoordPri(argList)
+uintptr_t KCoordPri(argList)
 {
     if (argCount >= 2 && arg(1) == PTopOfBand) {
         ret(PriCoord((int)arg(2)));
@@ -1255,7 +1256,7 @@ void KCoordPri(argList)
     }
 }
 
-void KFileIO(argList)
+uintptr_t KFileIO(argList)
 {
     DirEntry findFileEntry;
     char    *buf;
@@ -1336,6 +1337,7 @@ void KFileIO(argList)
             break;
 
         default:
+            ret(0);
             break;
     }
 }

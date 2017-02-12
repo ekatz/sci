@@ -3,9 +3,9 @@
 #include "PMachine.h"
 #include "Path.h"
 
-#define ret(val) g_acc = ((uintptr_t)(val))
+#define ret(val) return ((uintptr_t)(val))
 
-void KGetSaveDir(argList)
+uintptr_t KGetSaveDir(argList)
 {
     ret(GetSaveDosDir());
 }

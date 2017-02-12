@@ -171,6 +171,6 @@ void ShakeScreen(int cnt, int dir);
 void ShiftScreen(int rtop, int rleft, int rbot, int rright, int dir);
 
 // Common dispatch for various kernel routines.
-void KGraph(uintptr_t *args);
+uintptr_t KGraph(uintptr_t *args);
 
 #endif // GRAPHICS_H

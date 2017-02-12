@@ -5,7 +5,7 @@
 
 void KSaveGame(argList);
 void KRestoreGame(argList);
-void KGetSaveDir(argList);
+uintptr_t KGetSaveDir(argList);
 void KCheckSaveGame(argList);
 void KGetSaveFiles(argList);
 

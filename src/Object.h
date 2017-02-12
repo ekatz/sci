@@ -1,7 +1,7 @@
 #ifndef OBJECT_H
 #define OBJECT_H
 
-#include "Script.h"
+#include "List.h"
 
 #ifdef SendMessage
 #undef SendMessage
@@ -11,57 +11,39 @@
 #pragma warning(disable : 4200) // zero-sized array in struct/union
 #pragma warning(disable : 4201) // nameless struct/union
 
-#define OBJID ((uint16_t)0x1234)
+struct Obj;
 
-typedef struct ObjHeader // sizeof = 10
-{
-    uint16_t magic;       // -10
-    Script  *script;      // -8
-    ObjID   *funcSelList; // -6
-    Script  *scriptSuper; // -4 // This is the class script for "OBJECT"
+typedef uintptr_t (*PfnMethod)(struct Obj *obj, uintptr_t args[]);
 
-    // Packing is important as the size of a selectors list is always at pos -1.
-    uint16_t _packing;
+typedef struct SelList {
+    unsigned short count;
+    unsigned short sels[0];
+} SelList;
 
-    uint16_t varSelNum; // -2
-} ObjHeader;
+typedef struct Species {
+    const struct Species *super;
+    const SelList        *propSels;
+    const SelList        *methodSels;
+    const PfnMethod      *methods;
+} Species;
 
 typedef struct Obj {
-    union {
-        uintptr_t vars[0];
-
-        struct {
-            ObjID      *props; // ? species
-            struct Obj *super;
-            uintptr_t   info;
-        };
-    };
+    const Species *species;
+    uintptr_t      props[0];
 } Obj;
 
-// Format of classTbl resource
-typedef struct ClassEntry {
-    Obj     *obj;       // pointer to Obj
-    uint16_t scriptNum; // script number
-} ClassEntry;
+enum { PROP_INFO_OFFSET, PROP_NAME_OFFSET, PROP_VALUES_OFFSET };
 
-#define OBJHEADER(obj) ((ObjHeader *)((uint8_t *)(obj) - sizeof(ObjHeader)))
+#define RES_PROP_INFO_OFFSET 2
 
-#define OBJSIZE(varSelNum)                                                     \
-    (sizeof(ObjHeader) + offsetof(Obj, vars[(varSelNum)]))
+#define IndexedPropAddr(object, prop)                                          \
+    ((object)->props + g_objOfs[prop] - RES_PROP_INFO_OFFSET)
+#define IndexedProp(object, prop) (*IndexedPropAddr(object, prop))
 
-#define IndexedPropAddr(object, prop) ((object)->vars + g_objOfs[prop])
-#define IndexedProp(object, prop)     (*IndexedPropAddr(object, prop))
-
-extern ClassEntry *g_classTbl;
-extern uint        g_numClasses;
-extern uint        g_objOfs[];
+extern uint g_objOfs[];
 
 // Load the offsets to indexed object properties from a file.
 void LoadPropOffsets(void);
-
-void LoadClassTbl(void);
-
-Obj *GetClass(ObjID n);
 
 bool IsObject(Obj *obj);
 
@@ -76,25 +58,25 @@ void DisposeClone(Obj *obj);
 // 'sel' is the number of arguments to the method,
 // 'argc' is the start of the argument list.
 uintptr_t InvokeMethod(Obj *obj, ObjID sel, uint argc, ...);
+uintptr_t CallMethod(Obj *obj, uintptr_t sel, uintptr_t args[]);
 
 // Send messages to the given object.
-void SendMessage(Obj *obj);
-
-// Send messages to the current object.
-void Messager(Obj *obj);
+uintptr_t SendMessage(Obj *obj, uintptr_t sel, uintptr_t args[]);
 
 // Return whether 'selector' is a property or method of 'obj' or its
 // superclasses
 bool RespondsTo(Obj *obj, uint selector);
 
+bool IsKindOf(const Obj *obj1, const Obj *obj2);
+
 // Gets the address of an object's property.
 uintptr_t *GetPropAddr(Obj *obj, uint prop);
 
 // Return the value of a property for an object.
-uintptr_t GetProperty(Obj *obj, uint prop);
+uintptr_t GetProperty(Obj *obj, uintptr_t prop);
 
 // Set the value of a property for an object.
-void SetProperty(Obj *obj, uint prop, uintptr_t value);
+void SetProperty(Obj *obj, uintptr_t prop, uintptr_t value);
 
 const char *GetObjName(Obj *obj);
 

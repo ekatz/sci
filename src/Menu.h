@@ -64,9 +64,9 @@ extern RGrafPort *g_menuPort;
 
 void InitMenu(void);
 
-void KMenuSelect(uintptr_t *args);
+uintptr_t KMenuSelect(uintptr_t *args);
 void KAddMenu(uintptr_t *args);
-void KGetMenu(uintptr_t *args);
+uintptr_t KGetMenu(uintptr_t *args);
 void KSetMenu(uintptr_t *args);
 void KDrawStatus(uintptr_t *args);
 void KDrawMenuBar(uintptr_t *args);

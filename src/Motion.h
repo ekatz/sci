@@ -5,9 +5,9 @@
 
 void KBaseSetter(argList);
 void KDirLoop(argList);
-void KCantBeHere(argList);
+uintptr_t KCantBeHere(argList);
 void KInitBresen(argList);
-void KDoBresen(argList);
+uintptr_t KDoBresen(argList);
 void KDoAvoider(argList);
 void KSetJump(argList);
 

@@ -1,11 +1,12 @@
 #include "Motion.h"
 #include "Animate.h"
+#include "Cels.h"
 #include "ErrMsg.h"
+#include "Graphics.h"
 #include "PMachine.h"
 #include "Picture.h"
 #include "Resource.h"
 #include "Selector.h"
-#include "View.h"
 
 void KBaseSetter(argList)
 {
@@ -136,18 +137,19 @@ void KInitBresen(argList)
     IndexedProp(motion, motXAxis) = (uintptr_t)xAxis;
 }
 
-void KDoBresen(argList)
+uintptr_t KDoBresen(argList)
 {
-    Obj     *motion, *client;
-    int      x, y, toX, toY, i1, i2, di, si1, si2, sdi;
-    int      dx, dy, incr;
-    bool     xAxis;
-    uint     moveCount;
-    uint8_t *aniState[500];
+    Obj      *motion, *client;
+    int       x, y, toX, toY, i1, i2, di, si1, si2, sdi;
+    int       dx, dy, incr;
+    bool      xAxis;
+    uint      moveCount;
+    uint8_t  *aniState[500];
+    uintptr_t retval;
 
     motion = (Obj *)arg(1);
     client = (Obj *)IndexedProp(motion, motClient);
-    g_acc  = 0;
+    retval = 0;
 
     IndexedProp(client, actSignal) =
       IndexedProp(client, actSignal) & (~blocked);
@@ -172,8 +174,8 @@ void KDoBresen(argList)
 
         // Save the current animation state before moving the client.
         memcpy(aniState,
-               client->vars,
-               sizeof(uintptr_t) * OBJHEADER(client)->varSelNum);
+               client->props,
+               sizeof(uintptr_t) * (size_t)client->species->propSels->count);
 
         if ((xAxis && (abs(toX - x) <= abs(dx))) ||
             (!xAxis && (abs(toY - y) <= abs(dy)))) {
@@ -208,12 +210,13 @@ void KDoBresen(argList)
         IndexedProp(client, actY) = (uintptr_t)y;
 
         // Check position validity for this cel.
-        if ((g_acc = InvokeMethod(client, s_cantBeHere, 0)) != 0) {
+        if ((retval = InvokeMethod(client, s_cantBeHere, 0)) != 0) {
             // Client can't be here -- restore the original state and mark the
             // client as blocked.
-            memcpy(client->vars,
+            memcpy(client->props,
                    aniState,
-                   sizeof(uintptr_t) * OBJHEADER(client)->varSelNum);
+                   sizeof(uintptr_t) *
+                     (size_t)client->species->propSels->count);
             i1 = si1;
             i2 = si2;
             di = sdi;
@@ -233,6 +236,7 @@ void KDoBresen(argList)
     } else {
         IndexedProp(motion, motMoveCnt) = moveCount;
     }
+    return retval;
 }
 
 void KDoAvoider(argList) {}
@@ -246,7 +250,7 @@ void KSetJump(argList)
 
 // Determine and return legality of actors position.
 // This code checks controls AND base rect intersection.
-void KCantBeHere(argList)
+uintptr_t KCantBeHere(argList)
 {
     Obj       *him  = (Obj *)arg(1);
     List      *cast = (List *)arg(2);
@@ -254,6 +258,7 @@ void KCantBeHere(argList)
     Obj       *me;
     RRect      r, chkR;
     RGrafPort *oldPort;
+    uintptr_t  retval;
 
     RGetPort(&oldPort);
     RSetPort(&g_picWind->port);
@@ -266,13 +271,13 @@ void KCantBeHere(argList)
     // If this is zero, the position is valid.
     //
 
-    g_acc = 0;
-    if (!(g_acc = (OnControl(CMAP, &r) & IndexedProp(him, actIllegalBits)))) {
+    retval = 0;
+    if (!(retval = (OnControl(CMAP, &r) & IndexedProp(him, actIllegalBits)))) {
         // Controls were legal, do I care about other actors?
         // If I am hidden or ignoring actors my position is legal 8.
         if ((IndexedProp(him, actSignal) & (ignrAct | HIDDEN)) == 0) {
             // Default to no hits.
-            g_acc = 0;
+            retval = 0;
             // Now the last thing we care about is our rectangles.
             for (node = FirstNode(cast); node != NULL; node = NextNode(node)) {
                 me = (Obj *)((KNode *)node)->nVal;
@@ -296,7 +301,7 @@ void KCantBeHere(argList)
                     r.top >= chkR.bottom || r.bottom <= chkR.top) {
                     continue;
                 } else {
-                    g_acc = (uintptr_t)me;
+                    retval = (uintptr_t)me;
                     break;
                 }
             }
@@ -304,4 +309,5 @@ void KCantBeHere(argList)
     }
 
     RSetPort(oldPort);
+    return retval;
 }

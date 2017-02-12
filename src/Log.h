@@ -68,8 +68,4 @@ void LogMessage(int level, const char *format, ...);
 
 #endif
 
-struct Obj;
-void DebugFunctionEntry(struct Obj *obj, unsigned int selector);
-void DebugFunctionExit();
-
 #endif // LOG_H

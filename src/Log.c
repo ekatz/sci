@@ -183,53 +183,74 @@ void LogMessage(int level, const char *format, ...)
 
 static uint s_debugIndent = 0;
 
-void DebugFunctionEntry(Obj *obj, uint selector)
+void DebugFunctionEntry(const char *name, Obj *obj, uintptr_t *args)
 {
-    char        selName[40];
-    char        buf[128];
-    char       *p;
-    const char *objName;
-    uintptr_t   i;
+    char      buf[1024 * 4];
+    char     *p;
+    uintptr_t i, n;
 
     buf[2] = '\0';
     p      = buf;
-    for (i = 0; i < g_vars.parm[0]; ++i) {
-        p += (size_t)sprintf(p, ", %X", g_vars.parm[i + 1]);
+    for (i = 0; i < args[0]; ++i) {
+        p += (size_t)sprintf(p, ", %X", args[i + 1]);
     }
 
+    LogMessage(
+      LOG_LEVEL_DEBUG, "%*c%s(%s)", s_debugIndent * 2, ' ', name, buf + 2);
+
     if (obj != NULL) {
-        objName = GetObjName(obj);
-        if (objName == NULL) {
-            objName = "Class";
+        buf[2] = '\0';
+        p      = buf;
+        for (i = 0, n = obj->species->propSels->count; i < n; ++i) {
+            p += (size_t)sprintf(p, ", %X", obj->props[i]);
         }
-        LogMessage(LOG_LEVEL_DEBUG,
-                   "%*c%s@%s@%u(%s)",
-                   s_debugIndent * 2,
-                   ' ',
-                   GetSelectorName(selector, selName),
-                   objName,
-                   g_thisScript,
-                   buf + 2);
-    } else {
-        LogMessage(LOG_LEVEL_DEBUG,
-                   "%*cproc@%x@%u(%s)",
-                   s_debugIndent * 2,
-                   ' ',
-                   (uint)(g_pc - (uint8_t *)g_scriptHandle),
-                   g_thisScript,
-                   buf + 2);
+
+        LogMessage(
+          LOG_LEVEL_DEBUG, "%*cobj-0: [%s]", s_debugIndent * 2, ' ', buf + 2);
     }
+
+    buf[2] = '\0';
+    p      = buf;
+    for (i = 500; i < 751; ++i) {
+        p += (size_t)sprintf(p, ", %X", g_globalVars[i]);
+    }
+
+    LogMessage(
+      LOG_LEVEL_DEBUG, "%*cglobals: [%s]", s_debugIndent * 2, ' ', buf + 2);
     s_debugIndent++;
 }
 
-void DebugFunctionExit()
+void DebugFunctionExit(Obj *obj)
 {
     s_debugIndent--;
+    if (obj != NULL) {
+        if ((size_t)obj == 0xDDDDDDDD || (size_t)obj->species == 0xDDDDDDDD) {
+            LogMessage(
+              LOG_LEVEL_DEBUG, "%*cobj-1: [-]", s_debugIndent * 2, ' ');
+        } else {
+            char      buf[1024];
+            char     *p;
+            uintptr_t i, n;
+            buf[2] = '\0';
+            p      = buf;
+            for (i = 0, n = obj->species->propSels->count; i < n; ++i) {
+                p += (size_t)sprintf(p, ", %X", obj->props[i]);
+            }
+
+            LogMessage(LOG_LEVEL_DEBUG,
+                       "%*cobj-1: [%s]",
+                       s_debugIndent * 2,
+                       ' ',
+                       buf + 2);
+        }
+    }
 }
 
 #else
 
-void DebugFunctionEntry(struct Obj *obj, uint selector) {}
-void DebugFunctionExit() {}
+#include "Object.h"
+
+void DebugFunctionEntry(const char *name, Obj *obj, uintptr_t *args) {}
+void DebugFunctionExit(Obj *obj) {}
 
 #endif

@@ -225,7 +225,7 @@ void SetDisplayCLUT(const RPalette *pal)
     }
 }
 
-bool DisplayCursor(bool show)
+int DisplayCursor(int show)
 {
 #ifndef NOT_IMPL
 #error Not finished

@@ -127,6 +127,6 @@ void MidiSend(Obj *soundObj, int channel, int command, int value1, int value2);
 
 void ChangeSndState(Obj *soundObj);
 
-void KDoSound(uintptr_t *args);
+uintptr_t KDoSound(uintptr_t *args);
 
 #endif // SOUND_H

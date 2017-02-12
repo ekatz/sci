@@ -100,37 +100,38 @@ void KSetMenu(argList)
     }
 }
 
-void KGetMenu(argList)
+uintptr_t KGetMenu(argList)
 {
     RMenuItem *item;
 
     item = s_theMenuBar->page[arg(1) >> 8]->item[arg(1) & 255];
     switch (arg(2)) {
         case p_said:
-            g_acc = (uintptr_t)item->said;
+            return (uintptr_t)item->said;
             break;
 
         case p_text:
-            g_acc = (uintptr_t)item->text;
+            return (uintptr_t)item->text;
             break;
 
         case p_key:
-            g_acc = (uintptr_t)item->key;
+            return (uintptr_t)item->key;
             break;
 
         case p_state:
-            g_acc = (uintptr_t)item->state;
+            return (uintptr_t)item->state;
             break;
 
         case p_value:
-            g_acc = (uintptr_t)item->value;
+            return (uintptr_t)item->value;
             break;
     }
+    return 0;
 }
 
 // Return of -1 indicates no entry selected.
 // Otherwise, high byte is menu number, low byte is number of entry in menu.
-void KMenuSelect(argList)
+uintptr_t KMenuSelect(argList)
 {
     MenuPage  *menu;
     RMenuItem *item;
@@ -139,21 +140,21 @@ void KMenuSelect(argList)
     uint       m, i;
     Obj       *event  = (Obj *)arg(1);
     bool       blocks = true;
+    uintptr_t  retval;
 
-    g_acc = (uintptr_t)-1;
+    retval = (uintptr_t)-1;
 
     if (argCount == 2 && !arg(2))
         blocks = false;
 
     // If we are not inited we return false.
     if (s_theMenuBar == NULL) {
-        g_acc = 0;
-        return;
+        return 0;
     }
 
     // Are we done before we start?
     if (IndexedProp(event, evClaimed) != FALSE) {
-        return;
+        return retval;
     }
 
     message = (ushort)IndexedProp(event, evMsg);
@@ -166,7 +167,7 @@ void KMenuSelect(argList)
                 if (blocks) {
                     PauseSnd(NULL, true);
                 }
-                g_acc = KeySelect();
+                retval = KeySelect();
                 if (blocks) {
                     PauseSnd(NULL, false);
                 }
@@ -189,7 +190,7 @@ void KMenuSelect(argList)
                                 if ((word)item->key &&
                                     (word)item->key == message) {
                                     IndexedProp(event, evClaimed) = TRUE;
-                                    g_acc = (i | (m << 8));
+                                    retval = (i | (m << 8));
                                 }
                                 break;
 
@@ -197,7 +198,7 @@ void KMenuSelect(argList)
                                 saidSpec = item->said;
                                 if (saidSpec) {
                                     IndexedProp(event, evClaimed) = TRUE;
-                                    g_acc = (i | (m << 8));
+                                    retval = (i | (m << 8));
                                 }
                                 break;
                         }
@@ -212,13 +213,14 @@ void KMenuSelect(argList)
                 if (blocks) {
                     PauseSnd(NULL, true);
                 }
-                g_acc = MouseSelect();
+                retval = MouseSelect();
                 if (blocks) {
                     PauseSnd(NULL, false);
                 }
             }
             break;
     }
+    return retval;
 }
 
 void KDrawStatus(argList)
@@ -310,6 +312,7 @@ void KAddMenu(argList)
             // Scan the definition string for item properties.
             i       = FIRST;
             data    = (char *)arg(2);
+            data    = strdup(data);
             newItem = true;
             while (*data != '\0') {
                 if (newItem) {

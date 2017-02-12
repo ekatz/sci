@@ -78,7 +78,7 @@ void SetResPalette(uint num, int mode);
 void SetPalIntensity(RPalette *palette, int first, int last, int intensity);
 
 // All SCRIPT palette functions dispatch through KPalette.
-void KPalette(uintptr_t *args);
+uintptr_t KPalette(uintptr_t *args);
 
 uint8_t PalMatch(uint8_t r, uint8_t g, uint8_t b);
 

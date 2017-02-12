@@ -44,7 +44,7 @@ void AudioWPlay();
 // Declare the audio playback rate.
 uint AudioRate(uint hertz);
 
-void KDoAudio(uintptr_t *args);
+uintptr_t KDoAudio(uintptr_t *args);
 
 int AudioDrv(int function, uintptr_t qualifier);
 

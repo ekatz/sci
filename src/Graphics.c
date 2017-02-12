@@ -2227,9 +2227,9 @@ bool RSectRect(const RRect *src, const RRect *clip, RRect *dst)
     return (dst->left < dst->right && dst->top < dst->bottom);
 }
 
-void KGraph(argList)
+uintptr_t KGraph(argList)
 {
-#define ret(val) g_acc = ((uintptr_t)(val))
+#define ret(val) return ((uintptr_t)(val))
 
     RRect rect;
 
@@ -2302,4 +2302,5 @@ void KGraph(argList)
         default:
             break;
     }
+    ret(0);
 }
