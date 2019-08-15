@@ -1,11 +1,11 @@
-#include "Midi.h"
-#include "MidiDriver.h"
-#include "Mutex.h"
-#include "Sound.h"
+#include "sci/Kernel/Midi.h"
+#include "sci/Kernel/Sound.h"
+#include "sci/Driver/Audio/MidiDriver.h"
+#include "sci/Utils/Mutex.h"
 #include <stdarg.h>
 
 #if defined(__IOS__)
-#include "Timer.h"
+#include "sci/Utils/Timer.h"
 #include <mach/mach_time.h>
 #endif
 

@@ -1,7 +1,7 @@
-#include "Cels.h"
-#include "Graphics.h"
-#include "Palette.h"
-#include "Window.h"
+#include "sci/Kernel/Cels.h"
+#include "sci/Kernel/Graphics.h"
+#include "sci/Kernel/Palette.h"
+#include "sci/Kernel/Window.h"
 
 // Maximum "normal" priority.
 #define MAXPRI         0x10

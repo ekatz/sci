@@ -1,8 +1,8 @@
-#ifndef EVENT_H
-#define EVENT_H
+#ifndef SCI_KERNEL_EVENT_H
+#define SCI_KERNEL_EVENT_H
 
-#include "GrTypes.h"
-#include "Object.h"
+#include "sci/Kernel/GrTypes.h"
+#include "sci/PMachine/Object.h"
 
 typedef struct REventRecord {
     ushort type;      // type of event
@@ -110,4 +110,4 @@ void ObjToEvent(const Obj *evtObj, REventRecord *evt);
 
 REventRecord *MapKeyToDir(REventRecord *evt);
 
-#endif // EVENT_H
+#endif // SCI_KERNEL_EVENT_H

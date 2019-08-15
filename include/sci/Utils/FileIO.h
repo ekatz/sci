@@ -1,7 +1,7 @@
-#ifndef FILEIO_H
-#define FILEIO_H
+#ifndef SCI_UTILS_FILEIO_H
+#define SCI_UTILS_FILEIO_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 enum fileFuncs {
     fileOpen,
@@ -54,4 +54,4 @@ bool nextfile(DirEntry *dta);
 long filelength(int fd);
 #endif
 
-#endif // FILEIO_H
+#endif // SCI_UTILS_FILEIO_H

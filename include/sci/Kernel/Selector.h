@@ -1,5 +1,5 @@
-#ifndef SELECTOR_H
-#define SELECTOR_H
+#ifndef SCI_KERNEL_SELECTOR_H
+#define SCI_KERNEL_SELECTOR_H
 
 enum objOffsets {
     actX,
@@ -183,4 +183,4 @@ enum objOffsets {
 #define s_respondsTo     112
 #define s_yourself       113
 
-#endif // SELECTOR_H
+#endif // SCI_KERNEL_SELECTOR_H

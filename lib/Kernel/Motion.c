@@ -1,11 +1,13 @@
-#include "Motion.h"
-#include "Animate.h"
-#include "ErrMsg.h"
-#include "PMachine.h"
-#include "Picture.h"
-#include "Resource.h"
-#include "Selector.h"
-#include "View.h"
+#include "sci/Kernel/Motion.h"
+#include "sci/Kernel/Animate.h"
+#include "sci/Kernel/Cels.h"
+#include "sci/Kernel/Graphics.h"
+#include "sci/Kernel/Picture.h"
+#include "sci/Kernel/Resource.h"
+#include "sci/Kernel/Selector.h"
+#include "sci/Kernel/View.h"
+#include "sci/PMachine/PMachine.h"
+#include "sci/Utils/ErrMsg.h"
 
 void KBaseSetter(argList)
 {

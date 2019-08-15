@@ -12,3 +12,7 @@ target_link_libraries(game
   sciPMachine
   sciUtils
   )
+
+set_property(TARGET game APPEND_STRING PROPERTY
+              LINK_FLAGS
+              " /SUBSYSTEM:WINDOWS")

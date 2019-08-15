@@ -1,7 +1,7 @@
-#ifndef MIDI_H
-#define MIDI_H
+#ifndef SCI_KERNEL_MIDI_H
+#define SCI_KERNEL_MIDI_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 // MIDI Parser Functions.
 #define SPatchReq      0
@@ -48,4 +48,4 @@ int DoSound(int function, ...);
 
 void InstallSoundServer(void);
 
-#endif // MIDI_H
+#endif // SCI_KERNEL_MIDI_H

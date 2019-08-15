@@ -1,13 +1,13 @@
-#include "Animate.h"
-#include "Cels.h"
-#include "Dialog.h"
-#include "Globals.h"
-#include "Graphics.h"
-#include "Object.h"
-#include "PMachine.h"
-#include "Picture.h"
-#include "Resource.h"
-#include "Selector.h"
+#include "sci/Kernel/Animate.h"
+#include "sci/Kernel/Cels.h"
+#include "sci/Kernel/Dialog.h"
+#include "sci/Kernel/Globals.h"
+#include "sci/Kernel/Graphics.h"
+#include "sci/Kernel/Picture.h"
+#include "sci/Kernel/Resource.h"
+#include "sci/Kernel/Selector.h"
+#include "sci/PMachine/Object.h"
+#include "sci/PMachine/PMachine.h"
 
 #define PLENTYROOM 1 // only applies to this module
 #define SORTONZTOO   // only applies to this module

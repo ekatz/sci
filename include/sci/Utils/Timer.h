@@ -1,7 +1,7 @@
-#ifndef TIMER_H
-#define TIMER_H
+#ifndef SCI_UTILS_TIMER_H
+#define SCI_UTILS_TIMER_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 #define TICKS_PER_SECOND 64
 
@@ -40,4 +40,4 @@ uint RTickCount(void);
 // Return system time data.
 uint SysTime(int func);
 
-#endif // TIMER_H
+#endif // SCI_UTILS_TIMER_H

@@ -1,5 +1,5 @@
-#include "Mouse.h"
-#include "Graphics.h"
+#include "sci/Kernel/Mouse.h"
+#include "sci/Kernel/Graphics.h"
 
 #define MAXY MAXHEIGHT
 #define MAXX MAXWIDTH

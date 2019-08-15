@@ -1,15 +1,15 @@
 #if defined(__APPLE__)
 #include <MacTypes.h>
 #endif
-#include "Audio.h"
-#include "ErrMsg.h"
-#include "FileIO.h"
-#include "Input.h"
-#include "Kernel.h"
-#include "PMachine.h"
-#include "ResName.h"
-#include "Resource.h"
-#include "Timer.h"
+#include "sci/Kernel/Audio.h"
+#include "sci/Kernel/Kernel.h"
+#include "sci/Kernel/ResName.h"
+#include "sci/Kernel/Resource.h"
+#include "sci/Driver/Input/Input.h"
+#include "sci/PMachine/PMachine.h"
+#include "sci/Utils/ErrMsg.h"
+#include "sci/Utils/FileIO.h"
+#include "sci/Utils/Timer.h"
 
 #if defined(__WINDOWS__)
 #pragma comment(lib, "Winmm.lib")

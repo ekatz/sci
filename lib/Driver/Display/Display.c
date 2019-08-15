@@ -1,5 +1,5 @@
-#include "Display.h"
-#include "Graphics.h"
+#include "sci/Driver/Display/Display.h"
+#include "sci/Kernel/Graphics.h"
 #if defined(__WINDOWS__)
 #include <GL/gl.h>
 #elif defined(__IOS__)

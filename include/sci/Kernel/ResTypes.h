@@ -1,5 +1,7 @@
-#ifndef RESTYPES_H
-#define RESTYPES_H
+#ifndef SCI_KERNEL_RESTYPES_H
+#define SCI_KERNEL_RESTYPES_H
+
+#include "sci/Utils/Types.h"
 
 // Resource types
 #define RES_BASE    0x80
@@ -22,4 +24,4 @@
 
 #define NRESTYPES (RES_MSG - RES_BASE + 1)
 
-#endif // RESTYPES_H
+#endif // SCI_KERNEL_RESTYPES_H

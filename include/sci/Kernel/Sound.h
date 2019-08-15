@@ -1,8 +1,7 @@
-#ifndef SOUND_H
-#define SOUND_H
+#ifndef SCI_KERNEL_SOUND_H
+#define SCI_KERNEL_SOUND_H
 
-#include "List.h"
-#include "Object.h"
+#include "sci/PMachine/Object.h"
 
 // Defines for flags property of sound objects.
 #define mNOPAUSE  0x0001
@@ -129,4 +128,4 @@ void ChangeSndState(Obj *soundObj);
 
 void KDoSound(uintptr_t *args);
 
-#endif // SOUND_H
+#endif // SCI_KERNEL_SOUND_H

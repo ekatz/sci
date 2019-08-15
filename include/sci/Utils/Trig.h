@@ -1,5 +1,5 @@
-#ifndef TRIG_H
-#define TRIG_H
+#ifndef SCI_UTILS_TRIG_H
+#define SCI_UTILS_TRIG_H
 
 #define TrigScale 10000
 
@@ -18,4 +18,4 @@ int ATan(int x1, int y1, int x2, int y2);
 #define SinDiv(a, n)  ((TrigScale * n) / ScaledSin(a))
 #define CosDiv(a, n)  ((TrigScale * n) / ScaledCos(a))
 
-#endif // TRIG_H
+#endif // SCI_UTILS_TRIG_H

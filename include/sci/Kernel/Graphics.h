@@ -1,8 +1,8 @@
-#ifndef GRAPHICS_H
-#define GRAPHICS_H
+#ifndef SCI_KERNEL_GRAPHICS_H
+#define SCI_KERNEL_GRAPHICS_H
 
-#include "GrTypes.h"
-#include "Palette.h"
+#include "sci/Kernel/GrTypes.h"
+#include "sci/Kernel/Palette.h"
 
 // KGraph function dispatch constants.
 #define GLoadBits    1
@@ -173,4 +173,4 @@ void ShiftScreen(int rtop, int rleft, int rbot, int rright, int dir);
 // Common dispatch for various kernel routines.
 void KGraph(uintptr_t *args);
 
-#endif // GRAPHICS_H
+#endif // SCI_KERNEL_GRAPHICS_H

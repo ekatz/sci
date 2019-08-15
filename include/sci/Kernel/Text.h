@@ -1,7 +1,7 @@
-#ifndef TEXT_H
-#define TEXT_H
+#ifndef SCI_KERNEL_TEXT_H
+#define SCI_KERNEL_TEXT_H
 
-#include "GrTypes.h"
+#include "sci/Kernel/GrTypes.h"
 
 // Text justification.
 #define TEJUSTLEFT   0
@@ -32,4 +32,4 @@ void ShowText(const char *str, uint first, uint count);
 
 const char *GetTextPointer(uintptr_t native);
 
-#endif // TEXT_H
+#endif // SCI_KERNEL_TEXT_H

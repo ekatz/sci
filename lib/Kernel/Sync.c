@@ -1,9 +1,9 @@
-#include "Sync.h"
-#include "ErrMsg.h"
-#include "Kernel.h"
-#include "PMachine.h"
-#include "Resource.h"
-#include "Selector.h"
+#include "sci/Kernel/Sync.h"
+#include "sci/Kernel/Kernel.h"
+#include "sci/Kernel/Resource.h"
+#include "sci/Kernel/Selector.h"
+#include "sci/PMachine/PMachine.h"
+#include "sci/Utils/ErrMsg.h"
 
 static bool   s_syncing    = false;
 static Handle s_syncHandle = NULL;

@@ -1,7 +1,7 @@
-#ifndef MIDIDRIVER_H
-#define MIDIDRIVER_H
+#ifndef SCI_DRIVER_AUTDIO_MIDIDRIVER_H
+#define SCI_DRIVER_AUTDIO_MIDIDRIVER_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 // Driver Function Definitions.
 #define DPatchReq      0
@@ -28,4 +28,4 @@ uint Driver(int      function,
             uint8_t  data1,
             uint8_t  data2); // ax, ch, cl
 
-#endif // MIDIDRIVER_H
+#endif // SCI_DRIVER_AUTDIO_MIDIDRIVER_H

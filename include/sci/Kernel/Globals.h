@@ -1,5 +1,5 @@
-#ifndef GLOBALS_H
-#define GLOBALS_H
+#ifndef SCI_KERNEL_GLOBALS_H
+#define SCI_KERNEL_GLOBALS_H
 
 #define g_ego               0
 #define g_theGame           1
@@ -75,4 +75,4 @@
 
 #define g_lastSysGlobal     99
 
-#endif // GLOBALS_H
+#endif // SCI_KERNEL_GLOBALS_H

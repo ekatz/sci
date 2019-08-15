@@ -1,10 +1,10 @@
-#include "Restart.h"
-#include "Animate.h"
-#include "Menu.h"
-#include "Midi.h"
-#include "PMachine.h"
-#include "Resource.h"
-#include "Sound.h"
+#include "sci/Kernel/Restart.h"
+#include "sci/Kernel/Animate.h"
+#include "sci/Kernel/Menu.h"
+#include "sci/Kernel/Midi.h"
+#include "sci/Kernel/Resource.h"
+#include "sci/Kernel/Sound.h"
+#include "sci/PMachine/PMachine.h"
 
 #define ret(val) g_acc = ((uintptr_t)(val))
 

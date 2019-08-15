@@ -1,5 +1,5 @@
-#ifndef LOG_H
-#define LOG_H
+#ifndef SCI_LOGGER_LOG_H
+#define SCI_LOGGER_LOG_H
 
 #define LOG_LEVEL_NONE    0
 #define LOG_LEVEL_ERROR   1
@@ -72,4 +72,4 @@ struct Obj;
 void DebugFunctionEntry(struct Obj *obj, unsigned int selector);
 void DebugFunctionExit();
 
-#endif // LOG_H
+#endif // SCI_LOGGER_LOG_H

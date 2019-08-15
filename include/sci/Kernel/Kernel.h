@@ -1,7 +1,7 @@
-#ifndef KERNEL_H
-#define KERNEL_H
+#ifndef SCI_KERNEL_KERNEL_H
+#define SCI_KERNEL_KERNEL_H
 
-#include "List.h"
+#include "sci/Utils/List.h"
 
 typedef struct KNode {
     Node     link;
@@ -119,4 +119,4 @@ void KFileIO(argList);
 void KSort(argList);
 void KMessage(argList);
 
-#endif // KERNEL_H
+#endif // SCI_KERNEL_KERNEL_H

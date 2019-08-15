@@ -1,7 +1,7 @@
-#ifndef PALETTE_H
-#define PALETTE_H
+#ifndef SCI_KERNEL_PALETTE_H
+#define SCI_KERNEL_PALETTE_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 #define PAL_FILE_SIZE 0x504
 #define PAL_CLUT_SIZE 256
@@ -82,4 +82,4 @@ void KPalette(uintptr_t *args);
 
 uint8_t PalMatch(uint8_t r, uint8_t g, uint8_t b);
 
-#endif // PALETTE_H
+#endif // SCI_KERNEL_PALETTE_H

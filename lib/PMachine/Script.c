@@ -1,7 +1,7 @@
-#include "Script.h"
-#include "Object.h"
-#include "PMachine.h"
-#include "Resource.h"
+#include "sci/PMachine/Script.h"
+#include "sci/PMachine/Object.h"
+#include "sci/PMachine/PMachine.h"
+#include "sci/Kernel/Resource.h"
 
 #pragma warning(disable : 4200) // zero-sized array in struct/union
 #pragma warning(disable : 4201) // nameless struct/union

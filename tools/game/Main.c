@@ -1,21 +1,23 @@
-#include "Audio.h"
-#include "Dialog.h"
-#include "Display.h"
-#include "ErrMsg.h"
-#include "Event.h"
-#include "Graphics.h"
-#include "Menu.h"
-#include "Mouse.h"
-#include "PMachine.h"
-#include "Palette.h"
-#include "Picture.h"
-#include "Resource.h"
-#include "Restart.h"
-#include "Sound.h"
-#include "Text.h"
-#include "Timer.h"
-#include "VolLoad.h"
-#include "Window.h"
+#include "sci/Driver/Display/Display.h"
+#include "sci/Kernel/Audio.h"
+#include "sci/Kernel/Dialog.h"
+#include "sci/Kernel/Event.h"
+#include "sci/Kernel/Graphics.h"
+#include "sci/Kernel/Menu.h"
+#include "sci/Kernel/Midi.h"
+#include "sci/Kernel/Mouse.h"
+#include "sci/Kernel/Palette.h"
+#include "sci/Kernel/Picture.h"
+#include "sci/Kernel/Resource.h"
+#include "sci/Kernel/Restart.h"
+#include "sci/Kernel/Sound.h"
+#include "sci/Kernel/Text.h"
+#include "sci/Kernel/VolLoad.h"
+#include "sci/Kernel/Window.h"
+#include "sci/PMachine/PMachine.h"
+#include "sci/Utils/ErrMsg.h"
+#include "sci/Utils/Path.h"
+#include "sci/Utils/Timer.h"
 #include <GL/gl.h>
 
 HWND g_hWndMain = NULL;
@@ -166,7 +168,7 @@ int CALLBACK WinMain(_In_ HINSTANCE hInstance,
       };
 
     if (hPrevInstance != NULL) {
-        MessageBox(
+        MessageBoxA(
           GetFocus(), "Cannot run two copies of game!", "Sierra", MB_OK);
         return 0;
     }
@@ -193,17 +195,17 @@ int CALLBACK WinMain(_In_ HINSTANCE hInstance,
     rect.right  = DISPLAYWIDTH;  // bounds->right;
     AdjustWindowRect(&rect, WS_CLIPCHILDREN | WS_OVERLAPPEDWINDOW, FALSE);
 
-    hWnd = CreateWindow("SciWin",
-                        "Sierra On-Line",
-                        WS_CLIPCHILDREN | WS_OVERLAPPEDWINDOW,
-                        0,
-                        0,
-                        rect.right - rect.left,
-                        rect.bottom - rect.top + 1,
-                        NULL,
-                        NULL,
-                        hInstance,
-                        NULL);
+    hWnd = CreateWindowA("SciWin",
+                         "Sierra On-Line",
+                         WS_CLIPCHILDREN | WS_OVERLAPPEDWINDOW,
+                         0,
+                         0,
+                         rect.right - rect.left,
+                         rect.bottom - rect.top + 1,
+                         NULL,
+                         NULL,
+                         hInstance,
+                         NULL);
 
     g_hWndMain = hWnd;
     g_hDcWnd   = GetDC(hWnd);

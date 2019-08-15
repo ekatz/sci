@@ -1,7 +1,7 @@
-#include "SaveGame.h"
-#include "FileIO.h"
-#include "PMachine.h"
-#include "Path.h"
+#include "sci/Kernel/SaveGame.h"
+#include "sci/PMachine/PMachine.h"
+#include "sci/Utils/FileIO.h"
+#include "sci/Utils/Path.h"
 
 #define ret(val) g_acc = ((uintptr_t)(val))
 

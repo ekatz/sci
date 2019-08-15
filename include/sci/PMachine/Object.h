@@ -1,7 +1,7 @@
-#ifndef OBJECT_H
-#define OBJECT_H
+#ifndef SCI_PMACHINE_OBJECT_H
+#define SCI_PMACHINE_OBJECT_H
 
-#include "Script.h"
+#include "sci/PMachine/Script.h"
 
 #ifdef SendMessage
 #undef SendMessage
@@ -104,4 +104,4 @@ int GetSelectorNum(char *str);
 
 #pragma warning(pop)
 
-#endif // OBJECT_H
+#endif // SCI_PMACHINE_OBJECT_H

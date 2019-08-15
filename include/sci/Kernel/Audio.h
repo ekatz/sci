@@ -1,7 +1,7 @@
-#ifndef AUDIO_H
-#define AUDIO_H
+#ifndef SCI_KERNEL_AUDIO_H
+#define SCI_KERNEL_AUDIO_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 // Codes to be sent to the audio driver.
 #define A_INIT      0
@@ -48,4 +48,4 @@ void KDoAudio(uintptr_t *args);
 
 int AudioDrv(int function, uintptr_t qualifier);
 
-#endif // AUDIO_H
+#endif // SCI_KERNEL_AUDIO_H

@@ -1,5 +1,5 @@
-#include "FarData.h"
-#include "Resource.h"
+#include "sci/Kernel/FarData.h"
+#include "sci/Kernel/Resource.h"
 
 static uint GetFarData(uint moduleNum, uint entryNum, void *buffer);
 

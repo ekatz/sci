@@ -1,4 +1,4 @@
-#include "Crypt.h"
+#include "sci/Utils/Crypt.h"
 
 typedef struct Decrypt3Info {
     struct tokenlist {

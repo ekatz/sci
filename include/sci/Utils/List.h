@@ -1,7 +1,7 @@
-#ifndef LIST_H
-#define LIST_H
+#ifndef SCI_UTILS_LIST_H
+#define SCI_UTILS_LIST_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 //
 // The elements of the list are structures whose first member is of
@@ -163,4 +163,4 @@ Node *DeleteKey(List *list, intptr_t key);
     AddToEnd((list), (node));                                                  \
     SetKey(node, aKey)
 
-#endif // LIST_H
+#endif // SCI_UTILS_LIST_H

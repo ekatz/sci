@@ -1,7 +1,7 @@
-#ifndef PICTURE_H
-#define PICTURE_H
+#ifndef SCI_KERNEL_PICTURE_H
+#define SCI_KERNEL_PICTURE_H
 
-#include "Window.h"
+#include "sci/Kernel/Window.h"
 
 // Show pic styles.
 #define HSHUTTER      0
@@ -55,4 +55,4 @@ void PriTable(int x, int y);
 // Each priority band to be set in the table is specified in data.
 void PriBands(uint16_t *priPtr);
 
-#endif // PICTURE_H
+#endif // SCI_KERNEL_PICTURE_H

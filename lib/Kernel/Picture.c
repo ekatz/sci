@@ -1,9 +1,9 @@
-#include "Picture.h"
-#include "Graphics.h"
-#include "Menu.h"
-#include "Palette.h"
-#include "Timer.h"
-#include "Window.h"
+#include "sci/Kernel/Picture.h"
+#include "sci/Kernel/Graphics.h"
+#include "sci/Kernel/Menu.h"
+#include "sci/Kernel/Palette.h"
+#include "sci/Kernel/Window.h"
+#include "sci/Utils/Timer.h"
 
 #define xOrg 160
 #define yOrg 95

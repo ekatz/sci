@@ -1,7 +1,7 @@
-#ifndef MENU_H
-#define MENU_H
+#ifndef SCI_KERNEL_MENU_H
+#define SCI_KERNEL_MENU_H
 
-#include "GrTypes.h"
+#include "sci/Kernel/GrTypes.h"
 
 #define MARKWIDE  8
 #define BARSIZE   10
@@ -71,4 +71,4 @@ void KSetMenu(uintptr_t *args);
 void KDrawStatus(uintptr_t *args);
 void KDrawMenuBar(uintptr_t *args);
 
-#endif // MENU_H
+#endif // SCI_KERNEL_MENU_H

@@ -1,7 +1,7 @@
-#ifndef PMACHINE_H
-#define PMACHINE_H
+#ifndef SCI_PMACHINE_PMACHINE_H
+#define SCI_PMACHINE_PMACHINE_H
 
-#include "Object.h"
+#include "sci/PMachine/Object.h"
 
 #pragma warning(push)
 #pragma warning(disable : 4201) // nameless struct/union
@@ -108,4 +108,4 @@ _Noreturn void PError(int perrCode, uintptr_t arg1, uintptr_t arg2);
 
 #pragma warning(pop)
 
-#endif // PMACHINE_H
+#endif // SCI_PMACHINE_PMACHINE_H

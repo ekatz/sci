@@ -1,7 +1,7 @@
-#ifndef VIEW_H
-#define VIEW_H
+#ifndef SCI_KERNEL_VIEW_H
+#define SCI_KERNEL_VIEW_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 #pragma warning(push)
 #pragma warning(disable : 4200) // zero-sized array in struct/union
@@ -43,4 +43,4 @@ typedef struct View {
 
 #pragma warning(pop)
 
-#endif // VIEW_H
+#endif // SCI_KERNEL_VIEW_H

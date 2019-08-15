@@ -1,7 +1,7 @@
-#ifndef ERRMSG_H
-#define ERRMSG_H
+#ifndef SCI_UTILS_ERRMSG_H
+#define SCI_UTILS_ERRMSG_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 #define E_OK                     0
 #define E_DISK_ERROR             1 // Messages 1-24 pre-loaded into buffer
@@ -114,4 +114,4 @@ bool RAlert(int errnum, ...);
 // Put up alert box and wait for a click.
 bool DoAlert(const char *text);
 
-#endif // ERRMSG_H
+#endif // SCI_UTILS_ERRMSG_H

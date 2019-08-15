@@ -1,8 +1,8 @@
-#include "MidiDriver.h"
-#include "Midi.h"
+#include "sci/Driver/Audio/MidiDriver.h"
+#include "sci/Kernel/Midi.h"
 #if defined(__WINDOWS__)
 #elif defined(__IOS__)
-#include "Path.h"
+#include "sci/Utils/Path.h"
 #include <AudioToolbox/AUGraph.h>
 #else
 #include <CoreMIDI/CoreMIDI.h>

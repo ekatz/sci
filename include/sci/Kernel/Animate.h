@@ -1,8 +1,8 @@
-#ifndef ANIMATE_H
-#define ANIMATE_H
+#ifndef SCI_KERNEL_ANIMATE_H
+#define SCI_KERNEL_ANIMATE_H
 
-#include "GrTypes.h"
-#include "List.h"
+#include "sci/Kernel/GrTypes.h"
+#include "sci/Utils/List.h"
 
 // States of actor's "s_signal" property.
 #define UPDBITS    0x0007 // the update bits
@@ -35,4 +35,4 @@ void AddToPic(List *cast);
 // Abandon last cast if there is one.
 void DisposeLastCast(void);
 
-#endif // ANIMATE_H
+#endif // SCI_KERNEL_ANIMATE_H

@@ -1,11 +1,11 @@
-#include "Window.h"
-#include "Animate.h"
-#include "ErrMsg.h"
-#include "Graphics.h"
-#include "Menu.h"
-#include "Picture.h"
-#include "Text.h"
-#include "Trig.h"
+#include "sci/Kernel/Window.h"
+#include "sci/Kernel/Animate.h"
+#include "sci/Kernel/Graphics.h"
+#include "sci/Kernel/Menu.h"
+#include "sci/Kernel/Picture.h"
+#include "sci/Kernel/Text.h"
+#include "sci/Utils/ErrMsg.h"
+#include "sci/Utils/Trig.h"
 
 #define TITLEBAR BARSIZE // lines in title bar
 

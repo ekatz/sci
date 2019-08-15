@@ -1,7 +1,7 @@
-#ifndef MUTEX_H
-#define MUTEX_H
+#ifndef SCI_UTILS_MUTEX_H
+#define SCI_UTILS_MUTEX_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 #if defined(__WINDOWS__)
 
@@ -31,4 +31,4 @@ void DestroyMutex(Mutex *mutex);
 #define TryLockMutex(mutex) (pthread_mutex_trylock(mutex) == 0)
 #endif
 
-#endif // MUTEX_H
+#endif // SCI_UTILS_MUTEX_H

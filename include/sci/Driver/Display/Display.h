@@ -1,8 +1,8 @@
-#ifndef DISPLAY_H
-#define DISPLAY_H
+#ifndef SCI_DRIVER_DISPLAY_DISPLAY_H
+#define SCI_DRIVER_DISPLAY_DISPLAY_H
 
-#include "GrTypes.h"
-#include "Palette.h"
+#include "sci/Kernel/GrTypes.h"
+#include "sci/Kernel/Palette.h"
 
 #define DISPLAYWIDTH  640
 #define DISPLAYHEIGHT 480
@@ -28,4 +28,4 @@ void SetDisplayCLUT(const RPalette *pal);
 
 bool DisplayCursor(bool show);
 
-#endif // DISPLAY_H
+#endif // SCI_DRIVER_DISPLAY_DISPLAY_H

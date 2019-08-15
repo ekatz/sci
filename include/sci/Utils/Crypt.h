@@ -1,8 +1,8 @@
-#ifndef CRYPT_H
-#define CRYPT_H
+#ifndef SCI_UTILS_CRYPT_H
+#define SCI_UTILS_CRYPT_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 bool DecompressLZW_1(uint8_t *dest, uint8_t *src, int length, int complength);
 
-#endif // CRYPT_H
+#endif // SCI_UTILS_CRYPT_H

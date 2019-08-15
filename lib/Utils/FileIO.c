@@ -1,5 +1,5 @@
-#include "FileIO.h"
-#include "Path.h"
+#include "sci/Utils/FileIO.h"
+#include "sci/Utils/Path.h"
 #ifndef __WINDOWS__
 #include <copyfile.h>
 #include <dirent.h>
@@ -84,7 +84,7 @@ int fcopy(const char *srcFilename, const char *dstFilename)
     DosToLocalPath(srcPath, srcFilename, false);
     DosToLocalPath(dstPath, dstFilename, false);
 
-    if (CopyFile(srcPath, dstPath, TRUE) == FALSE) {
+    if (CopyFileA(srcPath, dstPath, TRUE) == FALSE) {
         return -1;
     }
 

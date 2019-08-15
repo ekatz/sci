@@ -1,6 +1,6 @@
-#include "Text.h"
-#include "Event.h"
-#include "Graphics.h"
+#include "sci/Kernel/Text.h"
+#include "sci/Kernel/Event.h"
+#include "sci/Kernel/Graphics.h"
 
 // Return count of chars that fit in pixel length.
 static uint GetLongest(char const **str, uint max);

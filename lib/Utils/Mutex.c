@@ -1,4 +1,4 @@
-#include "Mutex.h"
+#include "sci/Utils/Mutex.h"
 
 void CreateMutex(Mutex *mutex, bool recursive)
 {

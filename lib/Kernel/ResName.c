@@ -1,7 +1,7 @@
-#include "ResName.h"
-#include "ErrMsg.h"
-#include "FileIO.h"
-#include "Resource.h"
+#include "sci/Kernel/ResName.h"
+#include "sci/Kernel/Resource.h"
+#include "sci/Utils/ErrMsg.h"
+#include "sci/Utils/FileIO.h"
 
 bool g_newResName = true;
 

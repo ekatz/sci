@@ -1,4 +1,4 @@
-#include "Trig.h"
+#include "sci/Utils/Trig.h"
 #define _USE_MATH_DEFINES
 #include <math.h>
 

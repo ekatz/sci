@@ -1,9 +1,9 @@
-#ifndef CELS_H
-#define CELS_H
+#ifndef SCI_KERNEL_CELS_H
+#define SCI_KERNEL_CELS_H
 
-#include "GrTypes.h"
-#include "Palette.h"
-#include "View.h"
+#include "sci/Kernel/GrTypes.h"
+#include "sci/Kernel/Palette.h"
+#include "sci/Kernel/View.h"
 
 // Entry point for drawing non-scaled views.
 void DrawCel(View        *view,
@@ -54,4 +54,4 @@ Cel *GetCelPointer(View *view, uint loop, uint cel);
 
 bool RIsItSkip(View *view, uint loopNum, uint celNum, int vOffset, int hOffset);
 
-#endif // CELS_H
+#endif // SCI_KERNEL_CELS_H

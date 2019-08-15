@@ -1,5 +1,5 @@
-#ifndef TYPES_H
-#define TYPES_H
+#ifndef SCI_UTILS_TYPES_H
+#define SCI_UTILS_TYPES_H
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -172,6 +172,6 @@ typedef	bool (*boolfptr)(const char*);
 
 #define NOT_IMPL 1
 
-#include "Log.h"
+#include "sci/Logger/Log.h"
 
-#endif // TYPES_H
+#endif // SCI_UTILS_TYPES_H

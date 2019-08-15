@@ -1,10 +1,10 @@
-#ifndef INPUT_H
-#define INPUT_H
+#ifndef SCI_DRIVER_INPUT_INPUT_H
+#define SCI_DRIVER_INPUT_INPUT_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 void PollInputEvent(void);
 
 ushort GetModifiers(void);
 
-#endif // INPUT_H
+#endif // SCI_DRIVER_INPUT_INPUT_H

@@ -1,5 +1,5 @@
-#include "Log.h"
-#include "Types.h"
+#include "sci/Logger/Log.h"
+#include "sci/Utils/Types.h"
 #include <stdarg.h>
 
 #if defined(__IOS__)
@@ -179,7 +179,7 @@ void LogMessage(int level, const char *format, ...)
 
 #if defined(DEBUG) && (MAX_LOG_LEVEL >= LOG_LEVEL_DEBUG)
 
-#include "PMachine.h"
+#include "sci/PMachine/PMachine.h"
 
 static uint s_debugIndent = 0;
 

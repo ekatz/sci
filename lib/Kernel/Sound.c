@@ -1,10 +1,10 @@
-#include "Sound.h"
-#include "ErrMsg.h"
-#include "Kernel.h"
-#include "Midi.h"
-#include "PMachine.h"
-#include "Resource.h"
-#include "Selector.h"
+#include "sci/Kernel/Sound.h"
+#include "sci/Kernel/Kernel.h"
+#include "sci/Kernel/Midi.h"
+#include "sci/Kernel/Resource.h"
+#include "sci/Kernel/Selector.h"
+#include "sci/PMachine/PMachine.h"
+#include "sci/Utils/ErrMsg.h"
 
 int g_reverbDefault = 0;
 

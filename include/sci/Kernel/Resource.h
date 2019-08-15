@@ -1,8 +1,8 @@
-#ifndef RESOURCE_H
-#define RESOURCE_H
+#ifndef SCI_KERNEL_RESOURCE_H
+#define SCI_KERNEL_RESOURCE_H
 
-#include "List.h"
-#include "ResTypes.h"
+#include "sci/Kernel/ResTypes.h"
+#include "sci/Utils/List.h"
 
 // Special resource IDs
 #define ALL_IDS ((size_t)(-1))
@@ -57,4 +57,4 @@ bool FindPatchEntry(int resType, size_t resNum);
 
 void InitPatches(void);
 
-#endif // RESOURCE_H
+#endif // SCI_KERNEL_RESOURCE_H

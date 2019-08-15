@@ -1,8 +1,8 @@
-#include "Object.h"
-#include "FarData.h"
-#include "PMachine.h"
-#include "Resource.h"
-#include "Selector.h"
+#include "sci/PMachine/Object.h"
+#include "sci/PMachine/PMachine.h"
+#include "sci/Kernel/FarData.h"
+#include "sci/Kernel/Resource.h"
+#include "sci/Kernel/Selector.h"
 #include <stdarg.h>
 
 #define MINOBJECTADDR 0x2000

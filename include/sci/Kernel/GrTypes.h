@@ -1,7 +1,7 @@
-#ifndef GRTYPES_H
-#define GRTYPES_H
+#ifndef SCI_KERNEL_GRTYPES_H
+#define SCI_KERNEL_GRTYPES_H
 
-#include "List.h"
+#include "sci/Utils/List.h"
 
 // Virtual BitMap selection equates.
 #define VMAP 1
@@ -57,4 +57,4 @@ typedef struct Font {
     uint16_t charRecs[1];
 } Font;
 
-#endif // GRTYPES_H
+#endif // SCI_KERNEL_GRTYPES_H

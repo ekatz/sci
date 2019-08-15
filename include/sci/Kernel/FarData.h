@@ -1,9 +1,9 @@
-#ifndef FARDATA_H
-#define FARDATA_H
+#ifndef SCI_KERNEL_FARDATA_H
+#define SCI_KERNEL_FARDATA_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 char *GetFarStr(uint moduleNum, uint entryNum, char *buffer);
 char *GetFarText(uint moduleNum, uint offset, char *buffer);
 
-#endif // FARDATA_H
+#endif // SCI_KERNEL_FARDATA_H

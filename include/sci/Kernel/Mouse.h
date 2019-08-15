@@ -1,7 +1,7 @@
-#ifndef MOUSE_H
-#define MOUSE_H
+#ifndef SCI_KERNEL_MOUSE_H
+#define SCI_KERNEL_MOUSE_H
 
-#include "GrTypes.h"
+#include "sci/Kernel/GrTypes.h"
 
 extern bool   g_haveMouse;
 extern int    g_mousePosY;
@@ -17,4 +17,4 @@ ushort RGetMouse(RPoint *pt);
 // Return interrupt level position in global coords of mouse in the point.
 ushort CurMouse(RPoint *pt);
 
-#endif // MOUSE_H
+#endif // SCI_KERNEL_MOUSE_H

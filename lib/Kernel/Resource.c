@@ -1,7 +1,7 @@
-#include "Resource.h"
-#include "FileIO.h"
-#include "ResName.h"
-#include "VolLoad.h"
+#include "sci/Kernel/Resource.h"
+#include "sci/Kernel/ResName.h"
+#include "sci/Kernel/VolLoad.h"
+#include "sci/Utils/FileIO.h"
 
 #define NIL NullNode(LoadLink)
 

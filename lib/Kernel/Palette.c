@@ -1,10 +1,10 @@
-#include "Palette.h"
-#include "Graphics.h"
-#include "Kernel.h"
-#include "PMachine.h"
-#include "Picture.h"
-#include "Resource.h"
-#include "Timer.h"
+#include "sci/Kernel/Palette.h"
+#include "sci/Kernel/Graphics.h"
+#include "sci/Kernel/Kernel.h"
+#include "sci/Kernel/Picture.h"
+#include "sci/Kernel/Resource.h"
+#include "sci/PMachine/PMachine.h"
+#include "sci/Utils/Timer.h"
 
 static struct PaletteCycleStruct {
     uint   timestamp[MAXPALCYCLE];

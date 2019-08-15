@@ -1,7 +1,7 @@
-#ifndef MOTION_H
-#define MOTION_H
+#ifndef SCI_KERNEL_MOTION_H
+#define SCI_KERNEL_MOTION_H
 
-#include "Kernel.h"
+#include "sci/Kernel/Kernel.h"
 
 void KBaseSetter(argList);
 void KDirLoop(argList);
@@ -11,4 +11,4 @@ void KDoBresen(argList);
 void KDoAvoider(argList);
 void KSetJump(argList);
 
-#endif // MOTION_H
+#endif // SCI_KERNEL_MOTION_H

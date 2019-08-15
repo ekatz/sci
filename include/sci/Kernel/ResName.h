@@ -1,7 +1,7 @@
-#ifndef RESNAME_H
-#define RESNAME_H
+#ifndef SCI_KERNEL_RESNAME_H
+#define SCI_KERNEL_RESNAME_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 #define MAXMASKS 10
 
@@ -25,4 +25,4 @@ int ROpenResFile(int resType, size_t resNum, char *name);
 
 char *addSlash(char *dir);
 
-#endif // RESNAME_H
+#endif // SCI_KERNEL_RESNAME_H

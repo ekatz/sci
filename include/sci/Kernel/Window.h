@@ -1,7 +1,7 @@
-#ifndef WINDOW_H
-#define WINDOW_H
+#ifndef SCI_KERNEL_WINDOW_H
+#define SCI_KERNEL_WINDOW_H
 
-#include "GrTypes.h"
+#include "sci/Kernel/GrTypes.h"
 
 #pragma warning(push)
 #pragma warning(disable : 4201) // nameless struct/union
@@ -84,4 +84,4 @@ int RPtToAngle(const RPoint *sp, const RPoint *dp);
 
 #pragma warning(pop)
 
-#endif // WINDOW_H
+#endif // SCI_KERNEL_WINDOW_H

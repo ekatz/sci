@@ -1,10 +1,10 @@
-#ifndef FORMAT_H
-#define FORMAT_H
+#ifndef SCI_UTILS_FORMAT_H
+#define SCI_UTILS_FORMAT_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 int sci_sprintf(char *str, char *fp, ...);
 
 int sci_vsprintf(char *str, char *fp, va_list ap);
 
-#endif // FORMAT_H
+#endif // SCI_UTILS_FORMAT_H

@@ -1,7 +1,7 @@
-#ifndef DIALOG_H
-#define DIALOG_H
+#ifndef SCI_KERNEL_DIALOG_H
+#define SCI_KERNEL_DIALOG_H
 
-#include "Event.h"
+#include "sci/Kernel/Event.h"
 
 // Item types
 #define dButton   1
@@ -42,4 +42,4 @@ void RLocalToGlobal(RPoint *mp);
 
 uint EditText(RRect *box, char *text, uint cursor, uint max, REventRecord *evt);
 
-#endif // DIALOG_H
+#endif // SCI_KERNEL_DIALOG_H

@@ -1,13 +1,13 @@
-#include "Graphics.h"
-#include "Animate.h"
-#include "Cels.h"
-#include "Display.h"
-#include "ErrMsg.h"
-#include "Kernel.h"
-#include "PMachine.h"
-#include "Picture.h"
-#include "Resource.h"
-#include "Window.h"
+#include "sci/Kernel/Graphics.h"
+#include "sci/Kernel/Animate.h"
+#include "sci/Kernel/Cels.h"
+#include "sci/Kernel/Kernel.h"
+#include "sci/Kernel/Picture.h"
+#include "sci/Kernel/Resource.h"
+#include "sci/Kernel/Window.h"
+#include "sci/Driver/Display/Display.h"
+#include "sci/PMachine/PMachine.h"
+#include "sci/Utils/ErrMsg.h"
 
 #define BRUSHSIZE_MASK 7
 

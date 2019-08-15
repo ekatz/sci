@@ -1,7 +1,7 @@
-#ifndef SCRIPT_H
-#define SCRIPT_H
+#ifndef SCI_PMACHINE_SCRIPT_H
+#define SCI_PMACHINE_SCRIPT_H
 
-#include "List.h"
+#include "sci/Utils/List.h"
 
 #pragma warning(push)
 #pragma warning(disable : 4200) // zero-sized array in struct/union
@@ -56,4 +56,4 @@ void DisposeScript(uint num);
 
 #pragma warning(pop)
 
-#endif // SCRIPT_H
+#endif // SCI_PMACHINE_SCRIPT_H

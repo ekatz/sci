@@ -1,7 +1,7 @@
-#ifndef PATH_H
-#define PATH_H
+#ifndef SCI_UTILS_PATH_H
+#define SCI_UTILS_PATH_H
 
-#include "Types.h"
+#include "sci/Utils/Types.h"
 
 void InitPath(const char *resDir, const char *saveDir);
 
@@ -13,4 +13,4 @@ const char *GetSaveDosDir();
 // Make sure that the last character of the directory is NOT a '/' or '\'.
 char *CleanDir(char *dir);
 
-#endif // PATH_H
+#endif // SCI_UTILS_PATH_H

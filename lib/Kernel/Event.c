@@ -1,9 +1,9 @@
-#include "Event.h"
-#include "Input.h"
-#include "Mouse.h"
-#include "Mutex.h"
-#include "Selector.h"
-#include "Timer.h"
+#include "sci/Kernel/Event.h"
+#include "sci/Kernel/Mouse.h"
+#include "sci/Kernel/Selector.h"
+#include "sci/Driver/Input/Input.h"
+#include "sci/Utils/Mutex.h"
+#include "sci/Utils/Timer.h"
 
 typedef struct KeyToDir {
     ushort key;
