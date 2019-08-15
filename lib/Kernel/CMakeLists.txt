@@ -1,0 +1,25 @@
+add_sci_library(sciKernel
+  Animate.c
+  Audio.c
+  Cels.c
+  Dialog.c
+  Event.c
+  FarData.c
+  Graphics.c
+  Kernel.c
+  Menu.c
+  Midi.c
+  Motion.c
+  Mouse.c
+  Palette.c
+  Picture.c
+  ResName.c
+  Resource.c
+  Restart.c
+  SaveGame.c
+  Sound.c
+  Sync.c
+  Text.c
+  VolLoad.c
+  Window.c
+  )

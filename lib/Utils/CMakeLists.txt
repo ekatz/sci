@@ -1,0 +1,11 @@
+add_sci_library(sciUtils
+  Crypt.c
+  ErrMsg.c
+  FileIO.c
+  Format.c
+  List.c
+  Mutex.c
+  Path.c
+  Timer.c
+  Trig.c
+  )
