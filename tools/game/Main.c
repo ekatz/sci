@@ -1,3 +1,4 @@
+#include "sci/Driver/Audio/LPcmDriver.h"
 #include "sci/Driver/Display/Display.h"
 #include "sci/Kernel/Audio.h"
 #include "sci/Kernel/Dialog.h"

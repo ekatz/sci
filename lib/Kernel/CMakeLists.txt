@@ -22,4 +22,11 @@ add_sci_library(sciKernel
   Text.c
   VolLoad.c
   Window.c
+
+  LINK_LIBS
+  sciAudioDriver
+  sciDisplayDriver
+  sciInputDriver
+  sciPMachine
+  sciUtils
   )

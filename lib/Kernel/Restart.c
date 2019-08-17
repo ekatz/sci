@@ -6,7 +6,7 @@
 #include "sci/Kernel/Sound.h"
 #include "sci/PMachine/PMachine.h"
 
-#define ret(val) g_acc = ((uintptr_t)(val))
+#define ret(val) *acc = ((uintptr_t)(val))
 
 int     g_gameRestarted = 0;
 jmp_buf g_restartBuf;

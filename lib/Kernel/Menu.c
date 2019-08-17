@@ -3,7 +3,6 @@
 #include "sci/Kernel/Dialog.h"
 #include "sci/Kernel/Event.h"
 #include "sci/Kernel/Graphics.h"
-#include "sci/Kernel/Kernel.h"
 #include "sci/Kernel/Mouse.h"
 #include "sci/Kernel/Selector.h"
 #include "sci/Kernel/Sound.h"
@@ -107,23 +106,23 @@ void KGetMenu(argList)
     item = s_theMenuBar->page[arg(1) >> 8]->item[arg(1) & 255];
     switch (arg(2)) {
         case p_said:
-            g_acc = (uintptr_t)item->said;
+            *acc = (uintptr_t)item->said;
             break;
 
         case p_text:
-            g_acc = (uintptr_t)item->text;
+            *acc = (uintptr_t)item->text;
             break;
 
         case p_key:
-            g_acc = (uintptr_t)item->key;
+            *acc = (uintptr_t)item->key;
             break;
 
         case p_state:
-            g_acc = (uintptr_t)item->state;
+            *acc = (uintptr_t)item->state;
             break;
 
         case p_value:
-            g_acc = (uintptr_t)item->value;
+            *acc = (uintptr_t)item->value;
             break;
     }
 }
@@ -140,14 +139,14 @@ void KMenuSelect(argList)
     Obj       *event  = (Obj *)arg(1);
     bool       blocks = true;
 
-    g_acc = (uintptr_t)-1;
+    *acc = (uintptr_t)-1;
 
     if (argCount == 2 && !arg(2))
         blocks = false;
 
     // If we are not inited we return false.
     if (s_theMenuBar == NULL) {
-        g_acc = 0;
+        *acc = 0;
         return;
     }
 
@@ -166,7 +165,7 @@ void KMenuSelect(argList)
                 if (blocks) {
                     PauseSnd(NULL, true);
                 }
-                g_acc = KeySelect();
+                *acc = KeySelect();
                 if (blocks) {
                     PauseSnd(NULL, false);
                 }
@@ -189,7 +188,7 @@ void KMenuSelect(argList)
                                 if ((word)item->key &&
                                     (word)item->key == message) {
                                     IndexedProp(event, evClaimed) = TRUE;
-                                    g_acc = (i | (m << 8));
+                                    *acc = (i | (m << 8));
                                 }
                                 break;
 
@@ -197,7 +196,7 @@ void KMenuSelect(argList)
                                 saidSpec = item->said;
                                 if (saidSpec) {
                                     IndexedProp(event, evClaimed) = TRUE;
-                                    g_acc = (i | (m << 8));
+                                    *acc = (i | (m << 8));
                                 }
                                 break;
                         }
@@ -212,7 +211,7 @@ void KMenuSelect(argList)
                 if (blocks) {
                     PauseSnd(NULL, true);
                 }
-                g_acc = MouseSelect();
+                *acc = MouseSelect();
                 if (blocks) {
                     PauseSnd(NULL, false);
                 }

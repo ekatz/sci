@@ -239,7 +239,7 @@ void ShowText(const char *str, uint first, uint count)
 const char *GetTextPointer(uintptr_t native)
 {
     if ((intptr_t)native < 0x10000) {
-        return (const char *)g_scriptHeap + (uint16_t)native;
+        return (const char *)GetScriptHeapPtr((uint16_t)native);
     } else {
         return (const char *)native;
     }

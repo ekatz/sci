@@ -34,7 +34,7 @@ typedef struct Script {
     int          clones;
 } Script;
 
-extern byte g_scriptHeap[];
+byte *GetScriptHeapPtr(size_t offset);
 
 // Initialize the list of loaded scripts.
 void InitScripts(void);

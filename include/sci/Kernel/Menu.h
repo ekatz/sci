@@ -2,6 +2,7 @@
 #define SCI_KERNEL_MENU_H
 
 #include "sci/Kernel/GrTypes.h"
+#include "sci/Kernel/Kernel.h"
 
 #define MARKWIDE  8
 #define BARSIZE   10
@@ -64,11 +65,11 @@ extern RGrafPort *g_menuPort;
 
 void InitMenu(void);
 
-void KMenuSelect(uintptr_t *args);
-void KAddMenu(uintptr_t *args);
-void KGetMenu(uintptr_t *args);
-void KSetMenu(uintptr_t *args);
-void KDrawStatus(uintptr_t *args);
-void KDrawMenuBar(uintptr_t *args);
+void KMenuSelect(argList);
+void KAddMenu(argList);
+void KGetMenu(argList);
+void KSetMenu(argList);
+void KDrawStatus(argList);
+void KDrawMenuBar(argList);
 
 #endif // SCI_KERNEL_MENU_H

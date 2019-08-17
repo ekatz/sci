@@ -172,6 +172,4 @@ typedef	bool (*boolfptr)(const char*);
 
 #define NOT_IMPL 1
 
-#include "sci/Logger/Log.h"
-
 #endif // SCI_UTILS_TYPES_H

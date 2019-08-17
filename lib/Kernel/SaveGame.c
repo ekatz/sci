@@ -3,7 +3,7 @@
 #include "sci/Utils/FileIO.h"
 #include "sci/Utils/Path.h"
 
-#define ret(val) g_acc = ((uintptr_t)(val))
+#define ret(val) *acc = ((uintptr_t)(val))
 
 void KGetSaveDir(argList)
 {

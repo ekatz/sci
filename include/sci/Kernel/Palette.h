@@ -1,7 +1,7 @@
 #ifndef SCI_KERNEL_PALETTE_H
 #define SCI_KERNEL_PALETTE_H
 
-#include "sci/Utils/Types.h"
+#include "sci/Kernel/Kernel.h"
 
 #define PAL_FILE_SIZE 0x504
 #define PAL_CLUT_SIZE 256
@@ -78,7 +78,7 @@ void SetResPalette(uint num, int mode);
 void SetPalIntensity(RPalette *palette, int first, int last, int intensity);
 
 // All SCRIPT palette functions dispatch through KPalette.
-void KPalette(uintptr_t *args);
+void KPalette(argList);
 
 uint8_t PalMatch(uint8_t r, uint8_t g, uint8_t b);
 

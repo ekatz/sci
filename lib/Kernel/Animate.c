@@ -66,7 +66,7 @@ void Animate(List *cast, bool doit)
     // identified as a static view.
     if (doit) {
         for (it = FirstNode(cast); it != NULL; it = NextNode(it)) {
-            if (g_vars.global[g_fastCast] != 0) {
+            if (GetGlobalVariable(g_fastCast) != 0) {
                 return;
             }
 

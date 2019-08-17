@@ -9,11 +9,11 @@ typedef struct KNode {
 } KNode;
 
 typedef uintptr_t *kArgs;
-typedef void (*kFunc)(kArgs);
+typedef void (*kFunc)(kArgs, kArgs);
 
 #define arg(n)   (*(args + (n)))
 #define kArgc    ((uint)arg(0))
-#define argList  kArgs args
+#define argList  kArgs args, kArgs acc
 #define argCount kArgc
 
 void KLoad(argList);

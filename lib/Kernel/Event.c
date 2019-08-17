@@ -160,7 +160,7 @@ void EventToObj(const REventRecord *evt, Obj *evtObj)
     IndexedProp(evtObj, evY)    = (uintptr_t)evt->where.v;
 }
 
-void ObjToEvent(const Obj *evtObj, REventRecord *evt)
+void ObjToEvent(Obj *evtObj, REventRecord *evt)
 {
     evt->type      = (ushort)IndexedProp(evtObj, evType);
     evt->modifiers = (ushort)IndexedProp(evtObj, evMod);

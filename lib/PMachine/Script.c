@@ -594,3 +594,8 @@ static void DisposeHeapHandle(Handle handle)
         memset(handle, 0, ResHandleSize(handle));
     }
 }
+
+byte *GetScriptHeapPtr(size_t offset)
+{
+    return g_scriptHeap + offset;
+}

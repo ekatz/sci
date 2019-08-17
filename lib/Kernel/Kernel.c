@@ -62,7 +62,7 @@ typedef struct SortNode {
     intptr_t sortKey;
 } SortNode;
 
-#define ret(val) g_acc = ((uintptr_t)(val))
+#define ret(val) *acc = ((uintptr_t)(val))
 
 void KLoad(argList)
 {

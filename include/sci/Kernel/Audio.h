@@ -1,26 +1,7 @@
 #ifndef SCI_KERNEL_AUDIO_H
 #define SCI_KERNEL_AUDIO_H
 
-#include "sci/Utils/Types.h"
-
-// Codes to be sent to the audio driver.
-#define A_INIT      0
-#define A_STAT      1
-#define A_TERMINATE 2
-#define A_MEMPLAY   3
-#define A_MEMCHECK  4
-#define A_MEMSTOP   5
-#define A_RATE      8  // 6
-#define A_PAUSE     11 // 7
-#define A_RESUME    12 // 8
-#define A_SELECT    3  // 9
-#define A_WPLAY     4  // 10
-#define A_PLAY      5  // 11
-#define A_STOP      6  // 12
-#define A_LOC       7  // 13
-#define A_VOLUME    14
-#define A_FILLBUFF  1  // 15
-#define A_QUEUE     16
+#include "sci/Kernel/Kernel.h"
 
 enum audioFuncs {
     WPLAY = 1,
@@ -44,8 +25,6 @@ void AudioWPlay();
 // Declare the audio playback rate.
 uint AudioRate(uint hertz);
 
-void KDoAudio(uintptr_t *args);
-
-int AudioDrv(int function, uintptr_t qualifier);
+void KDoAudio(argList);
 
 #endif // SCI_KERNEL_AUDIO_H

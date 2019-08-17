@@ -49,8 +49,8 @@ typedef struct ClassEntry {
 #define OBJSIZE(varSelNum)                                                     \
     (sizeof(ObjHeader) + offsetof(Obj, vars[(varSelNum)]))
 
-#define IndexedPropAddr(object, prop) ((object)->vars + g_objOfs[prop])
-#define IndexedProp(object, prop)     (*IndexedPropAddr(object, prop))
+uintptr_t *IndexedPropAddr(Obj *obj, size_t prop);
+#define IndexedProp(object, prop) (*IndexedPropAddr(object, prop))
 
 extern ClassEntry *g_classTbl;
 extern uint        g_numClasses;
@@ -64,6 +64,9 @@ void LoadClassTbl(void);
 Obj *GetClass(ObjID n);
 
 bool IsObject(Obj *obj);
+
+void SaveObjectState(Obj *obj, uintptr_t *buf);
+void LoadObjectState(uintptr_t *buf, Obj *obj);
 
 // Return pointer to copy of an object or class.
 Obj *Clone(Obj *obj);

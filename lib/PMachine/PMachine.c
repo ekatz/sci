@@ -13,6 +13,7 @@
 #include "sci/Kernel/Selector.h"
 #include "sci/Kernel/Sound.h"
 #include "sci/Kernel/Sync.h"
+#include "sci/Logger/Log.h"
 
 #define PSTACKSIZE (10 * 1024)
 
@@ -494,6 +495,11 @@ Obj *GetDispatchAddr(uint scriptNum, uint entryNum)
     Obj *obj = NULL;
     GetDispatchAddrInHeap(scriptNum, entryNum, &obj);
     return obj;
+}
+
+uintptr_t GetGlobalVariable(size_t index)
+{
+    return g_vars.global[index];
 }
 
 void ExecuteCode(void)
@@ -1075,7 +1081,7 @@ void ExecuteCode(void)
                 LogDebug("lofsa %+d", *((int16_t *)g_pc));
 #if defined __WINDOWS__ || 1
                 uintptr_t offset = GetWord();
-                SetAcc((uintptr_t)g_scriptHeap + offset);
+                SetAcc((uintptr_t)GetScriptHeapPtr(offset));
 #else
 #error Not implemented
 #endif
@@ -1086,7 +1092,7 @@ void ExecuteCode(void)
                 LogDebug("lofss %+d", *((int16_t *)g_pc));
 #if defined __WINDOWS__ || 1
                 uintptr_t offset = GetWord();
-                Push((uintptr_t)g_scriptHeap + offset);
+                Push((uintptr_t)GetScriptHeapPtr(offset));
 #else
 #error Not implemented
 #endif
@@ -1867,7 +1873,7 @@ static void KernelCall(uint kernelNum)
     g_restArgsCount = 0;
 
     if (kernelNum < KERNELMAX) {
-        s_kernelDispTbl[kernelNum](g_bp);
+        s_kernelDispTbl[kernelNum](g_bp, &g_acc);
     } else {
         PError(PE_BAD_KERNAL, kernelNum, 0);
     }
@@ -1948,7 +1954,7 @@ static Script *GetDispatchAddrInHeap(uint scriptNum, uint entryNum, Obj **obj)
     if (script != NULL && entryNum < (uint)script->exports->numEntries) {
         assert(script->exports->entries[entryNum].ptrSeg == (uint16_t)-1);
         *obj =
-          (Obj *)(g_scriptHeap + script->exports->entries[entryNum].ptrOff);
+          (Obj *)GetScriptHeapPtr(script->exports->entries[entryNum].ptrOff);
     }
     return script;
 }

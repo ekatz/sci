@@ -106,7 +106,7 @@ void RPostEvent(REventRecord *event);
 
 void EventToObj(const REventRecord *evt, Obj *evtObj);
 
-void ObjToEvent(const Obj *evtObj, REventRecord *evt);
+void ObjToEvent(Obj *evtObj, REventRecord *evt);
 
 REventRecord *MapKeyToDir(REventRecord *evt);
 

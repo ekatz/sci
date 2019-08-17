@@ -1,6 +1,7 @@
 #ifndef SCI_KERNEL_SYNC_H
 #define SCI_KERNEL_SYNC_H
 
+#include "sci/Kernel/Kernel.h"
 #include "sci/PMachine/Object.h"
 
 // sync cue structure
@@ -11,6 +12,6 @@ typedef struct Sync {
 
 enum syncFuncs { STARTSYNC, NEXTSYNC, STOPSYNC };
 
-void KDoSync(uintptr_t *args);
+void KDoSync(argList);
 
 #endif // SCI_KERNEL_SYNC_H

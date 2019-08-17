@@ -140,16 +140,16 @@ void KInitBresen(argList)
 
 void KDoBresen(argList)
 {
-    Obj     *motion, *client;
-    int      x, y, toX, toY, i1, i2, di, si1, si2, sdi;
-    int      dx, dy, incr;
-    bool     xAxis;
-    uint     moveCount;
-    uint8_t *aniState[500];
+    Obj      *motion, *client;
+    int       x, y, toX, toY, i1, i2, di, si1, si2, sdi;
+    int       dx, dy, incr;
+    bool      xAxis;
+    uint      moveCount;
+    uintptr_t aniState[500];
 
     motion = (Obj *)arg(1);
     client = (Obj *)IndexedProp(motion, motClient);
-    g_acc  = 0;
+    *acc  = 0;
 
     IndexedProp(client, actSignal) =
       IndexedProp(client, actSignal) & (~blocked);
@@ -173,9 +173,7 @@ void KDoBresen(argList)
         IndexedProp(motion, motYLast) = (uintptr_t)y;
 
         // Save the current animation state before moving the client.
-        memcpy(aniState,
-               client->vars,
-               sizeof(uintptr_t) * OBJHEADER(client)->varSelNum);
+        SaveObjectState(client, aniState);
 
         if ((xAxis && (abs(toX - x) <= abs(dx))) ||
             (!xAxis && (abs(toY - y) <= abs(dy)))) {
@@ -210,12 +208,10 @@ void KDoBresen(argList)
         IndexedProp(client, actY) = (uintptr_t)y;
 
         // Check position validity for this cel.
-        if ((g_acc = InvokeMethod(client, s_cantBeHere, 0)) != 0) {
+        if ((*acc = InvokeMethod(client, s_cantBeHere, 0)) != 0) {
             // Client can't be here -- restore the original state and mark the
             // client as blocked.
-            memcpy(client->vars,
-                   aniState,
-                   sizeof(uintptr_t) * OBJHEADER(client)->varSelNum);
+            LoadObjectState(aniState, client);
             i1 = si1;
             i2 = si2;
             di = sdi;
@@ -268,13 +264,13 @@ void KCantBeHere(argList)
     // If this is zero, the position is valid.
     //
 
-    g_acc = 0;
-    if (!(g_acc = (OnControl(CMAP, &r) & IndexedProp(him, actIllegalBits)))) {
+    *acc = 0;
+    if (!(*acc = (OnControl(CMAP, &r) & IndexedProp(him, actIllegalBits)))) {
         // Controls were legal, do I care about other actors?
         // If I am hidden or ignoring actors my position is legal 8.
         if ((IndexedProp(him, actSignal) & (ignrAct | HIDDEN)) == 0) {
             // Default to no hits.
-            g_acc = 0;
+            *acc = 0;
             // Now the last thing we care about is our rectangles.
             for (node = FirstNode(cast); node != NULL; node = NextNode(node)) {
                 me = (Obj *)((KNode *)node)->nVal;
@@ -298,7 +294,7 @@ void KCantBeHere(argList)
                     r.top >= chkR.bottom || r.bottom <= chkR.top) {
                     continue;
                 } else {
-                    g_acc = (uintptr_t)me;
+                    *acc = (uintptr_t)me;
                     break;
                 }
             }

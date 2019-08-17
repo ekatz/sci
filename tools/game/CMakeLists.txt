@@ -4,13 +4,8 @@ add_sci_tool(game
 
 target_link_libraries(game
   PRIVATE
-  sciAudioDriver
-  sciDisplayDriver
-  sciInputDriver
   sciKernel
-  sciLogger
   sciPMachine
-  sciUtils
   )
 
 set_property(TARGET game APPEND_STRING PROPERTY

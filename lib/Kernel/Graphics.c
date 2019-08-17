@@ -1,7 +1,6 @@
 #include "sci/Kernel/Graphics.h"
 #include "sci/Kernel/Animate.h"
 #include "sci/Kernel/Cels.h"
-#include "sci/Kernel/Kernel.h"
 #include "sci/Kernel/Picture.h"
 #include "sci/Kernel/Resource.h"
 #include "sci/Kernel/Window.h"
@@ -2229,7 +2228,7 @@ bool RSectRect(const RRect *src, const RRect *clip, RRect *dst)
 
 void KGraph(argList)
 {
-#define ret(val) g_acc = ((uintptr_t)(val))
+#define ret(val) *acc = ((uintptr_t)(val))
 
     RRect rect;
 

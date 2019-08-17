@@ -524,7 +524,7 @@ void ChangeSndState(Obj *soundObj)
 
 void KDoSound(argList)
 {
-#define ret(val) g_acc = ((uintptr_t)(val))
+#define ret(val) *acc = ((uintptr_t)(val))
 
     Obj *soundObj;
 

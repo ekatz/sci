@@ -3,6 +3,7 @@
 #include "sci/Kernel/FarData.h"
 #include "sci/Kernel/Resource.h"
 #include "sci/Kernel/Selector.h"
+#include "sci/Logger/Log.h"
 #include <stdarg.h>
 
 #define MINOBJECTADDR 0x2000
@@ -25,6 +26,11 @@ uint        g_objOfs[OBJOFSSIZE] = { 0 };
 static void CheckObject(Obj *obj);
 static int  FindSelector(ObjID *list, uint n, ObjID sel);
 static void QuickMessage(Obj *obj, uint argc);
+
+uintptr_t *IndexedPropAddr(Obj *obj, size_t prop)
+{
+    return obj->vars + g_objOfs[prop];
+}
 
 void LoadPropOffsets(void)
 {
@@ -76,6 +82,16 @@ bool IsObject(Obj *obj)
     // field is OBJID.
     return obj != NULL && ((uintptr_t)obj & 1) == 0 &&
            OBJHEADER(obj)->magic == OBJID;
+}
+
+void SaveObjectState(Obj *obj, uintptr_t *buf)
+{
+    memcpy(buf, obj->vars, sizeof(uintptr_t) * OBJHEADER(obj)->varSelNum);
+}
+
+void LoadObjectState(uintptr_t *buf, Obj *obj)
+{
+    memcpy(obj->vars, buf, sizeof(uintptr_t) * OBJHEADER(obj)->varSelNum);
 }
 
 Obj *Clone(Obj *obj)
@@ -243,7 +259,7 @@ void SetProperty(Obj *obj, uint prop, uintptr_t value)
 const char *GetObjName(Obj *obj)
 {
     uintptr_t *name = (uintptr_t *)GetPropAddr(obj, s_name);
-    return (name != 0) ? ((const char *)g_scriptHeap + *name) : NULL;
+    return (name != 0) ? (const char *)GetScriptHeapPtr(*name) : NULL;
 }
 
 char *GetSelectorName(uint id, char *str)

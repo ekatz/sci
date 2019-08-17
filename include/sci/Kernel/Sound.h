@@ -1,6 +1,7 @@
 #ifndef SCI_KERNEL_SOUND_H
 #define SCI_KERNEL_SOUND_H
 
+#include "sci/Kernel/Kernel.h"
 #include "sci/PMachine/Object.h"
 
 // Defines for flags property of sound objects.
@@ -126,6 +127,6 @@ void MidiSend(Obj *soundObj, int channel, int command, int value1, int value2);
 
 void ChangeSndState(Obj *soundObj);
 
-void KDoSound(uintptr_t *args);
+void KDoSound(argList);
 
 #endif // SCI_KERNEL_SOUND_H

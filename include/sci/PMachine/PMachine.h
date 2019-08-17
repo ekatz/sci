@@ -104,6 +104,8 @@ void ExecuteCode(void);
 // Return a pointer to an entry in a script.
 Obj *GetDispatchAddr(uint scriptNum, uint entryNum);
 
+uintptr_t GetGlobalVariable(size_t index);
+
 _Noreturn void PError(int perrCode, uintptr_t arg1, uintptr_t arg2);
 
 #pragma warning(pop)

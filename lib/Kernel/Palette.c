@@ -1,6 +1,5 @@
 #include "sci/Kernel/Palette.h"
 #include "sci/Kernel/Graphics.h"
-#include "sci/Kernel/Kernel.h"
 #include "sci/Kernel/Picture.h"
 #include "sci/Kernel/Resource.h"
 #include "sci/PMachine/PMachine.h"
@@ -197,7 +196,7 @@ static void SetPaletteFlags(RPalette *pal, uint first, uint last, uint8_t flags)
 
 void KPalette(argList)
 {
-#define ret(val) g_acc = ((uintptr_t)(val))
+#define ret(val) *acc = ((uintptr_t)(val))
 
     Guns      aGun;
     RPalette *pal;
