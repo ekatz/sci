@@ -1,65 +1,73 @@
-#pragma once
-#ifndef _MutateCallIntrinsicsPass_HPP_
-#define _MutateCallIntrinsicsPass_HPP_
+//===- Passes/MutateCallIntrinsicsPass.hpp --------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
 
-#include "../Types.hpp"
+#ifndef SCI_UTILS_PMACHINE_LLVM_PASSES_MUTATECALLINTRINSICSPASS_HPP
+#define SCI_UTILS_PMACHINE_LLVM_PASSES_MUTATECALLINTRINSICSPASS_HPP
+
 #include "../Intrinsics.hpp"
+#include "../Types.hpp"
 
-BEGIN_NAMESPACE_SCI
+namespace sci {
 
-class MutateCallIntrinsicsPass
-{
+class MutateCallIntrinsicsPass {
 public:
-    MutateCallIntrinsicsPass();
-    ~MutateCallIntrinsicsPass();
+  MutateCallIntrinsicsPass();
+  ~MutateCallIntrinsicsPass();
 
-    void run();
+  void run();
 
 private:
-    void mutateCallKernel(CallKernelInst *callk);
-    void mutateCallInternal(CallInternalInst *calli);
-    void mutateCallExternal(CallExternalInst *calle);
-    void mutateSendMessage(SendMessageInst *sendMsg);
+  void mutateCallKernel(CallKernelInst *Callk);
+  void mutateCallInternal(CallInternalInst *Calli);
+  void mutateCallExternal(CallExternalInst *Calle);
+  void mutateSendMessage(SendMessageInst *SendMsg);
 
-    void extractRest(llvm::CallInst *call, llvm::Value *&restc, llvm::Value *&restv) const;
-    llvm::CallInst* createPropertyCall(SendMessageInst *sendMsg, bool getter);
-    llvm::CallInst* createMethodCall(SendMessageInst *sendMsg, bool method, llvm::Value *restc, llvm::Value *restv);
-    llvm::CallInst* createSuperMethodCall(SendMessageInst *sendMsg, llvm::Value *restc, llvm::Value *restv);
+  void extractRest(llvm::CallInst *Call, llvm::Value *&Restc,
+                   llvm::Value *&Restv) const;
+  llvm::CallInst *createPropertyCall(SendMessageInst *SendMsg, bool IsGetter);
+  llvm::CallInst *createMethodCall(SendMessageInst *SendMsg, bool IsMethod,
+                                   llvm::Value *Restc, llvm::Value *Restv);
+  llvm::CallInst *createSuperMethodCall(SendMessageInst *SendMsg,
+                                        llvm::Value *Restc, llvm::Value *Restv);
 
-    llvm::CallInst* delegateCall(llvm::CallInst *stubCall,
-                                 llvm::Function *func, uint prefixc,
-                                 llvm::Value *self, llvm::Value *sel,
-                                 llvm::Value *restc, llvm::Value *restv,
-                                 llvm::ConstantInt *argc, llvm::CallInst::op_iterator argi);
+  llvm::CallInst *delegateCall(llvm::CallInst *StubCall, llvm::Function *Func,
+                               unsigned Prefixc, llvm::Value *self,
+                               llvm::Value *Sel, llvm::Value *Restc,
+                               llvm::Value *Restv, llvm::ConstantInt *Argc,
+                               llvm::CallInst::op_iterator ArgI);
 
-    llvm::Function* getOrCreateDelegator(llvm::ConstantInt *argc, llvm::Module *module);
+  llvm::Function *getOrCreateDelegator(llvm::ConstantInt *Argc,
+                                       llvm::Module *M);
 
-    llvm::Function* getSendMessageFunction(llvm::Module *module);
-    llvm::Function* getGetPropertyFunction(llvm::Module *module);
-    llvm::Function* getSetPropertyFunction(llvm::Module *module);
-    llvm::Function* getCallMethodFunction(llvm::Module *module);
+  llvm::Function *getSendMessageFunction(llvm::Module *M);
+  llvm::Function *getGetPropertyFunction(llvm::Module *M);
+  llvm::Function *getSetPropertyFunction(llvm::Module *M);
+  llvm::Function *getCallMethodFunction(llvm::Module *M);
 
-    llvm::Function* getOrCreateKernelFunction(uint id, llvm::Module *module);
+  llvm::Function *getOrCreateKernelFunction(unsigned ID, llvm::Module *M);
 
-    llvm::IntegerType *m_sizeTy;
-    llvm::ConstantInt *m_sizeBytesVal;
-    uint m_sizeAlign;
+  llvm::IntegerType *SizeTy;
+  llvm::ConstantInt *SizeBytesVal;
+  unsigned SizeAlign;
 
-    llvm::PointerType *m_int8PtrTy;
+  llvm::PointerType *Int8PtrTy;
 
-    llvm::ConstantInt *m_zero;
-    llvm::ConstantInt *m_one;
-    llvm::ConstantInt *m_allOnes;
-    llvm::ConstantPointerNull *m_nullPtr;
+  llvm::ConstantInt *Zero;
+  llvm::ConstantInt *One;
+  llvm::ConstantInt *AllOnes;
+  llvm::ConstantPointerNull *NullPtr;
 
-    llvm::Function *m_sendMsgFunc;
-    llvm::Function *m_getPropFunc;
-    llvm::Function *m_setPropFunc;
-    llvm::Function *m_callMethodFunc;
+  llvm::Function *SendMsgFunc;
+  llvm::Function *GetPropFunc;
+  llvm::Function *SetPropFunc;
+  llvm::Function *CallMethodFunc;
 
-    static const char* s_kernelNames[];
+  static const char *KernelNames[];
 };
 
-END_NAMESPACE_SCI
+} // end namespace sci
 
-#endif // !_MutateCallIntrinsicsPass_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_PASSES_MUTATECALLINTRINSICSPASS_HPP

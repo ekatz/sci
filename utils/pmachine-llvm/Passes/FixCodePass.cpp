@@ -1,100 +1,91 @@
-#include "FixCodePass.hpp"
-#include "../World.hpp"
-#include "../Script.hpp"
-#include "../Object.hpp"
-#include "../Method.hpp"
-#include "../Resource.hpp"
-#include "../../SCI/src/Selector.h"
+//===- Passes/FixCodePass.cpp ---------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
 
+#include "FixCodePass.hpp"
+#include "../Method.hpp"
+#include "../Object.hpp"
+#include "../Resource.hpp"
+#include "../Script.hpp"
+#include "../World.hpp"
+#include "sci/Kernel/Selector.h"
+
+using namespace sci;
 using namespace llvm;
 
+FixCodePass::FixCodePass() : SizeTy(GetWorld().getSizeType()) {}
 
-BEGIN_NAMESPACE_SCI
+FixCodePass::~FixCodePass() {}
 
+void FixCodePass::run() {
+  World &W = GetWorld();
 
-FixCodePass::FixCodePass() : m_sizeTy(GetWorld().getSizeType())
-{
+  Object *Obj = W.getClass(0);
+  Method *Mtd;
+  Function *Func, *NewFunc;
+  Module *Mod;
+
+  Mtd = Obj->getMethod(s_isKindOf);
+  Func = Mtd->getFunction();
+  Mod = Func->getParent();
+
+  NewFunc = createObjMethodFunction(Mod, createIsKindOfFunctionPrototype(Mod));
+
+  NewFunc->takeName(Func);
+  Func->replaceAllUsesWith(NewFunc);
+  Func->eraseFromParent();
+
+  Mtd = Obj->getMethod(s_isMemberOf);
+  Func = Mtd->getFunction();
+  Mod = Func->getParent();
+
+  NewFunc =
+      createObjMethodFunction(Mod, createIsMemberOfFunctionPrototype(Mod));
+
+  NewFunc->takeName(Func);
+  Func->replaceAllUsesWith(NewFunc);
+  Func->eraseFromParent();
 }
 
+Function *FixCodePass::createIsKindOfFunctionPrototype(Module *M) const {
+  Type *Params[] = {SizeTy, SizeTy};
+  FunctionType *FTy =
+      FunctionType::get(Type::getInt1Ty(SizeTy->getContext()), Params, false);
 
-FixCodePass::~FixCodePass()
-{
+  return Function::Create(FTy, GlobalValue::ExternalLinkage, "IsKindOf", M);
 }
 
+Function *FixCodePass::createIsMemberOfFunctionPrototype(Module *M) const {
+  Type *Params[] = {SizeTy, SizeTy};
+  FunctionType *funcTy =
+      FunctionType::get(Type::getInt1Ty(SizeTy->getContext()), Params, false);
 
-void FixCodePass::run()
-{
-    World &world = GetWorld();
-
-    Object *obj = world.getClass(0);
-    Method *method;
-    Function *func, *newFunc;
-    Module *module;
-
-    method = obj->getMethod(s_isKindOf);
-    func = method->getFunction();
-    module = func->getParent();
-
-    newFunc = createObjMethodFunction(module, createIsKindOfFunctionPrototype(module));
-
-    newFunc->takeName(func);
-    func->replaceAllUsesWith(newFunc);
-    func->eraseFromParent();
-
-
-    method = obj->getMethod(s_isMemberOf);
-    func = method->getFunction();
-    module = func->getParent();
-
-    newFunc = createObjMethodFunction(module, createIsMemberOfFunctionPrototype(module));
-
-    newFunc->takeName(func);
-    func->replaceAllUsesWith(newFunc);
-    func->eraseFromParent();
+  return Function::Create(funcTy, GlobalValue::ExternalLinkage, "IsMemberOf",
+                          M);
 }
 
+Function *FixCodePass::createObjMethodFunction(Module *M,
+                                               Function *ExternFunc) const {
+  World &W = GetWorld();
+  LLVMContext &Ctx = W.getContext();
 
-Function* FixCodePass::createIsKindOfFunctionPrototype(Module *module) const
-{
-    Type *params[] = { m_sizeTy, m_sizeTy };
-    FunctionType *funcTy = FunctionType::get(Type::getInt1Ty(m_sizeTy->getContext()), params, false);
+  Type *Params[] = {SizeTy, SizeTy->getPointerTo()};
+  FunctionType *FTy = FunctionType::get(SizeTy, Params, false);
+  Function *F = Function::Create(FTy, GlobalValue::LinkOnceODRLinkage, "", M);
 
-    return Function::Create(funcTy, GlobalValue::ExternalLinkage, "IsKindOf", module);
+  BasicBlock *BB = BasicBlock::Create(Ctx, "entry", F);
+
+  auto AI = F->arg_begin();
+  Value *Obj1Var = &*AI;
+  ConstantInt *C = ConstantInt::get(SizeTy, 1);
+  Value *Obj2Var = GetElementPtrInst::CreateInBounds(&*++AI, C, "", BB);
+  Obj2Var = new LoadInst(Obj2Var, "", false, W.getSizeTypeAlignment(), BB);
+
+  Value *Args[] = {Obj1Var, Obj2Var};
+  Value *V = CallInst::Create(ExternFunc, Args, "", BB);
+  V = new ZExtInst(V, SizeTy, "", BB);
+  ReturnInst::Create(Ctx, V, BB);
+  return F;
 }
-
-
-Function* FixCodePass::createIsMemberOfFunctionPrototype(Module *module) const
-{
-    Type *params[] = { m_sizeTy, m_sizeTy };
-    FunctionType *funcTy = FunctionType::get(Type::getInt1Ty(m_sizeTy->getContext()), params, false);
-
-    return Function::Create(funcTy, GlobalValue::ExternalLinkage, "IsMemberOf", module);
-}
-
-
-Function* FixCodePass::createObjMethodFunction(Module *module, Function *externFunc) const
-{
-    World &world = GetWorld();
-    LLVMContext &ctx = world.getContext();
-
-    Type *params[] = { m_sizeTy, m_sizeTy->getPointerTo() };
-    FunctionType *funcTy = FunctionType::get(m_sizeTy, params, false);
-    Function *func = Function::Create(funcTy, GlobalValue::LinkOnceODRLinkage, "", module);
-
-    BasicBlock *bb = BasicBlock::Create(ctx, "entry", func);
-
-    auto ai = func->arg_begin();
-    Value *obj1Var = &*ai;
-    ConstantInt *c = ConstantInt::get(m_sizeTy, 1);
-    Value *obj2Var = GetElementPtrInst::CreateInBounds(&*++ai, c, "", bb);
-    obj2Var = new LoadInst(obj2Var, "", false, world.getSizeTypeAlignment(), bb);
-
-    Value *args[] = { obj1Var, obj2Var };
-    Value *val = CallInst::Create(externFunc, args, "", bb);
-    val = new ZExtInst(val, m_sizeTy, "", bb);
-    ReturnInst::Create(ctx, val, bb);
-    return func;
-}
-
-
-END_NAMESPACE_SCI

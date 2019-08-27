@@ -1,18 +1,15 @@
-#pragma once
-#ifndef _Types_HPP_
-#define _Types_HPP_
+//===- Types.hpp ----------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
 
-#ifdef __cplusplus
+#ifndef SCI_UTILS_PMACHINE_LLVM_TYPES_HPP
+#define SCI_UTILS_PMACHINE_LLVM_TYPES_HPP
+
 extern "C" {
-#endif
-
-#include "../SCI/src/Types.h"
-
-#define BEGIN_NAMESPACE_SCI namespace sci {
-#define END_NAMESPACE_SCI   }
-
-#ifdef __cplusplus
-} // extern "C"
+#include "sci/Utils/Types.h"
+}
 
 #ifdef min
 #undef min
@@ -23,9 +20,9 @@ extern "C" {
 #endif
 
 #include <memory>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/ADT/ArrayRef.h>
-#include <llvm/ADT/StringExtras.h>
+#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/StringExtras.h"
 
 using llvm::StringRef;
 using llvm::ArrayRef;
@@ -36,22 +33,4 @@ inline T selector_cast(ObjID sel) {
     return static_cast<T>(static_cast<int16_t>(sel));
 }
 
-
-template <bool flag, class IsTrue, class IsFalse>
-struct choose_type;
-
-template <class IsTrue, class IsFalse>
-struct choose_type<true, IsTrue, IsFalse>
-{
-    typedef IsTrue type;
-};
-
-template <class IsTrue, class IsFalse>
-struct choose_type<false, IsTrue, IsFalse>
-{
-    typedef IsFalse type;
-};
-
-#endif
-
-#endif // !_Types_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_TYPES_HPP

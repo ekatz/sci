@@ -8,17 +8,6 @@
 
 #define MINOBJECTADDR 0x2000
 
-// Bits in the -info- property.
-#define CLASSBIT  0x8000
-#define CLONEBIT  0x0001
-#define NODISPOSE 0x0002
-#define NODISPLAY 0x0004 // Don't display in ShowObj()
-
-typedef struct ResClassEntry {
-    uint16_t obj;       // pointer to Obj
-    uint16_t scriptNum; // script number
-} ResClassEntry;
-
 ClassEntry *g_classTbl           = NULL;
 uint        g_numClasses         = 0;
 uint        g_objOfs[OBJOFSSIZE] = { 0 };

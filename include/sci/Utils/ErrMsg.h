@@ -108,7 +108,8 @@
 // #define E_VER_STAMP_MISMATCH    120
 
 void SetAlertProc(boolfptr func);
-_Noreturn void Panic(int errnum, ...);
+void SetPanicProc(boolfptr func);
+void Panic(int errnum, ...);
 bool RAlert(int errnum, ...);
 
 // Put up alert box and wait for a click.

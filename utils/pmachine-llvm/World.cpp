@@ -1,543 +1,200 @@
+//===- World.cpp ----------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
 #include "World.hpp"
-#include "Script.hpp"
 #include "Object.hpp"
 #include "Procedure.hpp"
 #include "Resource.hpp"
-#include "Passes/StackReconstructionPass.hpp"
-#include "Passes/SplitSendPass.hpp"
-#include "Passes/MutateCallIntrinsicsPass.hpp"
-#include "Passes/TranslateClassIntrinsicPass.hpp"
+#include "Script.hpp"
 #include "Passes/EmitScriptUtilitiesPass.hpp"
 #include "Passes/FixCodePass.hpp"
-#include <llvm/IR/Instructions.h>
-#include <llvm/IR/Intrinsics.h>
+#include "Passes/MutateCallIntrinsicsPass.hpp"
+#include "Passes/SplitSendPass.hpp"
+#include "Passes/StackReconstructionPass.hpp"
+#include "Passes/TranslateClassIntrinsicPass.hpp"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/Intrinsics.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/raw_ostream.h"
 
-#include <llvm/Support/raw_ostream.h>
-#include <llvm/Support/FileSystem.h>
-
+using namespace sci;
 using namespace llvm;
 
+static World TheWorld;
 
-BEGIN_NAMESPACE_SCI
-
-
-static World s_world;
-
-
-static void DumpScriptModule(uint id)
-{
-    std::error_code ec;
-    Module *m = GetWorld().getScript(id)->getModule();
-    m->print(raw_fd_ostream(("C:\\Temp\\SCI\\" + m->getName()).str() + ".ll", ec, sys::fs::F_Text), nullptr);
+static void DumpScriptModule(unsigned ScriptID) {
+  std::error_code EC;
+  Module *M = GetWorld().getScript(ScriptID)->getModule();
+  M->print(raw_fd_ostream(M->getName().str() + ".ll", EC, sys::fs::F_Text),
+           nullptr);
 }
 
+World &sci::GetWorld() { return TheWorld; }
 
-World& GetWorld()
-{
-    return s_world;
+World::World()
+    : DL(""), SizeTy(nullptr), ScriptCount(0), Classes(nullptr), ClassCount(0) {
+  setDataLayout(DL);
 }
 
-
-World::World() :
-    m_dataLayout(""),
-    m_sizeTy(nullptr),
-    m_scriptCount(0),
-    m_classes(nullptr),
-    m_classCount(0)
-{
-    setDataLayout(m_dataLayout);
+World::~World() {
+  if (Classes) {
+    for (unsigned I = 0, N = ClassCount; I < N; ++I)
+      if (Classes[I].getType())
+        Classes[I].~Object();
+    free(Classes);
+  }
 }
 
+ConstantInt *World::getConstantValue(int16_t Val) const {
+  ConstantInt *C;
+  if (isUnsignedValue(Val)) {
+    if (Val < 0 && (uint16_t)Val != 0x8000)
+      printf("unsigned = %X\n", (uint16_t)Val);
+    C = ConstantInt::get(getSizeType(),
+                         static_cast<uint64_t>(static_cast<uint16_t>(Val)),
+                         false);
+  } else {
+    if (Val < 0 && Val != -1)
+      printf("__signed = %X\n", (uint16_t)Val);
+    C = ConstantInt::get(
+        getSizeType(), static_cast<uint64_t>(static_cast<int16_t>(Val)), true);
+  }
+  return C;
+}
 
-World::~World()
-{
-    if (m_classes != nullptr)
-    {
-        for (uint i = 0, n = m_classCount; i < n; ++i)
-        {
-            if (m_classes[i].m_type != nullptr)
-            {
-                m_classes[i].~Object();
-            }
-        }
-        free(m_classes);
+void World::setDataLayout(const llvm::DataLayout &DL) {
+  this->DL = DL;
+  SizeTy = Type::getIntNTy(Context, DL.getPointerSizeInBits());
+  Type *Elems[] = {
+      SizeTy,                   // species
+      ArrayType::get(SizeTy, 0) // vars
+  };
+  AbsClassTy = StructType::create(Context, Elems);
+}
+
+bool World::load() {
+  ResClassEntry *Res = (ResClassEntry *)ResLoad(RES_VOCAB, CLASSTBL_VOCAB);
+  if (!Res)
+    return false;
+
+  Intrinsics.reset(new Intrinsic());
+  ClassCount = ResHandleSize(Res) / sizeof(ResClassEntry);
+  size_t Size = ClassCount * sizeof(Object);
+  Classes = reinterpret_cast<Object *>(malloc(Size));
+  memset(Classes, 0, Size);
+  for (unsigned I = 0, N = ClassCount; I < N; ++I) {
+    Script **ClassScript = reinterpret_cast<Script **>(&Classes[I].Super + 1);
+    *ClassScript = acquireScript(Res[I].scriptNum);
+  }
+
+  ResUnLoad(RES_VOCAB, CLASSTBL_VOCAB);
+
+  for (unsigned I = 0; I < 1000; ++I)
+    if (Script *S = acquireScript(I))
+      S->load();
+
+  StackReconstructionPass().run();
+  printf("Finished stack reconstruction!\n");
+
+  SplitSendPass().run();
+  printf("Finished splitting Send Message calls!\n");
+
+  FixCodePass().run();
+  printf("Finished fixing code issues!\n");
+
+  TranslateClassIntrinsicPass().run();
+  printf("Finished translating class intrinsic!\n");
+
+  EmitScriptUtilitiesPass().run();
+  printf("Finished expanding KScriptID calls!\n");
+
+  MutateCallIntrinsicsPass().run();
+  printf("Finished mutating Call intrinsics!\n");
+
+  for (Script &S : scripts()) {
+    DumpScriptModule(S.getId());
+  }
+  return true;
+}
+
+Script *World::acquireScript(unsigned ScriptID) {
+  Script *S = Scripts[ScriptID].get();
+  if (!S)
+    if (Handle Hunk = ResLoad(RES_SCRIPT, ScriptID)) {
+      S = new Script(ScriptID, Hunk);
+      Scripts[ScriptID].reset(S);
+      ScriptCount++;
     }
+  return S;
 }
 
+Script *World::getScript(unsigned ScriptID) const {
+  return Scripts[ScriptID].get();
+}
 
-ConstantInt* World::getConstantValue(int16_t val) const
-{
-    ConstantInt *c;
-    if (IsUnsignedValue(val))
-    {
-        if (val < 0 && (uint16_t)val != 0x8000)
-            printf("unsigned = %X\n", (uint16_t)val);
-        c = ConstantInt::get(getSizeType(), static_cast<uint64_t>(static_cast<uint16_t>(val)), false);
+Script *World::getScript(Module &M) const {
+  Script *S = nullptr;
+  StringRef Name = M.getName();
+  if (Name.size() == 9 && Name.startswith("Script"))
+    if (isdigit(Name[8]) && isdigit(Name[7]) && isdigit(Name[6])) {
+      unsigned ScriptID =
+          (Name[6] - '0') * 100 + (Name[7] - '0') * 10 + (Name[8] - '0') * 1;
+
+      S = Scripts[ScriptID].get();
+      assert(!S || S->getModule() == &M);
     }
-    else
-    {
-        if (val < 0 && val != -1)
-            printf("__signed = %X\n", (uint16_t)val);
-        c = ConstantInt::get(getSizeType(), static_cast<uint64_t>(static_cast<int16_t>(val)), true);
-    }
-    return c;
+  return S;
 }
 
-
-void World::setDataLayout(const llvm::DataLayout &dl)
-{
-    m_dataLayout = dl;
-    m_sizeTy = Type::getIntNTy(m_ctx, m_dataLayout.getPointerSizeInBits());
-    Type *elems[] = {
-        m_sizeTy,                   // species
-        ArrayType::get(m_sizeTy, 0) // vars
-    };
-    m_absClassTy = StructType::create(m_ctx, elems);
+Object *World::lookupObject(GlobalVariable &Var) const {
+  Script *S = getScript(*Var.getParent());
+  return S ? S->lookupObject(Var) : nullptr;
 }
 
-
-bool World::load()
-{
-    ResClassEntry *res = (ResClassEntry *)ResLoad(RES_VOCAB, CLASSTBL_VOCAB);
-    if (res == nullptr)
-    {
-        return false;
-    }
-
-    m_intrinsics.reset(new Intrinsic());
-    m_classCount = ResHandleSize(res) / sizeof(ResClassEntry);
-    size_t size = m_classCount * sizeof(Object);
-    m_classes = reinterpret_cast<Object *>(malloc(size));
-    memset(m_classes, 0, size);
-    for (uint i = 0, n = m_classCount; i < n; ++i)
-    {
-        Script **classScript = reinterpret_cast<Script **>(&m_classes[i].m_super + 1);
-        *classScript = acquireScript(res[i].scriptNum);
-    }
-
-    ResUnLoad(RES_VOCAB, CLASSTBL_VOCAB);
-
-    for (uint i = 0; i < 1000; ++i)
-    {
-        Script *script = acquireScript(i);
-        if (script != nullptr)
-        {
-            script->load();
-        }
-    }
-#if 0
-    int fd = open(R"(C:\windos\Jones\TEST)", O_RDONLY | O_BINARY);
-    if (fd != -1)
-    {
-        size_t n = (size_t)filelength(fd);
-        uint8_t *buf = new uint8_t[n];
-        read(fd, buf, n);
-        close(fd);
-        static char const* const kNames[] = {
-            "KLoad",
-            "KUnLoad",
-            "KScriptID",
-            "KDisposeScript",
-            "KClone",
-            "KDisposeClone",
-            "KIsObject",
-            "KRespondsTo",
-            "KDrawPic",
-            "KShow",
-            "KPicNotValid",
-            "KAnimate",
-            "KSetNowSeen",
-            "KNumLoops",
-            "KNumCels",
-            "KCelWide",
-            "KCelHigh",
-            "KDrawCel",
-            "KAddToPic",
-            "KNewWindow",
-            "KGetPort",
-            "KSetPort",
-            "KDisposeWindow",
-            "KDrawControl",
-            "KHiliteControl",
-            "KEditControl",
-            "KTextSize",
-            "KDisplay",
-            "KGetEvent",
-            "KGlobalToLocal",
-            "KLocalToGlobal",
-            "KMapKeyToDir",
-            "KDrawMenuBar",
-            "KMenuSelect",
-            "KAddMenu",
-            "KDrawStatus",
-            "KParse",
-            "KSaid",
-            "KSetSynonyms",
-            "KHaveMouse",
-            "KSetCursor",
-            "KSaveGame",
-            "KRestoreGame",
-            "KRestartGame",
-            "KGameIsRestarting",
-            "KDoSound",
-            "KNewList",
-            "KDisposeList",
-            "KNewNode",
-            "KFirstNode",
-            "KLastNode",
-            "KEmptyList",
-            "KNextNode",
-            "KPrevNode",
-            "KNodeValue",
-            "KAddAfter",
-            "KAddToFront",
-            "KAddToEnd",
-            "KFindKey",
-            "KDeleteKey",
-            "KRandom",
-            "KAbs",
-            "KSqrt",
-            "KGetAngle",
-            "KGetDistance",
-            "KWait",
-            "KGetTime",
-            "KStrEnd",
-            "KStrCat",
-            "KStrCmp",
-            "KStrLen",
-            "KStrCpy",
-            "KFormat",
-            "KGetFarText",
-            "KReadNumber",
-            "KBaseSetter",
-            "KDirLoop",
-            "KCantBeHere",
-            "KOnControl",
-            "KInitBresen",
-            "KDoBresen",
-            "KDoAvoider",
-            "KSetJump",
-            "KSetDebug",
-            "KInspectObj",
-            "KShowSends",
-            "KShowObjs",
-            "KShowFree",
-            "KMemoryInfo",
-            "KStackUsage",
-            "KProfiler",
-            "KGetMenu",
-            "KSetMenu",
-            "KGetSaveFiles",
-            "KGetCWD",
-            "KCheckFreeSpace",
-            "KValidPath",
-            "KCoordPri",
-            "KStrAt",
-            "KDeviceInfo",
-            "KGetSaveDir",
-            "KCheckSaveGame",
-            "KShakeScreen",
-            "KFlushResources",
-            "KSinMult",
-            "KCosMult",
-            "KSinDiv",
-            "KCosDiv",
-            "KGraph",
-            "KJoystick",
-            "KShiftScreen",
-            "KPalette",
-            "KMemorySegment",
-            "KIntersections",
-            "KMemory",
-            "KListOps",
-            "KFileIO",
-            "KDoAudio",
-            "KDoSync",
-            "KAvoidPath",
-            "KSort",
-            "KATan",
-            "KLock",
-            "KStrSplit",
-            "KMessage",
-            "KIsItSkip"
-        };
-        FILE *f = fopen(R"(C:\windos\Jones\TEST.TXT)", "w");
-        char str[1024*4];
-        uint indent = 0;
-        uint16_t *p = reinterpret_cast<uint16_t*>(buf);
-        uint16_t *pEnd = reinterpret_cast<uint16_t*>(buf + n);
-        while (p < pEnd)
-        {
-            uint scriptId = *p++;
-
-            if ((uint16_t)scriptId == (uint16_t)-2)
-            {
-                indent--;
-                uint argc = *p++;
-
-                str[2] = '\0';
-                char *pstr = str;
-                p += 2;
-                for (uint i = 2; i < argc; ++i)
-                {
-                    pstr += (size_t)sprintf(pstr, ", %X", *p++);
-                }
-
-                fprintf(f, "%*cobj-1: [%s]\n", indent * 2, ' ', str + 2);
-                continue;
-            }
-
-            uint offset = *p++;
-            uint argc = *p++;
-
-            if ((uint16_t)scriptId == (uint16_t)-3)
-            {
-                fprintf(f, "%*cGetProperty(%s) = %X\n", indent * 2, ' ', GetWorld().getSelectorName(offset).data(), argc);
-                continue;
-            }
-
-            if ((uint16_t)scriptId == (uint16_t)-4)
-            {
-                fprintf(f, "%*cSetProperty(%s, %X)\n", indent * 2, ' ', GetWorld().getSelectorName(offset).data(), argc);
-                continue;
-            }
-
-            if ((scriptId & 0x8000) != 0)
-            {
-                str[2] = '\0';
-                char *pstr = str;
-                argc = offset;
-                p--;
-                for (uint i = 0; i < argc; ++i)
-                {
-                    pstr += (size_t)sprintf(pstr, ", %X", *p++);
-                }
-
-//                 80: DoBresen - 140
-//                 120: Sort - 1E0
-//                 11: Animate - 2C
-                scriptId &= 0x7fff;
-                if (scriptId == 0x140 || scriptId == 0x1E0 || scriptId == 0x2C)
-                {
-                    fprintf(f, "%*c%s(%s)\n", indent * 2, ' ', kNames[scriptId / 4], str + 2);
-                }
-                else
-                {
-                    fprintf(f, "%*c%s(%s) = %X\n", indent * 2, ' ', kNames[scriptId / 4], str + 2, *p++);
-                }
-                continue;
-            }
-
-            Script *script = getScript(scriptId);
-            assert(script != nullptr);
-
-            std::string fullName = "entry";
-            fullName += '@';
-            fullName += utohexstr(offset, true);
-
-            Function *func = nullptr;
-            for (Function &f : script->getModule()->functions())
-            {
-                if (f.begin() == f.end())
-                {
-                    continue;
-                }
-
-                if (f.getEntryBlock().getName() == fullName)
-                {
-                    func = &f;
-                    break;
-                }
-            }
-            assert(func != nullptr);
-
-            str[2] = '\0';
-            char *pstr = str;
-            for (uint i = 0; i < argc; ++i)
-            {
-                pstr += (size_t)sprintf(pstr, ", %X", *p++);
-            }
-
-            fprintf(f, "%*c%s(%s)\n", indent * 2, ' ', func->getName().data(), str + 2);
-#if 1
-            argc = *p++;
-            if (func->getName().startswith("proc@"))
-            {
-                p += argc;
-                p += 251;
-            }
-            else
-            {
-                str[2] = '\0';
-                pstr = str;
-                p += 2;
-                for (uint i = 2; i < argc; ++i)
-                {
-                    pstr += (size_t)sprintf(pstr, ", %X", *p++);
-                }
-
-                fprintf(f, "%*cobj-0: [%s]\n", indent * 2, ' ', str + 2);
-
-                str[2] = '\0';
-                pstr = str;
-                for (uint i = 0; i < 251; ++i)
-                {
-                    pstr += (size_t)sprintf(pstr, ", %X", *p++);
-                }
-
-                fprintf(f, "%*cglobals: [%s]\n", indent * 2, ' ', str + 2);
-            }
-            indent++;
-#endif
-        }
-        fclose(f);
-    }
-#endif
-
-  //  DumpScriptModule(999);
-    StackReconstructionPass().run();
-    printf("Finished stack reconstruction!\n");
-
-    SplitSendPass().run();
-    printf("Finished splitting Send Message calls!\n");
-
-    FixCodePass().run();
-    printf("Finished fixing code issues!\n");
-
-    TranslateClassIntrinsicPass().run();
-    printf("Finished translating class intrinsic!\n");
-
-    EmitScriptUtilitiesPass().run();
-    printf("Finished expanding KScriptID calls!\n");
-
-    MutateCallIntrinsicsPass().run();
-    printf("Finished mutating Call intrinsics!\n");
-
-    for (Script &script : scripts())
-    {
-        DumpScriptModule(script.getId());
-    }
-//     DumpScriptModule(999);
-//     DumpScriptModule(997);
-//     DumpScriptModule(255);
-//     DumpScriptModule(0);
-    return true;
+StringRef World::getSelectorName(unsigned SelID) {
+  return Sels.getSelectorName(SelID);
 }
 
+Object *World::getClass(unsigned ClassID) {
+  if (ClassID >= ClassCount) {
+    return nullptr;
+  }
 
-Script* World::acquireScript(uint id)
-{
-    Script *script = m_scripts[id].get();
-    if (script == nullptr)
-    {
-        Handle hunk = ResLoad(RES_SCRIPT, id);
-        if (hunk != nullptr)
-        {
-            script = new Script(id, hunk);
-            m_scripts[id].reset(script);
-            m_scriptCount++;
-        }
-    }
-    return script;
+  Object *Cls = &Classes[ClassID];
+  if (!Cls->getType())
+    if (!Cls->TheScript.load() || !Cls->getType())
+      Cls = nullptr;
+  return Cls;
 }
 
+Object *World::addClass(const ObjRes &Res, Script &S) {
+  assert(selector_cast<unsigned>(Res.speciesSel) < ClassCount);
+  assert(&S == &Classes[Res.speciesSel].TheScript);
 
-Script* World::getScript(uint id) const
-{
-    return m_scripts[id].get();
+  Object *Cls = &Classes[Res.speciesSel];
+  if (!Cls->getType())
+    new (Cls) Object(Res, S);
+  return Cls;
 }
 
-
-Script* World::getScript(Module &module) const
-{
-    Script *script = nullptr;
-    StringRef name = module.getName();
-    if (name.size() == 9 && name.startswith("Script"))
-    {
-        if (isdigit(name[8]) && isdigit(name[7]) && isdigit(name[6]))
-        {
-            uint id = (name[6] - '0') * 100 +
-                      (name[7] - '0') * 10 +
-                      (name[8] - '0') * 1;
-
-            script = m_scripts[id].get();
-            assert(script == nullptr || script->getModule() == &module);
-        }
-    }
-    return script;
+bool World::registerProcedure(Procedure &Proc) {
+  bool Ret = false;
+  Function *Func = Proc.getFunction();
+  if (Func) {
+    Procedure *&Slot = FuncMap[Func];
+    Ret = (Slot == nullptr);
+    Slot = &Proc;
+  }
+  return Ret;
 }
 
-
-Object* World::lookupObject(GlobalVariable &var) const
-{
-    Script *script = getScript(*var.getParent());
-    return (script != nullptr) ? script->lookupObject(var) : nullptr;
+Procedure *World::getProcedure(const Function &Func) const {
+  return FuncMap.lookup(&Func);
 }
 
-
-StringRef World::getSelectorName(uint id)
-{
-    return m_sels.getSelectorName(id);
+unsigned World::getGlobalVariablesCount() const {
+  return Scripts[0]->getLocalVariablesCount();
 }
-
-
-Object* World::getClass(uint id)
-{
-    if (id >= m_classCount)
-    {
-        return nullptr;
-    }
-
-    Object *cls = &m_classes[id];
-    if (cls->m_type == nullptr)
-    {
-        if (!cls->m_script.load() || cls->m_type == nullptr)
-        {
-            cls = nullptr;
-        }
-    }
-    return cls;
-}
-
-
-Object* World::addClass(const ObjRes &res, Script &script)
-{
-    assert(selector_cast<uint>(res.speciesSel) < m_classCount);
-    assert(&script == &m_classes[res.speciesSel].m_script);
-
-    Object *cls = &m_classes[res.speciesSel];
-    if (cls->m_type == nullptr)
-    {
-        new(cls) Object(res, script);
-    }
-    return cls;
-}
-
-
-bool World::registerProcedure(Procedure &proc)
-{
-    bool ret = false;
-    Function *func = proc.getFunction();
-    if (func != nullptr)
-    {
-        Procedure *&slot = m_funcMap[func];
-        ret = (slot == nullptr);
-        slot = &proc;
-    }
-    return ret;
-}
-
-
-Procedure* World::getProcedure(const Function &func) const
-{
-    return m_funcMap.lookup(&func);
-}
-
-
-uint World::getGlobalVariablesCount() const
-{
-    return m_scripts[0]->getLocalVariablesCount();
-}
-
-
-END_NAMESPACE_SCI

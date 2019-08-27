@@ -1,30 +1,34 @@
-#pragma once
-#ifndef _Property_HPP_
-#define _Property_HPP_
+//===- Property.hpp -------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef SCI_UTILS_PMACHINE_LLVM_PROPERTY_HPP
+#define SCI_UTILS_PMACHINE_LLVM_PROPERTY_HPP
 
 #include "Types.hpp"
 
-BEGIN_NAMESPACE_SCI
+namespace sci {
 
 class Class;
 
-class Property
-{
+class Property {
 public:
-    Property(ObjID selector, int16_t value, Class &cls);
+  Property(ObjID Selector, int16_t Val, Class &Cls);
 
-    int16_t getDefaultValue() const { return m_defaultValue; }
-    uint getSelector() const { return selector_cast<uint>(m_selector); }
-    Class& getClass() const { return m_class; }
+  int16_t getDefaultValue() const { return DefaultValue; }
+  unsigned getSelector() const { return selector_cast<unsigned>(Selector); }
+  Class &getClass() const { return Parent; }
 
-    StringRef getName() const;
+  StringRef getName() const;
 
 private:
-    const ObjID m_selector;
-    const int16_t m_defaultValue;
-    Class &m_class;
+  const ObjID Selector;
+  const int16_t DefaultValue;
+  Class &Parent;
 };
 
-END_NAMESPACE_SCI
+} // end namespace sci
 
-#endif // !_Property_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_PROPERTY_HPP

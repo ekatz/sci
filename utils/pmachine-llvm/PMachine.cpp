@@ -1,13 +1,17 @@
+//===- PMachine.cpp -------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
 #include "PMachine.hpp"
-#include "World.hpp"
 #include "Class.hpp"
 #include "Property.hpp"
 #include "Resource.hpp"
+#include "World.hpp"
 
+using namespace sci;
 using namespace llvm;
-
-
-BEGIN_NAMESPACE_SCI
 
 
 #define PSTACKSIZE (10 * 1024)
@@ -292,7 +296,7 @@ BEGIN_NAMESPACE_SCI
 #define OP_dspi_ONE     0xFF
 
 
-PMachine::PfnOp PMachine::s_opTable[] = {
+PMachine::PfnOp PMachine::OpTable[] = {
     &PMachine::bnotOp,
     &PMachine::addOp,
     &PMachine::subOp,
@@ -359,1118 +363,864 @@ PMachine::PfnOp PMachine::s_opTable[] = {
     &PMachine::badOp
 };
 
-
-PMachine::PMachine(Script &script) :
-    m_script(script),
-    m_ctx(script.getModule()->getContext()),
-    m_sizeTy(GetWorld().getSizeType()),
-    m_funcCallIntrin(nullptr),
-    m_pc(nullptr),
-    m_acc(nullptr),
-    m_accAddr(nullptr),
-    m_paccAddr(nullptr),
-    m_bb(nullptr),
-    m_entry(nullptr),
-    m_temp(nullptr),
-    m_tempCount(0),
-    m_rest(nullptr),
-    m_retTy(nullptr),
-    m_class(nullptr)
-{
-    Intrinsic::Get(Intrinsic::push);
-    Intrinsic::Get(Intrinsic::pop);
-    Intrinsic::Get(Intrinsic::rest);
-    Intrinsic::Get(Intrinsic::clss);
-    Intrinsic::Get(Intrinsic::objc);
-    Intrinsic::Get(Intrinsic::prop);
-    Intrinsic::Get(Intrinsic::send);
-    Intrinsic::Get(Intrinsic::call);
-    Intrinsic::Get(Intrinsic::calle);
-    Intrinsic::Get(Intrinsic::callk);
+PMachine::PMachine(Script &S)
+    : TheScript(S), Context(S.getModule()->getContext()),
+      SizeTy(GetWorld().getSizeType()) {
+  Intrinsic::Get(Intrinsic::push);
+  Intrinsic::Get(Intrinsic::pop);
+  Intrinsic::Get(Intrinsic::rest);
+  Intrinsic::Get(Intrinsic::clss);
+  Intrinsic::Get(Intrinsic::objc);
+  Intrinsic::Get(Intrinsic::prop);
+  Intrinsic::Get(Intrinsic::send);
+  Intrinsic::Get(Intrinsic::call);
+  Intrinsic::Get(Intrinsic::calle);
+  Intrinsic::Get(Intrinsic::callk);
 }
 
+Function *PMachine::interpretFunction(const uint8_t *Code, StringRef Name,
+                                      unsigned ID, Class *Cls, bool Debug) {
+  ThisClass = Cls;
+  Acc = nullptr;
+  AccAddr = nullptr;
+  PAccAddr = nullptr;
+  Temp = nullptr;
+  TempCount = 0;
+  Self.release();
+  Args.release();
 
-Function* PMachine::interpretFunction(const uint8_t *code, StringRef name, uint id, Class *cls, bool debug)
-{
-    m_class = cls;
-    m_acc = nullptr;
-    m_accAddr = nullptr;
-    m_paccAddr = nullptr;
-    m_temp = nullptr;
-    m_tempCount = 0;
-    m_self.release();
-    m_args.release();
+  if (ID != -1U)
+    Self.reset(new Argument(SizeTy, "self"));
+  Args.reset(new Argument(SizeTy->getPointerTo(), "args"));
 
-    if (id != (uint)-1)
-    {
-        m_self.reset(new Argument(m_sizeTy, "self"));
-    }
-    m_args.reset(new Argument(m_sizeTy->getPointerTo(), "args"));
+  Entry = getBasicBlock(Code, "entry");
+  processBasicBlocks();
 
-    m_entry = getBasicBlock(code, "entry");
-    processBasicBlocks();
+  if (!RetTy)
+    RetTy = Type::getVoidTy(Context);
 
-    if (m_retTy == nullptr)
-    {
-        m_retTy = Type::getVoidTy(m_ctx);
-    }
+  if (AccAddr && AccAddr->use_empty())
+    AccAddr->eraseFromParent();
+  if (PAccAddr && PAccAddr->use_empty())
+    PAccAddr->eraseFromParent();
 
-    if (m_accAddr != nullptr && m_accAddr->use_empty())
-    {
-        m_accAddr->eraseFromParent();
-    }
-    if (m_paccAddr != nullptr && m_paccAddr->use_empty())
-    {
-        m_paccAddr->eraseFromParent();
-    }
+  FunctionType *FTy;
+  if (Self) {
+    Type *params[] = {Self->getType(), Args->getType()};
+    FTy = FunctionType::get(RetTy, params, false);
+  } else {
+    Type *params[] = {Args->getType()};
+    FTy = FunctionType::get(RetTy, params, false);
+  }
+  Function *Func =
+      Function::Create(FTy, GlobalValue::InternalLinkage, Name, getModule());
 
-    FunctionType *funcTy;
-    if (m_self)
-    {
-        Type *params[] = {
-            m_self->getType(),
-            m_args->getType()
-        };
-        funcTy = FunctionType::get(m_retTy, params, false);
-    }
-    else
-    {
-        Type *params[] = {
-            m_args->getType()
-        };
-        funcTy = FunctionType::get(m_retTy, params, false);
-    }
-    Function *func = Function::Create(funcTy, GlobalValue::InternalLinkage, name, getModule());
+  auto AI = Func->arg_begin();
+  if (Self) {
+    Self->replaceAllUsesWith(&*AI);
+    AI->takeName(Self.get());
+    ++AI;
+  }
+  Args->replaceAllUsesWith(&*AI);
+  AI->takeName(Args.get());
 
-    auto iArg = func->arg_begin();
-    if (m_self)
-    {
-        m_self->replaceAllUsesWith(&*iArg);
-        iArg->takeName(m_self.get());
-        ++iArg;
-    }
-    m_args->replaceAllUsesWith(&*iArg);
-    iArg->takeName(m_args.get());
+  for (auto I = Labels.begin(), E = Labels.end(); I != E; ++I)
+    I->second->insertInto(Func);
 
-    for (auto i = m_labels.begin(), e = m_labels.end(); i != e; ++i)
-    {
-        i->second->insertInto(func);
-    }
-
-    if (debug)
-    {
-        emitDebugLog();
-    }
-    return func;
+  if (Debug)
+    emitDebugLog();
+  return Func;
 }
 
+void PMachine::processBasicBlocks() {
+  assert(WorkList.size() == 1);
 
-void PMachine::processBasicBlocks()
-{
-    assert(m_worklist.size() == 1);
+  auto Item = WorkList.back();
+  WorkList.pop_back();
+  PC = Item.first;
+  CurrBlock = Item.second;
 
-    auto item = m_worklist.back();
-    m_worklist.pop_back();
-    m_pc = item.first;
-    m_bb = item.second;
+  Rest = nullptr;
+  unsigned SizeAlign = GetWorld().getSizeTypeAlignment();
+  AccAddr = new AllocaInst(SizeTy, 0, "acc.addr", CurrBlock);
+  AccAddr->setAlignment(SizeAlign);
+  PAccAddr = new AllocaInst(SizeTy, 0, "prev.addr", CurrBlock);
+  PAccAddr->setAlignment(SizeAlign);
+  while (processNextInstruction())
+    ;
+  assert(Rest == nullptr);
 
-    m_rest = nullptr;
-    uint sizeAlign = GetWorld().getSizeTypeAlignment();
-    m_accAddr = new AllocaInst(m_sizeTy, "acc.addr", m_bb);
-    m_accAddr->setAlignment(sizeAlign);
-    m_paccAddr = new AllocaInst(m_sizeTy, "prev.addr", m_bb);
-    m_paccAddr->setAlignment(sizeAlign);
+  while (!WorkList.empty()) {
+    Item = WorkList.back();
+    WorkList.pop_back();
+    PC = Item.first;
+    CurrBlock = Item.second;
+
+    Rest = nullptr;
+    Acc = loadAcc();
     while (processNextInstruction())
-        ;
-    assert(m_rest == nullptr);
-
-    while (!m_worklist.empty())
-    {
-        item = m_worklist.back();
-        m_worklist.pop_back();
-        m_pc = item.first;
-        m_bb = item.second;
-
-        m_rest = nullptr;
-        m_acc = loadAcc();
-        while (processNextInstruction())
-            ;
-        assert(m_rest == nullptr);
-    }
+      ;
+    assert(Rest == nullptr);
+  }
 }
 
-
-BasicBlock* PMachine::getBasicBlock(const uint8_t *label, StringRef name)
-{
-    uint offset = m_script.getOffsetOf(label);
-    BasicBlock *&bb = m_labels[offset];
-    if (bb == nullptr)
-    {
-        std::string fullName = name;
-        fullName += '@';
-        fullName += utohexstr(offset, true);
-        bb = BasicBlock::Create(m_ctx, fullName);
-        m_worklist.push_back(std::make_pair(label, bb));
-    }
-    return bb;
+BasicBlock *PMachine::getBasicBlock(const uint8_t *Label, StringRef Name) {
+  unsigned Offset = TheScript.getOffsetOf(Label);
+  BasicBlock *&BB = Labels[Offset];
+  if (BB == nullptr) {
+    std::string FullName = Name;
+    FullName += '@';
+    FullName += utohexstr(Offset, true);
+    BB = BasicBlock::Create(Context, FullName);
+    WorkList.push_back(std::make_pair(Label, BB));
+  }
+  return BB;
 }
 
-
-Function* PMachine::getCallIntrinsic()
-{
-    if (m_funcCallIntrin == nullptr)
-    {
-        Function *funcCallIntrin = Intrinsic::Get(Intrinsic::call);
-        m_funcCallIntrin = cast<Function>(m_script.getModule()->getOrInsertFunction(funcCallIntrin->getName(), funcCallIntrin->getFunctionType()));
-    }
-    return m_funcCallIntrin;
+Function *PMachine::getCallIntrinsic() {
+  if (FuncCallIntrin == nullptr) {
+    Function *FuncCallIntrin = Intrinsic::Get(Intrinsic::call);
+    FuncCallIntrin = cast<Function>(
+        TheScript.getModule()
+            ->getOrInsertFunction(FuncCallIntrin->getName(),
+                                  FuncCallIntrin->getFunctionType())
+            .getCallee());
+  }
+  return FuncCallIntrin;
 }
 
+void PMachine::emitSend(Value *Obj) {
+  unsigned ParamCount = getByte() / sizeof(uint16_t);
+  if (!ParamCount)
+    return;
 
-void PMachine::emitSend(Value *obj)
-{
-    uint paramCount = getByte() / sizeof(uint16_t);
-    if (paramCount == 0)
-    {
-        return;
-    }
+  SmallVector<Value *, 16> MsgArgs;
 
-    SmallVector<Value *, 16> args;
+  unsigned restParam = Rest ? 1 : 0;
+  MsgArgs.resize(ParamCount + 1 + restParam);
+  MsgArgs[0] = Obj;
+  for (; ParamCount != 0; --ParamCount)
+    MsgArgs[ParamCount] = PopInst::Create(CurrBlock);
 
-    uint restParam = (m_rest != nullptr) ? 1 : 0;
-    args.resize(paramCount + 1 + restParam);
-    args[0] = obj;
-    for (; paramCount != 0; --paramCount)
-    {
-        args[paramCount] = PopInst::Create(m_bb);
-    }
+  if (Rest) {
+    MsgArgs.back() = Rest;
+    Rest = nullptr;
+  }
 
-    if (m_rest != nullptr)
-    {
-        args.back() = m_rest;
-        m_rest = nullptr;
-    }
-
-    m_acc = SendMessageInst::Create(args, m_bb);
+  Acc = SendMessageInst::Create(MsgArgs, CurrBlock);
 }
 
+void PMachine::emitCall(Function *Func, ArrayRef<Constant *> Constants) {
+  unsigned ParamCount = getByte() / sizeof(uint16_t);
 
-void PMachine::emitCall(Function *func, ArrayRef<Constant*> constants)
-{
-    uint paramCount = getByte() / sizeof(uint16_t);
+  SmallVector<Value *, 16> CallArgs;
 
-    SmallVector<Value *, 16> args;
+  unsigned RestParam = Rest ? 1 : 0;
+  unsigned ConstCount = Constants.size();
+  CallArgs.resize(ParamCount + 1 + ConstCount + RestParam);
 
-    uint restParam = (m_rest != nullptr) ? 1 : 0;
-    uint constCount = constants.size();
-    args.resize(paramCount + 1 + constCount + restParam);
+  for (unsigned I = 0; I < ConstCount; ++I)
+    CallArgs[I] = Constants[I];
+  for (ParamCount += ConstCount; ParamCount >= ConstCount; --ParamCount)
+    CallArgs[ParamCount] = PopInst::Create(CurrBlock);
 
-    for (uint i = 0; i < constCount; ++i)
-    {
-        args[i] = constants[i];
-    }
-    for (paramCount += constCount; paramCount >= constCount; --paramCount)
-    {
-        args[paramCount] = PopInst::Create(m_bb);
-    }
+  if (Rest) {
+    CallArgs.back() = Rest;
+    Rest = nullptr;
+  }
 
-    if (m_rest != nullptr)
-    {
-        args.back() = m_rest;
-        m_rest = nullptr;
-    }
-
-    m_acc = CallInst::Create(func, args, "", m_bb);
+  Acc = CallInst::Create(Func, CallArgs, "", CurrBlock);
 }
 
+Value *PMachine::getIndexedPropPtr(uint8_t Opcode) {
+  unsigned Idx = getUInt(Opcode) / sizeof(uint16_t);
+  Type *Int32Ty = Type::getInt32Ty(Context);
 
-Value* PMachine::getIndexedPropPtr(uint8_t opcode)
-{
-    uint idx = getUInt(opcode) / sizeof(uint16_t);
-    Type *i32Ty = Type::getInt32Ty(m_ctx);
+  // Create indices into the Class Abstract Type.
+  unsigned Sel;
+  unsigned IdxCount = 0;
+  Value *Indices[3];
+  Indices[IdxCount++] = ConstantInt::get(Int32Ty, 0);
+  if (Idx == ObjRes::SPECIES_OFFSET) {
+    Indices[IdxCount++] = ConstantInt::get(Int32Ty, 0);
+    Sel = 0;
+  } else {
+    assert(Idx != ObjRes::SUPER_OFFSET);
+    Idx -= ObjRes::INFO_OFFSET;
+    Indices[IdxCount++] = ConstantInt::get(Int32Ty, 1);
+    Indices[IdxCount++] = ConstantInt::get(SizeTy, Idx);
+    Sel = ThisClass->getProperties()[Idx].getSelector();
+  }
 
-    // Create indices into the Class Abstract Type.
-    uint sel;
-    uint idxCount = 0;
-    Value *indices[3];
-    indices[idxCount++] = ConstantInt::get(i32Ty, 0);
-    if (idx == ObjRes::SPECIES_OFFSET)
-    {
-        indices[idxCount++] = ConstantInt::get(i32Ty, 0);
-        sel = 0;
-    }
-    else
-    {
-        assert(idx != ObjRes::SUPER_OFFSET);
-        idx -= ObjRes::INFO_OFFSET;
-        indices[idxCount++] = ConstantInt::get(i32Ty, 1);
-        indices[idxCount++] = ConstantInt::get(m_sizeTy, idx);
-        sel = m_class->getProperties()[idx].getSelector();
-    }
-
-    Value *ptr = new IntToPtrInst(m_self.get(), Class::GetAbstractType()->getPointerTo(), "", m_bb);
-    std::string name = "prop";
-    name += '@';
-    name += GetWorld().getSelectorName(sel);
-    return GetElementPtrInst::CreateInBounds(ptr, makeArrayRef(indices, idxCount), name, m_bb);
+  Value *Ptr = new IntToPtrInst(
+      Self.get(), Class::GetAbstractType()->getPointerTo(), "", CurrBlock);
+  std::string Name = "prop";
+  Name += '@';
+  Name += GetWorld().getSelectorName(Sel);
+  return GetElementPtrInst::CreateInBounds(Ptr, makeArrayRef(Indices, IdxCount),
+                                           Name, CurrBlock);
 }
 
-
-Value* PMachine::getValueByOffset(uint8_t opcode)
-{
+Value *PMachine::getValueByOffset(uint8_t Opcode) {
 #if defined __WINDOWS__ || 1
-    uint offset = getUInt(opcode);
+  unsigned Offset = getUInt(Opcode);
 #else
 #error Not implemented
 #endif
 
-    Value *val = m_script.getRelocatedValue(offset);
-    if (val != nullptr)
-    {
-        Instruction *inst = dyn_cast<Instruction>(val);
-        if (inst != nullptr)
-        {
-            inst = inst->clone();
-            m_bb->getInstList().push_back(inst);
-            val = inst;
-        }
+  Value *Val = TheScript.getRelocatedValue(Offset);
+  if (Val)
+    if (Instruction *Inst = dyn_cast<Instruction>(Val)) {
+      Inst = Inst->clone();
+      CurrBlock->getInstList().push_back(Inst);
+      Val = Inst;
     }
-    return val;
+  return Val;
 }
 
+Value *PMachine::getIndexedVariablePtr(uint8_t Opcode, unsigned Idx) {
+  if ((Opcode & OP_INDEX) != 0) {
+    castAccToSizeType();
+  }
 
-Value* PMachine::getIndexedVariablePtr(uint8_t opcode, uint idx)
-{
-    if ((opcode & OP_INDEX) != 0)
-    {
+  Value *Var;
+  switch (Opcode & OP_VAR) {
+  default:
+  case OP_GLOBAL:
+    Var = TheScript.getGlobalVariable(Idx);
+    break;
+
+  case OP_LOCAL:
+    Var = TheScript.getLocalVariable(Idx);
+    break;
+
+  case OP_TMP: {
+    assert(Idx < TempCount);
+    Value *Indices[] = {ConstantInt::get(SizeTy, 0),
+                        ConstantInt::get(SizeTy, Idx)};
+    Var = GetElementPtrInst::CreateInBounds(Temp, Indices);
+    break;
+  }
+
+  case OP_PARM: {
+    ConstantInt *C = ConstantInt::get(SizeTy, Idx);
+    Var = GetElementPtrInst::CreateInBounds(Args.get(), C);
+    break;
+  }
+  }
+
+  CurrBlock->getInstList().push_back(static_cast<Instruction *>(Var));
+
+  // If the variable is indexed, add the index in acc to the offset.
+  if ((Opcode & OP_INDEX) != 0)
+    Var = GetElementPtrInst::CreateInBounds(Var, Acc, "", CurrBlock);
+  return Var;
+}
+
+bool PMachine::processNextInstruction() {
+  assert(PC != nullptr);
+  assert(CurrBlock != nullptr);
+
+  uint8_t Opcode = getByte();
+  if ((Opcode & 0x80) != 0) {
+    return ldstOp(Opcode);
+  }
+  return (this->*OpTable[Opcode >> 1])(Opcode);
+}
+
+Value *PMachine::castValueToSizeType(Value *Val, BasicBlock *BB) {
+  if (Val) {
+    if (Val->getType()->isIntegerTy()) {
+      unsigned SrcBits = Val->getType()->getScalarSizeInBits();
+      unsigned DstBits = SizeTy->getScalarSizeInBits();
+      if (SrcBits != DstBits)
+        Val = new ZExtInst(Val, SizeTy, "", BB);
+    } else if (Val->getType()->isPointerTy())
+      Val = new PtrToIntInst(Val, SizeTy, "", BB);
+  }
+  return Val;
+}
+
+Value *PMachine::castValueToSizeType(Value *Val) {
+  return castValueToSizeType(Val, CurrBlock);
+}
+
+void PMachine::castAccToSizeType() { Acc = castValueToSizeType(Acc); }
+
+void PMachine::fixAccConstantInt() {
+  if (isa<ConstantInt>(Acc)) {
+    int16_t V = static_cast<int16_t>(cast<ConstantInt>(Acc)->getZExtValue());
+    if (V < 0) {
+      Acc = ConstantInt::get(SizeTy, static_cast<uint16_t>(V));
+    }
+  }
+}
+
+void PMachine::storeAcc() {
+  Value *Val = castValueToSizeType(Acc);
+  new StoreInst(Val, AccAddr, false, GetWorld().getTypeAlignment(Val),
+                CurrBlock);
+}
+
+Value *PMachine::loadAcc() {
+  return new LoadInst(AccAddr, "", false,
+                      GetWorld().getTypeAlignment(AccAddr->getAllocatedType()),
+                      CurrBlock);
+}
+
+void PMachine::storePrevAcc() {
+  Value *Val = castValueToSizeType(Acc);
+  new StoreInst(Val, PAccAddr, false, GetWorld().getTypeAlignment(Val),
+                CurrBlock);
+}
+
+Value *PMachine::loadPrevAcc() {
+  return new LoadInst(PAccAddr, "", false,
+                      GetWorld().getTypeAlignment(PAccAddr->getAllocatedType()),
+                      CurrBlock);
+}
+
+Value *PMachine::callPop() { return PopInst::Create(CurrBlock); }
+
+void PMachine::callPush(llvm::Value *Val) { PushInst::Create(Val, CurrBlock); }
+
+bool PMachine::bnotOp(uint8_t Opcode) {
+  castAccToSizeType();
+  fixAccConstantInt();
+  Acc = BinaryOperator::CreateNot(Acc, "", CurrBlock);
+  return true;
+}
+
+bool PMachine::addOp(uint8_t Opcode) {
+  castAccToSizeType();
+  Value *Top = callPop();
+  Acc = BinaryOperator::CreateAdd(Top, Acc, "", CurrBlock);
+  return true;
+}
+
+bool PMachine::subOp(uint8_t Opcode) {
+  castAccToSizeType();
+  Value *Top = callPop();
+  Acc = BinaryOperator::CreateSub(Top, Acc, "", CurrBlock);
+  return true;
+}
+
+bool PMachine::mulOp(uint8_t Opcode) {
+  castAccToSizeType();
+  Value *Top = callPop();
+  Acc = BinaryOperator::CreateMul(Top, Acc, "", CurrBlock);
+  return true;
+}
+
+bool PMachine::divOp(uint8_t Opcode) {
+  castAccToSizeType();
+  Value *Top = callPop();
+  Acc = BinaryOperator::CreateSDiv(Top, Acc, "", CurrBlock);
+  return true;
+}
+
+bool PMachine::modOp(uint8_t Opcode) {
+  castAccToSizeType();
+  Value *Top = callPop();
+  Acc = BinaryOperator::CreateSRem(Top, Acc, "", CurrBlock);
+  return true;
+}
+
+bool PMachine::shrOp(uint8_t Opcode) {
+  castAccToSizeType();
+  fixAccConstantInt();
+  Value *Top = callPop();
+  Acc = BinaryOperator::CreateLShr(Top, Acc, "", CurrBlock);
+  return true;
+}
+
+bool PMachine::shlOp(uint8_t Opcode) {
+  castAccToSizeType();
+  fixAccConstantInt();
+  Value *Top = callPop();
+  Acc = BinaryOperator::CreateShl(Top, Acc, "", CurrBlock);
+  return true;
+}
+
+bool PMachine::xorOp(uint8_t Opcode) {
+  castAccToSizeType();
+  fixAccConstantInt();
+  Value *Top = callPop();
+  Acc = BinaryOperator::CreateXor(Top, Acc, "", CurrBlock);
+  return true;
+}
+
+bool PMachine::andOp(uint8_t Opcode) {
+  castAccToSizeType();
+  fixAccConstantInt();
+  Value *Top = callPop();
+  Acc = BinaryOperator::CreateAnd(Top, Acc, "", CurrBlock);
+  return true;
+}
+
+bool PMachine::orOp(uint8_t Opcode) {
+  castAccToSizeType();
+  fixAccConstantInt();
+  Value *Top = callPop();
+  Acc = BinaryOperator::CreateOr(Top, Acc, "", CurrBlock);
+  return true;
+}
+
+bool PMachine::negOp(uint8_t Opcode) {
+  castAccToSizeType();
+  Acc = BinaryOperator::CreateNeg(Acc, "", CurrBlock);
+  return true;
+}
+
+bool PMachine::notOp(uint8_t Opcode) {
+  if (Acc->getType()->isIntegerTy(1)) {
+    Acc = BinaryOperator::CreateNot(Acc, "not", CurrBlock);
+  } else {
+    Acc = new ICmpInst(*CurrBlock, CmpInst::ICMP_EQ, Acc,
+                       ConstantInt::get(Acc->getType(), 0));
+  }
+  return true;
+}
+
+bool PMachine::cmpOp(uint8_t Opcode) {
+  static CmpInst::Predicate CmpTable[] = {CmpInst::ICMP_EQ,  CmpInst::ICMP_NE,
+                                          CmpInst::ICMP_SGT, CmpInst::ICMP_SGE,
+                                          CmpInst::ICMP_SLT, CmpInst::ICMP_SLE,
+                                          CmpInst::ICMP_UGT, CmpInst::ICMP_UGE,
+                                          CmpInst::ICMP_ULT, CmpInst::ICMP_ULE};
+
+  CmpInst::Predicate Pred = CmpTable[(Opcode >> 1) - (OP_eq >> 1)];
+  switch (Pred) {
+  case CmpInst::ICMP_UGT:
+  case CmpInst::ICMP_UGE:
+  case CmpInst::ICMP_ULT:
+  case CmpInst::ICMP_ULE:
+    fixAccConstantInt();
+    break;
+
+  default:
+    break;
+  }
+
+  castAccToSizeType();
+  storePrevAcc();
+  Value *Top = callPop();
+  Acc = new ICmpInst(*CurrBlock, Pred, Top, Acc);
+  return true;
+}
+
+bool PMachine::btOp(uint8_t Opcode) {
+  storeAcc();
+  if (!Acc->getType()->isIntegerTy(1))
+    Acc = new ICmpInst(*CurrBlock, CmpInst::ICMP_NE, Acc,
+                       Constant::getNullValue(Acc->getType()));
+
+  int offset = getSInt(Opcode);
+  BasicBlock *IfTrue = getBasicBlock(PC + offset);
+  BasicBlock *IfFalse = getBasicBlock(PC);
+
+  if (Opcode <= OP_bt_ONE)
+    BranchInst::Create(IfTrue, IfFalse, Acc, CurrBlock);
+  else
+    BranchInst::Create(IfFalse, IfTrue, Acc, CurrBlock);
+  return false;
+}
+
+bool PMachine::jmpOp(uint8_t Opcode) {
+  storeAcc();
+  int Offset = getSInt(Opcode);
+  BasicBlock *Dst = getBasicBlock(PC + Offset);
+  BranchInst::Create(Dst, CurrBlock);
+  return false;
+}
+
+bool PMachine::loadiOp(uint8_t Opcode) {
+  Acc = ConstantInt::get(SizeTy, static_cast<uint64_t>(getSInt(Opcode)), true);
+  return true;
+}
+
+bool PMachine::pushOp(uint8_t Opcode) {
+  castAccToSizeType();
+  callPush(Acc);
+  return true;
+}
+
+bool PMachine::pushiOp(uint8_t Opcode) {
+  Value *Imm =
+      GetWorld().getConstantValue(static_cast<int16_t>(getSInt(Opcode)));
+  callPush(Imm);
+  return true;
+}
+
+bool PMachine::tossOp(uint8_t Opcode) {
+  callPop();
+  return true;
+}
+
+bool PMachine::dupOp(uint8_t Opcode) {
+  // TODO: Maybe we can do this more efficient?
+  Value *Top = callPop();
+  callPush(Top);
+  callPush(Top);
+  return true;
+}
+
+bool PMachine::linkOp(uint8_t Opcode) {
+  assert(!Temp && !TempCount);
+  TempCount = getUInt(Opcode);
+  Temp =
+      new AllocaInst(ArrayType::get(SizeTy, TempCount), 0, "temp", CurrBlock);
+  Temp->setAlignment(GetWorld().getTypeAlignment(SizeTy));
+  return true;
+}
+
+bool PMachine::callOp(uint8_t Opcode) {
+  int Offset = getSInt(Opcode);
+  unsigned AbsOffset = TheScript.getOffsetOf((PC + 1) + Offset);
+  Constant *Constants[] = {ConstantInt::get(SizeTy, AbsOffset)};
+  emitCall(getCallIntrinsic(), Constants);
+  return true;
+}
+
+bool PMachine::callkOp(uint8_t Opcode) {
+  unsigned KernelOrdinal = getUInt(Opcode);
+
+  Constant *Constants[] = {ConstantInt::get(SizeTy, KernelOrdinal)};
+  emitCall(Intrinsic::Get(Intrinsic::callk), Constants);
+  return true;
+}
+
+bool PMachine::callbOp(uint8_t Opcode) {
+  unsigned EntryIndex = getUInt(Opcode);
+
+  Constant *Constants[] = {ConstantInt::get(SizeTy, 0),
+                           ConstantInt::get(SizeTy, EntryIndex)};
+  emitCall(Intrinsic::Get(Intrinsic::calle), Constants);
+  return true;
+}
+
+bool PMachine::calleOp(uint8_t Opcode) {
+  unsigned ScriptID = getUInt(Opcode);
+  unsigned EntryIndex = getUInt(Opcode);
+
+  Constant *Constants[] = {ConstantInt::get(SizeTy, ScriptID),
+                           ConstantInt::get(SizeTy, EntryIndex)};
+  emitCall(Intrinsic::Get(Intrinsic::calle), Constants);
+  return true;
+}
+
+bool PMachine::retOp(uint8_t Opcode) {
+  if (Acc == nullptr) {
+    assert(!RetTy || RetTy->isVoidTy());
+    if (!RetTy)
+      RetTy = Type::getVoidTy(Context);
+    ReturnInst::Create(Context, CurrBlock);
+  } else {
+    if (!RetTy)
+      RetTy = Acc->getType();
+    else if (RetTy != Acc->getType()) {
+      assert(!RetTy->isVoidTy());
+      castAccToSizeType();
+      RetTy = SizeTy;
+
+      // Cast all other return values to the same type.
+      for (auto I = Labels.begin(), E = Labels.end(); I != E; ++I) {
+        BasicBlock *BB = I->second;
+        ReturnInst *RetInst = dyn_cast_or_null<ReturnInst>(BB->getTerminator());
+        if (RetInst != nullptr) {
+          Value *Val = RetInst->getReturnValue();
+          RetInst->eraseFromParent();
+          Val = castValueToSizeType(Val, BB);
+
+          ReturnInst::Create(Context, Val, BB);
+        }
+      }
+    }
+    ReturnInst::Create(Context, Acc, CurrBlock);
+  }
+  return false;
+}
+
+bool PMachine::sendOp(uint8_t Opcode) {
+  assert(Acc != nullptr);
+  castAccToSizeType();
+  emitSend(Acc);
+  return true;
+}
+
+bool PMachine::classOp(uint8_t Opcode) {
+  unsigned ClassID = getUInt(Opcode);
+  ConstantInt *C = ConstantInt::get(SizeTy, ClassID);
+  Acc = ClassInst::Create(C, CurrBlock);
+  return true;
+}
+
+bool PMachine::selfOp(uint8_t Opcode) {
+  assert(Self != nullptr);
+  emitSend(Self.get());
+  return true;
+}
+
+bool PMachine::superOp(uint8_t Opcode) {
+  unsigned ClassID = getUInt(Opcode);
+  ConstantInt *Cls = ConstantInt::get(SizeTy, ClassID);
+  emitSend(Cls);
+  return true;
+}
+
+bool PMachine::restOp(uint8_t Opcode) {
+  assert(Rest == nullptr);
+  unsigned ParamIndex = getUInt(Opcode);
+  ConstantInt *C = ConstantInt::get(SizeTy, ParamIndex);
+  Rest = RestInst::Create(C, CurrBlock);
+  return true;
+}
+
+bool PMachine::leaOp(uint8_t Opcode) {
+  // Get the type of the variable.
+  unsigned VarType = getUInt(Opcode);
+  // Get the number of the variable.
+  unsigned VarIdx = getUInt(Opcode);
+
+  Acc = getIndexedVariablePtr(static_cast<uint8_t>(VarType), VarIdx);
+  return true;
+}
+
+bool PMachine::selfIdOp(uint8_t Opcode) {
+  assert(Self);
+  Acc = Self.get();
+  return true;
+}
+
+bool PMachine::pprevOp(uint8_t Opcode) {
+  Value *Prev = loadPrevAcc();
+  callPush(Prev);
+  return true;
+}
+
+bool PMachine::pToaOp(uint8_t Opcode) {
+  Value *Prop = getIndexedPropPtr(Opcode);
+  Acc = new LoadInst(Prop, "", false, GetWorld().getElementTypeAlignment(Prop),
+                     CurrBlock);
+  castAccToSizeType();
+  return true;
+}
+
+bool PMachine::aTopOp(uint8_t Opcode) {
+  castAccToSizeType();
+  Value *Prop = getIndexedPropPtr(Opcode);
+  new StoreInst(Acc, Prop, false, GetWorld().getTypeAlignment(Acc), CurrBlock);
+  return true;
+}
+
+bool PMachine::pTosOp(uint8_t Opcode) {
+  Value *Prop = getIndexedPropPtr(Opcode);
+  Prop = new LoadInst(Prop, "", false, GetWorld().getElementTypeAlignment(Prop),
+                      CurrBlock);
+  Prop = castValueToSizeType(Prop);
+  callPush(Prop);
+  return true;
+}
+
+bool PMachine::sTopOp(uint8_t Opcode) {
+  Value *Val = callPop();
+  Value *Prop = getIndexedPropPtr(Opcode);
+  new StoreInst(Val, Prop, false, GetWorld().getTypeAlignment(Val), CurrBlock);
+  return true;
+}
+
+bool PMachine::ipToaOp(uint8_t Opcode) {
+  Value *Prop = getIndexedPropPtr(Opcode);
+  Value *Val = new LoadInst(
+      Prop, "", false, GetWorld().getElementTypeAlignment(Prop), CurrBlock);
+  Acc = BinaryOperator::CreateAdd(Val, ConstantInt::get(Val->getType(), 1), "",
+                                  CurrBlock);
+  new StoreInst(Acc, Prop, false, GetWorld().getTypeAlignment(Acc), CurrBlock);
+  castAccToSizeType();
+  return true;
+}
+
+bool PMachine::dpToaOp(uint8_t Opcode) {
+  Value *Prop = getIndexedPropPtr(Opcode);
+  Value *Val = new LoadInst(
+      Prop, "", false, GetWorld().getElementTypeAlignment(Prop), CurrBlock);
+  Acc = BinaryOperator::CreateSub(Val, ConstantInt::get(Val->getType(), 1), "",
+                                  CurrBlock);
+  new StoreInst(Acc, Prop, false, GetWorld().getTypeAlignment(Acc), CurrBlock);
+  castAccToSizeType();
+  return true;
+}
+
+bool PMachine::ipTosOp(uint8_t Opcode) {
+  Value *Prop = getIndexedPropPtr(Opcode);
+  Value *Val = new LoadInst(
+      Prop, "", false, GetWorld().getElementTypeAlignment(Prop), CurrBlock);
+  Val = BinaryOperator::CreateAdd(Val, ConstantInt::get(Val->getType(), 1), "",
+                                  CurrBlock);
+  new StoreInst(Val, Prop, false, GetWorld().getTypeAlignment(Val), CurrBlock);
+  Val = castValueToSizeType(Val);
+  callPush(Val);
+  return true;
+}
+
+bool PMachine::dpTosOp(uint8_t Opcode) {
+  Value *Prop = getIndexedPropPtr(Opcode);
+  Value *Val = new LoadInst(
+      Prop, "", false, GetWorld().getElementTypeAlignment(Prop), CurrBlock);
+  Val = BinaryOperator::CreateSub(Val, ConstantInt::get(SizeTy, 1), "",
+                                  CurrBlock);
+  new StoreInst(Val, Prop, false, GetWorld().getTypeAlignment(Val), CurrBlock);
+  Val = castValueToSizeType(Val);
+  callPush(Val);
+  return true;
+}
+
+bool PMachine::lofsaOp(uint8_t Opcode) {
+  Value *Val = getValueByOffset(Opcode);
+  assert(Val != nullptr);
+
+  Acc = Val;
+  return true;
+}
+
+bool PMachine::lofssOp(uint8_t Opcode) {
+  Value *Val = getValueByOffset(Opcode);
+  assert(Val != nullptr);
+
+  callPush(Val);
+  return true;
+}
+
+bool PMachine::push0Op(uint8_t Opcode) {
+  Value *Val = ConstantInt::get(SizeTy, 0);
+  callPush(Val);
+  return true;
+}
+
+bool PMachine::push1Op(uint8_t Opcode) {
+  Value *Val = ConstantInt::get(SizeTy, 1);
+  callPush(Val);
+  return true;
+}
+
+bool PMachine::push2Op(uint8_t Opcode) {
+  Value *Val = ConstantInt::get(SizeTy, 2);
+  callPush(Val);
+  return true;
+}
+
+bool PMachine::pushSelfOp(uint8_t Opcode) {
+  callPush(Self.get());
+  return true;
+}
+
+bool PMachine::ldstOp(uint8_t Opcode) {
+  unsigned varIdx = getUInt(Opcode);
+
+  Value *Var, *Val;
+  Var = getIndexedVariablePtr(Opcode, varIdx);
+
+  switch (Opcode & OP_TYPE) {
+  default:
+  case OP_LOAD:
+    Val = new LoadInst(Var, "", false, GetWorld().getElementTypeAlignment(Var),
+                       CurrBlock);
+    break;
+
+  case OP_INC:
+    Val = new LoadInst(Var, "", false, GetWorld().getElementTypeAlignment(Var),
+                       CurrBlock);
+    Val = BinaryOperator::CreateAdd(Val, ConstantInt::get(SizeTy, 1), "",
+                                    CurrBlock);
+    new StoreInst(Val, Var, false, GetWorld().getTypeAlignment(Val), CurrBlock);
+    break;
+
+  case OP_DEC:
+    Val = new LoadInst(Var, "", false, GetWorld().getElementTypeAlignment(Var),
+                       CurrBlock);
+    Val = BinaryOperator::CreateSub(Val, ConstantInt::get(SizeTy, 1), "",
+                                    CurrBlock);
+    new StoreInst(Val, Var, false, GetWorld().getTypeAlignment(Val), CurrBlock);
+    break;
+
+  case OP_STORE:
+    if ((Opcode & OP_INDEX) != 0) {
+      Val = callPop();
+      if ((Opcode & OP_STACK) == 0) {
+        Acc = Val;
+      }
+    } else {
+      if ((Opcode & OP_STACK) == 0) {
         castAccToSizeType();
+        Val = Acc;
+      } else {
+        Val = callPop();
+      }
     }
-
-    Value *var;
-    switch (opcode & OP_VAR)
-    {
-    default:
-    case OP_GLOBAL:
-        var = m_script.getGlobalVariable(idx);
-        break;
-
-    case OP_LOCAL:
-        var = m_script.getLocalVariable(idx);
-        break;
-
-    case OP_TMP: {
-        assert(idx < m_tempCount);
-        Value *indices[] = {
-            ConstantInt::get(m_sizeTy, 0),
-            ConstantInt::get(m_sizeTy, idx)
-        };
-        var = GetElementPtrInst::CreateInBounds(m_temp, indices);
-        break;
-    }
-
-    case OP_PARM: {
-        ConstantInt *c = ConstantInt::get(m_sizeTy, idx);
-        var = GetElementPtrInst::CreateInBounds(m_args.get(), c);
-        break;
-    }
-    }
-
-    m_bb->getInstList().push_back(static_cast<Instruction*>(var));
-
-    // If the variable is indexed, add the index in acc to the offset.
-    if ((opcode & OP_INDEX) != 0)
-    {
-        var = GetElementPtrInst::CreateInBounds(var, m_acc, "", m_bb);
-    }
-    return var;
-}
-
-
-bool PMachine::processNextInstruction()
-{
-    assert(m_pc != nullptr);
-    assert(m_bb != nullptr);
-
-    uint8_t opcode = getByte();
-    if ((opcode & 0x80) != 0)
-    {
-        return ldstOp(opcode);
-    }
-    return (this->*s_opTable[opcode >> 1])(opcode);
-}
-
-
-Value* PMachine::castValueToSizeType(Value *val, BasicBlock *bb)
-{
-    if (val != nullptr)
-    {
-        if (val->getType()->isIntegerTy())
-        {
-            unsigned srcBits = val->getType()->getScalarSizeInBits();
-            unsigned dstBits = m_sizeTy->getScalarSizeInBits();
-            if (srcBits != dstBits)
-            {
-                val = new ZExtInst(val, m_sizeTy, "", bb);
-            }
-        }
-        else if (val->getType()->isPointerTy())
-        {
-            val = new PtrToIntInst(val, m_sizeTy, "", bb);
-        }
-    }
-    return val;
-}
-
-
-Value* PMachine::castValueToSizeType(Value *val)
-{
-    return castValueToSizeType(val, m_bb);
-}
-
-
-void PMachine::castAccToSizeType()
-{
-    m_acc = castValueToSizeType(m_acc);
-}
-
-
-void PMachine::fixAccConstantInt()
-{
-    if (isa<ConstantInt>(m_acc))
-    {
-        int16_t v = static_cast<int16_t>(cast<ConstantInt>(m_acc)->getZExtValue());
-        if (v < 0)
-        {
-            m_acc = ConstantInt::get(m_sizeTy, static_cast<uint16_t>(v));
-        }
-    }
-}
-
-
-void PMachine::storeAcc()
-{
-    Value *val = castValueToSizeType(m_acc);
-    new StoreInst(val, m_accAddr, false, GetWorld().getTypeAlignment(val), m_bb);
-}
-
-
-Value* PMachine::loadAcc()
-{
-    return new LoadInst(m_accAddr, "", false, GetWorld().getTypeAlignment(m_accAddr->getAllocatedType()), m_bb);
-}
-
-
-void PMachine::storePrevAcc()
-{
-    Value *val = castValueToSizeType(m_acc);
-    new StoreInst(val, m_paccAddr, false, GetWorld().getTypeAlignment(val), m_bb);
-}
-
-
-Value* PMachine::loadPrevAcc()
-{
-    return new LoadInst(m_paccAddr, "", false, GetWorld().getTypeAlignment(m_paccAddr->getAllocatedType()), m_bb);
-}
-
-
-Value* PMachine::callPop()
-{
-    return PopInst::Create(m_bb);
-}
-
-
-void PMachine::callPush(llvm::Value *val)
-{
-    PushInst::Create(val, m_bb);
-}
-
-
-bool PMachine::bnotOp(uint8_t opcode)
-{
-    castAccToSizeType();
-    fixAccConstantInt();
-    m_acc = BinaryOperator::CreateNot(m_acc, "", m_bb);
+    new StoreInst(Val, Var, false, GetWorld().getTypeAlignment(Val), CurrBlock);
     return true;
+  }
+
+  if ((Opcode & OP_STACK) == 0) {
+    Acc = Val;
+  } else {
+    callPush(Val);
+  }
+  return true;
 }
 
-
-bool PMachine::addOp(uint8_t opcode)
-{
-    castAccToSizeType();
-    Value *tos = callPop();
-    m_acc = BinaryOperator::CreateAdd(tos, m_acc, "", m_bb);
-    return true;
+bool PMachine::badOp(uint8_t Opcode) {
+  assert(0);
+  return false;
 }
 
+void PMachine::emitDebugLog() {
+  Function *Func = Entry->getParent();
+  assert(Func && "Function is not ready!");
 
-bool PMachine::subOp(uint8_t opcode)
-{
-    castAccToSizeType();
-    Value *tos = callPop();
-    m_acc = BinaryOperator::CreateSub(tos, m_acc, "", m_bb);
-    return true;
+  Module *M = Func->getParent();
+  LLVMContext &Ctx = M->getContext();
+  PointerType *Int8PtrTy = Type::getInt8PtrTy(Ctx);
+
+  Value *Self;
+  auto AI = Func->arg_begin();
+  if (!AI->getType()->isPointerTy()) {
+    Self = &*AI;
+    ++AI;
+  } else
+    Self = ConstantInt::get(SizeTy, 0);
+
+  StringRef Name;
+  Name = "DebugFunctionEntry";
+  Function *FuncEntry = M->getFunction(Name);
+  if (!FuncEntry) {
+    Type *Params[] = {Int8PtrTy, SizeTy, SizeTy->getPointerTo()};
+    FunctionType *FTy = FunctionType::get(Type::getVoidTy(Ctx), Params, false);
+    FuncEntry = Function::Create(FTy, GlobalValue::ExternalLinkage, Name, M);
+  }
+
+  Name = "DebugFunctionExit";
+  Function *FuncExit = M->getFunction(Name);
+  if (!FuncExit) {
+    FunctionType *FTy = FunctionType::get(Type::getVoidTy(Ctx), SizeTy, false);
+    FuncExit = Function::Create(FTy, GlobalValue::ExternalLinkage, Name, M);
+  }
+
+  Constant *C = ConstantDataArray::getString(Ctx, Func->getName());
+  GlobalVariable *Var = new GlobalVariable(*M, C->getType(), true,
+                                           GlobalValue::PrivateLinkage, C);
+  Var->setAlignment(GetWorld().getTypeAlignment(C->getType()));
+  Var->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+
+  Instruction *EntryPoint = &*Entry->begin();
+  Value *StrCast =
+      CastInst::Create(Instruction::BitCast, Var, Int8PtrTy, "", EntryPoint);
+  Value *CallArgs[] = {StrCast, Self, &*AI};
+  CallInst::Create(FuncEntry, CallArgs, "", EntryPoint);
+
+  for (BasicBlock &BB : *Func) {
+    ReturnInst *Ret = dyn_cast<ReturnInst>(BB.getTerminator());
+    if (Ret)
+      CallInst::Create(FuncExit, Self, "", Ret);
+  }
 }
-
-
-bool PMachine::mulOp(uint8_t opcode)
-{
-    castAccToSizeType();
-    Value *tos = callPop();
-    m_acc = BinaryOperator::CreateMul(tos, m_acc, "", m_bb);
-    return true;
-}
-
-
-bool PMachine::divOp(uint8_t opcode)
-{
-    castAccToSizeType();
-    Value *tos = callPop();
-    m_acc = BinaryOperator::CreateSDiv(tos, m_acc, "", m_bb);
-    return true;
-}
-
-
-bool PMachine::modOp(uint8_t opcode)
-{
-    castAccToSizeType();
-    Value *tos = callPop();
-    m_acc = BinaryOperator::CreateSRem(tos, m_acc, "", m_bb);
-    return true;
-}
-
-
-bool PMachine::shrOp(uint8_t opcode)
-{
-    castAccToSizeType();
-    fixAccConstantInt();
-    Value *tos = callPop();
-    m_acc = BinaryOperator::CreateLShr(tos, m_acc, "", m_bb);
-    return true;
-}
-
-
-bool PMachine::shlOp(uint8_t opcode)
-{
-    castAccToSizeType();
-    fixAccConstantInt();
-    Value *tos = callPop();
-    m_acc = BinaryOperator::CreateShl(tos, m_acc, "", m_bb);
-    return true;
-}
-
-
-bool PMachine::xorOp(uint8_t opcode)
-{
-    castAccToSizeType();
-    fixAccConstantInt();
-    Value *tos = callPop();
-    m_acc = BinaryOperator::CreateXor(tos, m_acc, "", m_bb);
-    return true;
-}
-
-
-bool PMachine::andOp(uint8_t opcode)
-{
-    castAccToSizeType();
-    fixAccConstantInt();
-    Value *tos = callPop();
-    m_acc = BinaryOperator::CreateAnd(tos, m_acc, "", m_bb);
-    return true;
-}
-
-
-bool PMachine::orOp(uint8_t opcode)
-{
-    castAccToSizeType();
-    fixAccConstantInt();
-    Value *tos = callPop();
-    m_acc = BinaryOperator::CreateOr(tos, m_acc, "", m_bb);
-    return true;
-}
-
-
-bool PMachine::negOp(uint8_t opcode)
-{
-    castAccToSizeType();
-    m_acc = BinaryOperator::CreateNeg(m_acc, "", m_bb);
-    return true;
-}
-
-
-bool PMachine::notOp(uint8_t opcode)
-{
-    if (m_acc->getType()->isIntegerTy(1))
-    {
-        m_acc = BinaryOperator::CreateNot(m_acc, "not", m_bb);
-    }
-    else
-    {
-        m_acc = new ICmpInst(*m_bb, CmpInst::ICMP_EQ, m_acc, ConstantInt::get(m_acc->getType(), 0));
-    }
-    return true;
-}
-
-
-bool PMachine::cmpOp(uint8_t opcode)
-{
-    static CmpInst::Predicate s_cmpTable[] = {
-        CmpInst::ICMP_EQ,
-        CmpInst::ICMP_NE,
-        CmpInst::ICMP_SGT,
-        CmpInst::ICMP_SGE,
-        CmpInst::ICMP_SLT,
-        CmpInst::ICMP_SLE,
-        CmpInst::ICMP_UGT,
-        CmpInst::ICMP_UGE,
-        CmpInst::ICMP_ULT,
-        CmpInst::ICMP_ULE
-    };
-
-    CmpInst::Predicate pred = s_cmpTable[(opcode >> 1) - (OP_eq >> 1)];
-    switch (pred)
-    {
-    case CmpInst::ICMP_UGT:
-    case CmpInst::ICMP_UGE:
-    case CmpInst::ICMP_ULT:
-    case CmpInst::ICMP_ULE:
-        fixAccConstantInt();
-        break;
-
-    default:
-        break;
-    }
-
-    castAccToSizeType();
-    storePrevAcc();
-    Value *tos = callPop();
-    m_acc = new ICmpInst(*m_bb, pred, tos, m_acc);
-    return true;
-}
-
-
-bool PMachine::btOp(uint8_t opcode)
-{
-    storeAcc();
-    if (!m_acc->getType()->isIntegerTy(1))
-    {
-        m_acc = new ICmpInst(*m_bb, CmpInst::ICMP_NE, m_acc, Constant::getNullValue(m_acc->getType()));
-    }
-
-    int offset = getSInt(opcode);
-    BasicBlock *ifTrue = getBasicBlock(m_pc + offset);
-    BasicBlock *ifFalse = getBasicBlock(m_pc);
-
-    if (opcode <= OP_bt_ONE)
-    {
-        BranchInst::Create(ifTrue, ifFalse, m_acc, m_bb);
-    }
-    else
-    {
-        BranchInst::Create(ifFalse, ifTrue, m_acc, m_bb);
-    }
-    return false;
-}
-
-
-bool PMachine::jmpOp(uint8_t opcode)
-{
-    storeAcc();
-    int offset = getSInt(opcode);
-    BasicBlock *dst = getBasicBlock(m_pc + offset);
-    BranchInst::Create(dst, m_bb);
-    return false;
-}
-
-
-bool PMachine::loadiOp(uint8_t opcode)
-{
-    m_acc = ConstantInt::get(m_sizeTy, static_cast<uint64_t>(getSInt(opcode)), true);
-    return true;
-}
-
-
-bool PMachine::pushOp(uint8_t opcode)
-{
-    castAccToSizeType();
-    callPush(m_acc);
-    return true;
-}
-
-
-bool PMachine::pushiOp(uint8_t opcode)
-{
-    Value *imm = GetWorld().getConstantValue(static_cast<int16_t>(getSInt(opcode)));
-    callPush(imm);
-    return true;
-}
-
-
-bool PMachine::tossOp(uint8_t opcode)
-{
-    callPop();
-    return true;
-}
-
-
-bool PMachine::dupOp(uint8_t opcode)
-{
-    //TODO: Maybe we can do this more efficient?
-    Value *tos = callPop();
-    callPush(tos);
-    callPush(tos);
-    return true;
-}
-
-
-bool PMachine::linkOp(uint8_t opcode)
-{
-    assert(m_temp == nullptr && m_tempCount == 0);
-    m_tempCount = getUInt(opcode);
-    m_temp = new AllocaInst(ArrayType::get(m_sizeTy, m_tempCount), "temp", m_bb);
-    m_temp->setAlignment(GetWorld().getTypeAlignment(m_sizeTy));
-    return true;
-}
-
-
-bool PMachine::callOp(uint8_t opcode)
-{
-    int offset = getSInt(opcode);
-    uint absOffset = m_script.getOffsetOf((m_pc + 1) + offset);
-    Constant *constants[] = {
-        ConstantInt::get(m_sizeTy, absOffset)
-    };
-    emitCall(getCallIntrinsic(), constants);
-    return true;
-}
-
-
-bool PMachine::callkOp(uint8_t opcode)
-{
-    uint kernelOrdinal = getUInt(opcode);
-
-    Constant *constants[] = {
-        ConstantInt::get(m_sizeTy, kernelOrdinal)
-    };
-    emitCall(Intrinsic::Get(Intrinsic::callk), constants);
-    return true;
-}
-
-
-bool PMachine::callbOp(uint8_t opcode)
-{
-    uint entryIndex = getUInt(opcode);
-
-    Constant *constants[] = {
-        ConstantInt::get(m_sizeTy, 0),
-        ConstantInt::get(m_sizeTy, entryIndex)
-    };
-    emitCall(Intrinsic::Get(Intrinsic::calle), constants);
-    return true;
-}
-
-
-bool PMachine::calleOp(uint8_t opcode)
-{
-    uint scriptId = getUInt(opcode);
-    uint entryIndex = getUInt(opcode);
-
-    Constant *constants[] = {
-        ConstantInt::get(m_sizeTy, scriptId),
-        ConstantInt::get(m_sizeTy, entryIndex)
-    };
-    emitCall(Intrinsic::Get(Intrinsic::calle), constants);
-    return true;
-}
-
-
-bool PMachine::retOp(uint8_t opcode)
-{
-    if (m_acc == nullptr)
-    {
-        assert(m_retTy == nullptr || m_retTy->isVoidTy());
-        if (m_retTy == nullptr)
-        {
-            m_retTy = Type::getVoidTy(m_ctx);
-        }
-        ReturnInst::Create(m_ctx, m_bb);
-    }
-    else
-    {
-        if (m_retTy == nullptr)
-        {
-            m_retTy = m_acc->getType();
-        }
-        else if (m_retTy != m_acc->getType())
-        {
-            assert(!m_retTy->isVoidTy());
-            castAccToSizeType();
-            m_retTy = m_sizeTy;
-
-            // Cast all other return values to the same type.
-            for (auto i = m_labels.begin(), e = m_labels.end(); i != e; ++i)
-            {
-                BasicBlock *bb = i->second;
-                ReturnInst *retInst = dyn_cast_or_null<ReturnInst>(bb->getTerminator());
-                if (retInst != nullptr)
-                {
-                    Value *val = retInst->getReturnValue();
-                    retInst->eraseFromParent();
-                    val = castValueToSizeType(val, bb);
-
-                    ReturnInst::Create(m_ctx, val, bb);
-                }
-            }
-        }
-        ReturnInst::Create(m_ctx, m_acc, m_bb);
-    }
-    return false;
-}
-
-
-bool PMachine::sendOp(uint8_t opcode)
-{
-    assert(m_acc != nullptr);
-    castAccToSizeType();
-    emitSend(m_acc);
-    return true;
-}
-
-
-bool PMachine::classOp(uint8_t opcode)
-{
-    uint classId = getUInt(opcode);
-    ConstantInt *c = ConstantInt::get(m_sizeTy, classId);
-    m_acc = ClassInst::Create(c, m_bb);
-    return true;
-}
-
-
-bool PMachine::selfOp(uint8_t opcode)
-{
-    assert(m_self != nullptr);
-    emitSend(m_self.get());
-    return true;
-}
-
-
-bool PMachine::superOp(uint8_t opcode)
-{
-    uint classId = getUInt(opcode);
-    ConstantInt *cls = ConstantInt::get(m_sizeTy, classId);
-    emitSend(cls);
-    return true;
-}
-
-
-bool PMachine::restOp(uint8_t opcode)
-{
-    assert(m_rest == nullptr);
-    uint paramIndex = getUInt(opcode);
-    ConstantInt *c = ConstantInt::get(m_sizeTy, paramIndex);
-    m_rest = RestInst::Create(c, m_bb);
-    return true;
-}
-
-
-bool PMachine::leaOp(uint8_t opcode)
-{
-    // Get the type of the variable.
-    uint varType = getUInt(opcode);
-    // Get the number of the variable.
-    uint varIdx = getUInt(opcode);
-
-    m_acc = getIndexedVariablePtr(static_cast<uint8_t>(varType), varIdx);
-    return true;
-}
-
-
-bool PMachine::selfIdOp(uint8_t opcode)
-{
-    assert(m_self);
-    m_acc = m_self.get();
-    return true;
-}
-
-
-bool PMachine::pprevOp(uint8_t opcode)
-{
-    Value *prev = loadPrevAcc();
-    callPush(prev);
-    return true;
-}
-
-
-bool PMachine::pToaOp(uint8_t opcode)
-{
-    Value *prop = getIndexedPropPtr(opcode);
-    m_acc = new LoadInst(prop, "", false, GetWorld().getElementTypeAlignment(prop), m_bb);
-    castAccToSizeType();
-    return true;
-}
-
-
-bool PMachine::aTopOp(uint8_t opcode)
-{
-    castAccToSizeType();
-    Value *prop = getIndexedPropPtr(opcode);
-    new StoreInst(m_acc, prop, false, GetWorld().getTypeAlignment(m_acc), m_bb);
-    return true;
-}
-
-
-bool PMachine::pTosOp(uint8_t opcode)
-{
-    Value *prop = getIndexedPropPtr(opcode);
-    prop = new LoadInst(prop, "", false, GetWorld().getElementTypeAlignment(prop), m_bb);
-    prop = castValueToSizeType(prop);
-    callPush(prop);
-    return true;
-}
-
-
-bool PMachine::sTopOp(uint8_t opcode)
-{
-    Value *val = callPop();
-    Value *prop = getIndexedPropPtr(opcode);
-    new StoreInst(val, prop, false, GetWorld().getTypeAlignment(val), m_bb);
-    return true;
-}
-
-
-bool PMachine::ipToaOp(uint8_t opcode)
-{
-    Value *prop = getIndexedPropPtr(opcode);
-    Value *val = new LoadInst(prop, "", false, GetWorld().getElementTypeAlignment(prop), m_bb);
-    m_acc = BinaryOperator::CreateAdd(val, ConstantInt::get(val->getType(), 1), "", m_bb);
-    new StoreInst(m_acc, prop, false, GetWorld().getTypeAlignment(m_acc), m_bb);
-    castAccToSizeType();
-    return true;
-}
-
-
-bool PMachine::dpToaOp(uint8_t opcode)
-{
-    Value *prop = getIndexedPropPtr(opcode);
-    Value *val = new LoadInst(prop, "", false, GetWorld().getElementTypeAlignment(prop), m_bb);
-    m_acc = BinaryOperator::CreateSub(val, ConstantInt::get(val->getType(), 1), "", m_bb);
-    new StoreInst(m_acc, prop, false, GetWorld().getTypeAlignment(m_acc), m_bb);
-    castAccToSizeType();
-    return true;
-}
-
-
-bool PMachine::ipTosOp(uint8_t opcode)
-{
-    Value *prop = getIndexedPropPtr(opcode);
-    Value *val = new LoadInst(prop, "", false, GetWorld().getElementTypeAlignment(prop), m_bb);
-    val = BinaryOperator::CreateAdd(val, ConstantInt::get(val->getType(), 1), "", m_bb);
-    new StoreInst(val, prop, false, GetWorld().getTypeAlignment(val), m_bb);
-    val = castValueToSizeType(val);
-    callPush(val);
-    return true;
-}
-
-
-bool PMachine::dpTosOp(uint8_t opcode)
-{
-    Value *prop = getIndexedPropPtr(opcode);
-    Value *val = new LoadInst(prop, "", false, GetWorld().getElementTypeAlignment(prop), m_bb);
-    val = BinaryOperator::CreateSub(val, ConstantInt::get(m_sizeTy, 1), "", m_bb);
-    new StoreInst(val, prop, false, GetWorld().getTypeAlignment(val), m_bb);
-    val = castValueToSizeType(val);
-    callPush(val);
-    return true;
-}
-
-
-bool PMachine::lofsaOp(uint8_t opcode)
-{
-    Value *val = getValueByOffset(opcode);
-    assert(val != nullptr);
-
-    m_acc = val;
-    return true;
-}
-
-
-bool PMachine::lofssOp(uint8_t opcode)
-{
-    Value *val = getValueByOffset(opcode);
-    assert(val != nullptr);
-
-    callPush(val);
-    return true;
-}
-
-
-bool PMachine::push0Op(uint8_t opcode)
-{
-    Value *val = ConstantInt::get(m_sizeTy, 0);
-    callPush(val);
-    return true;
-}
-
-
-bool PMachine::push1Op(uint8_t opcode)
-{
-    Value *val = ConstantInt::get(m_sizeTy, 1);
-    callPush(val);
-    return true;
-}
-
-
-bool PMachine::push2Op(uint8_t opcode)
-{
-    Value *val = ConstantInt::get(m_sizeTy, 2);
-    callPush(val);
-    return true;
-}
-
-
-bool PMachine::pushSelfOp(uint8_t opcode)
-{
-    callPush(m_self.get());
-    return true;
-}
-
-
-bool PMachine::ldstOp(uint8_t opcode)
-{
-    uint varIdx = getUInt(opcode);
-
-    Value *var, *val;
-    var = getIndexedVariablePtr(opcode, varIdx);
-
-    switch (opcode & OP_TYPE)
-    {
-    default:
-    case OP_LOAD:
-        val = new LoadInst(var, "", false, GetWorld().getElementTypeAlignment(var), m_bb);
-        break;
-
-    case OP_INC:
-        val = new LoadInst(var, "", false, GetWorld().getElementTypeAlignment(var), m_bb);
-        val = BinaryOperator::CreateAdd(val, ConstantInt::get(m_sizeTy, 1), "", m_bb);
-        new StoreInst(val, var, false, GetWorld().getTypeAlignment(val), m_bb);
-        break;
-
-    case OP_DEC:
-        val = new LoadInst(var, "", false, GetWorld().getElementTypeAlignment(var), m_bb);
-        val = BinaryOperator::CreateSub(val, ConstantInt::get(m_sizeTy, 1), "", m_bb);
-        new StoreInst(val, var, false, GetWorld().getTypeAlignment(val), m_bb);
-        break;
-
-    case OP_STORE:
-        if ((opcode & OP_INDEX) != 0)
-        {
-            val = callPop();
-            if ((opcode & OP_STACK) == 0)
-            {
-                m_acc = val;
-            }
-        }
-        else
-        {
-            if ((opcode & OP_STACK) == 0)
-            {
-                castAccToSizeType();
-                val = m_acc;
-            }
-            else
-            {
-                val = callPop();
-            }
-        }
-        new StoreInst(val, var, false, GetWorld().getTypeAlignment(val), m_bb);
-        return true;
-    }
-
-    if ((opcode & OP_STACK) == 0)
-    {
-        m_acc = val;
-    }
-    else
-    {
-        callPush(val);
-    }
-    return true;
-}
-
-
-bool PMachine::badOp(uint8_t opcode)
-{
-    assert(0);
-    return false;
-}
-
-
-static GlobalVariable* GetOrCreateDebugIndentVariable();
-static GlobalVariable* GetOrCreateDebugFormatString(Module *module);
-
-
-void PMachine::emitDebugLog()
-{
-    Function *func = m_entry->getParent();
-    assert(func != nullptr && "Function is not ready!");
-
-    Module *module = func->getParent();
-    LLVMContext &ctx = module->getContext();
-    PointerType *int8PtrTy = Type::getInt8PtrTy(ctx);
-
-    Value *self;
-    auto iArg = func->arg_begin();
-    if (!iArg->getType()->isPointerTy())
-    {
-        self = &*iArg;
-        ++iArg;
-    }
-    else
-    {
-        self = ConstantInt::get(m_sizeTy, 0);
-    }
-
-    StringRef name;
-    name = "DebugFunctionEntry";
-    Function *funcEntry = module->getFunction(name);
-    if (funcEntry == nullptr)
-    {
-        Type *params[] = { int8PtrTy, m_sizeTy, m_sizeTy->getPointerTo() };
-        FunctionType *funcTy = FunctionType::get(Type::getVoidTy(ctx), params, false);
-        funcEntry = Function::Create(funcTy, GlobalValue::ExternalLinkage, name, module);
-    }
-
-    name = "DebugFunctionExit";
-    Function *funcExit = module->getFunction(name);
-    if (funcExit == nullptr)
-    {
-        FunctionType *funcTy = FunctionType::get(Type::getVoidTy(ctx), m_sizeTy, false);
-        funcExit = Function::Create(funcTy, GlobalValue::ExternalLinkage, name, module);
-    }
-
-    Constant *c = ConstantDataArray::getString(ctx, func->getName());
-    GlobalVariable *var = new GlobalVariable(*module,
-                                             c->getType(),
-                                             true,
-                                             GlobalValue::PrivateLinkage,
-                                             c);
-    var->setAlignment(GetWorld().getTypeAlignment(c->getType()));
-    var->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
-
-    Instruction *entryPoint = &*m_entry->begin();
-    Value *strCast = CastInst::Create(Instruction::BitCast, var, int8PtrTy, "", entryPoint);
-    Value *args[] = { strCast, self, &*iArg };
-    CallInst::Create(funcEntry, args, "", entryPoint);
-
-
-    for (BasicBlock &bb : *func)
-    {
-        ReturnInst *ret = dyn_cast<ReturnInst>(bb.getTerminator());
-        if (ret != nullptr)
-        {
-            CallInst::Create(funcExit, self, "", ret);
-        }
-    }
-}
-
-
-END_NAMESPACE_SCI

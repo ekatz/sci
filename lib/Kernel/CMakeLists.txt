@@ -27,6 +27,5 @@ add_sci_library(sciKernel
   sciAudioDriver
   sciDisplayDriver
   sciInputDriver
-  sciPMachine
   sciUtils
   )

@@ -1,28 +1,33 @@
-#pragma once
-#ifndef _FixCodePass_HPP_
-#define _FixCodePass_HPP_
+//===- Passes/FixCodePass.hpp ---------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef SCI_UTILS_PMACHINE_LLVM_PASSES_FIXCODEPASS_HPP
+#define SCI_UTILS_PMACHINE_LLVM_PASSES_FIXCODEPASS_HPP
 
 #include "../Types.hpp"
-#include <llvm/IR/Module.h>
+#include "llvm/IR/Module.h"
 
-BEGIN_NAMESPACE_SCI
+namespace sci {
 
-class FixCodePass
-{
+class FixCodePass {
 public:
-    FixCodePass();
-    ~FixCodePass();
+  FixCodePass();
+  ~FixCodePass();
 
-    void run();
+  void run();
 
 private:
-    llvm::Function* createIsKindOfFunctionPrototype(llvm::Module *module) const;
-    llvm::Function* createIsMemberOfFunctionPrototype(llvm::Module *module) const;
-    llvm::Function* createObjMethodFunction(llvm::Module *module, llvm::Function *externFunc) const;
+  llvm::Function *createIsKindOfFunctionPrototype(llvm::Module *M) const;
+  llvm::Function *createIsMemberOfFunctionPrototype(llvm::Module *M) const;
+  llvm::Function *createObjMethodFunction(llvm::Module *M,
+                                          llvm::Function *ExternFunc) const;
 
-    llvm::IntegerType *m_sizeTy;
+  llvm::IntegerType *SizeTy;
 };
 
-END_NAMESPACE_SCI
+} // end namespace sci
 
-#endif // !_FixCodePass_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_PASSES_FIXCODEPASS_HPP

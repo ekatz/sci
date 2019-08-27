@@ -1,714 +1,660 @@
+//===- Passes/MutateCallIntrinsicsPass.cpp --------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
 #include "MutateCallIntrinsicsPass.hpp"
-#include "../World.hpp"
-#include "../Script.hpp"
+#include "../Decl.hpp"
 #include "../Method.hpp"
 #include "../Object.hpp"
-#include "../Decl.hpp"
-#include <llvm/IR/IRBuilder.h>
+#include "../Script.hpp"
+#include "../World.hpp"
+#include "llvm/IR/IRBuilder.h"
 
+using namespace sci;
 using namespace llvm;
 
+#define MSG_TYPE_METHOD (1U << 0)
+#define MSG_TYPE_PROP_GET (1U << 1)
+#define MSG_TYPE_PROP_SET (1U << 2)
+#define MSG_TYPE_PROP (MSG_TYPE_PROP_GET | MSG_TYPE_PROP_SET)
 
-BEGIN_NAMESPACE_SCI
+const char *MutateCallIntrinsicsPass::KernelNames[] = {"KLoad",
+                                                       "KUnLoad",
+                                                       "KScriptID",
+                                                       "KDisposeScript",
+                                                       "KClone",
+                                                       "KDisposeClone",
+                                                       "KIsObject",
+                                                       "KRespondsTo",
+                                                       "KDrawPic",
+                                                       "KShow",
+                                                       "KPicNotValid",
+                                                       "KAnimate",
+                                                       "KSetNowSeen",
+                                                       "KNumLoops",
+                                                       "KNumCels",
+                                                       "KCelWide",
+                                                       "KCelHigh",
+                                                       "KDrawCel",
+                                                       "KAddToPic",
+                                                       "KNewWindow",
+                                                       "KGetPort",
+                                                       "KSetPort",
+                                                       "KDisposeWindow",
+                                                       "KDrawControl",
+                                                       "KHiliteControl",
+                                                       "KEditControl",
+                                                       "KTextSize",
+                                                       "KDisplay",
+                                                       "KGetEvent",
+                                                       "KGlobalToLocal",
+                                                       "KLocalToGlobal",
+                                                       "KMapKeyToDir",
+                                                       "KDrawMenuBar",
+                                                       "KMenuSelect",
+                                                       "KAddMenu",
+                                                       "KDrawStatus",
+                                                       "KParse",
+                                                       "KSaid",
+                                                       "KSetSynonyms",
+                                                       "KHaveMouse",
+                                                       "KSetCursor",
+                                                       "KSaveGame",
+                                                       "KRestoreGame",
+                                                       "KRestartGame",
+                                                       "KGameIsRestarting",
+                                                       "KDoSound",
+                                                       "KNewList",
+                                                       "KDisposeList",
+                                                       "KNewNode",
+                                                       "KFirstNode",
+                                                       "KLastNode",
+                                                       "KEmptyList",
+                                                       "KNextNode",
+                                                       "KPrevNode",
+                                                       "KNodeValue",
+                                                       "KAddAfter",
+                                                       "KAddToFront",
+                                                       "KAddToEnd",
+                                                       "KFindKey",
+                                                       "KDeleteKey",
+                                                       "KRandom",
+                                                       "KAbs",
+                                                       "KSqrt",
+                                                       "KGetAngle",
+                                                       "KGetDistance",
+                                                       "KWait",
+                                                       "KGetTime",
+                                                       "KStrEnd",
+                                                       "KStrCat",
+                                                       "KStrCmp",
+                                                       "KStrLen",
+                                                       "KStrCpy",
+                                                       "KFormat",
+                                                       "KGetFarText",
+                                                       "KReadNumber",
+                                                       "KBaseSetter",
+                                                       "KDirLoop",
+                                                       "KCantBeHere",
+                                                       "KOnControl",
+                                                       "KInitBresen",
+                                                       "KDoBresen",
+                                                       "KDoAvoider",
+                                                       "KSetJump",
+                                                       "KSetDebug",
+                                                       "KInspectObj",
+                                                       "KShowSends",
+                                                       "KShowObjs",
+                                                       "KShowFree",
+                                                       "KMemoryInfo",
+                                                       "KStackUsage",
+                                                       "KProfiler",
+                                                       "KGetMenu",
+                                                       "KSetMenu",
+                                                       "KGetSaveFiles",
+                                                       "KGetCWD",
+                                                       "KCheckFreeSpace",
+                                                       "KValidPath",
+                                                       "KCoordPri",
+                                                       "KStrAt",
+                                                       "KDeviceInfo",
+                                                       "KGetSaveDir",
+                                                       "KCheckSaveGame",
+                                                       "KShakeScreen",
+                                                       "KFlushResources",
+                                                       "KSinMult",
+                                                       "KCosMult",
+                                                       "KSinDiv",
+                                                       "KCosDiv",
+                                                       "KGraph",
+                                                       "KJoystick",
+                                                       "KShiftScreen",
+                                                       "KPalette",
+                                                       "KMemorySegment",
+                                                       "KIntersections",
+                                                       "KMemory",
+                                                       "KListOps",
+                                                       "KFileIO",
+                                                       "KDoAudio",
+                                                       "KDoSync",
+                                                       "KAvoidPath",
+                                                       "KSort",
+                                                       "KATan",
+                                                       "KLock",
+                                                       "KStrSplit",
+                                                       "KMessage",
+                                                       "KIsItSkip"};
 
+static unsigned getPotentialMessageType(const SendMessageInst *SendMsg) {
+  unsigned MsgType = MSG_TYPE_METHOD;
+  ConstantInt *C;
 
-#define MSG_TYPE_METHOD     (1U << 0)
-#define MSG_TYPE_PROP_GET   (1U << 1)
-#define MSG_TYPE_PROP_SET   (1U << 2)
-#define MSG_TYPE_PROP       (MSG_TYPE_PROP_GET | MSG_TYPE_PROP_SET)
+  C = dyn_cast<ConstantInt>(SendMsg->getSelector());
+  if (C) {
+    unsigned Sel = static_cast<unsigned>(C->getSExtValue());
+    if (!(Sel == 0 || Sel == 1) &&
+        GetWorld().getSelectorTable().getProperties(Sel).empty())
+      return MSG_TYPE_METHOD;
 
+    if (GetWorld().getSelectorTable().getMethods(Sel).empty())
+      MsgType = 0;
+  }
 
-const char* MutateCallIntrinsicsPass::s_kernelNames[] = {
-    "KLoad",
-    "KUnLoad",
-    "KScriptID",
-    "KDisposeScript",
-    "KClone",
-    "KDisposeClone",
-    "KIsObject",
-    "KRespondsTo",
-    "KDrawPic",
-    "KShow",
-    "KPicNotValid",
-    "KAnimate",
-    "KSetNowSeen",
-    "KNumLoops",
-    "KNumCels",
-    "KCelWide",
-    "KCelHigh",
-    "KDrawCel",
-    "KAddToPic",
-    "KNewWindow",
-    "KGetPort",
-    "KSetPort",
-    "KDisposeWindow",
-    "KDrawControl",
-    "KHiliteControl",
-    "KEditControl",
-    "KTextSize",
-    "KDisplay",
-    "KGetEvent",
-    "KGlobalToLocal",
-    "KLocalToGlobal",
-    "KMapKeyToDir",
-    "KDrawMenuBar",
-    "KMenuSelect",
-    "KAddMenu",
-    "KDrawStatus",
-    "KParse",
-    "KSaid",
-    "KSetSynonyms",
-    "KHaveMouse",
-    "KSetCursor",
-    "KSaveGame",
-    "KRestoreGame",
-    "KRestartGame",
-    "KGameIsRestarting",
-    "KDoSound",
-    "KNewList",
-    "KDisposeList",
-    "KNewNode",
-    "KFirstNode",
-    "KLastNode",
-    "KEmptyList",
-    "KNextNode",
-    "KPrevNode",
-    "KNodeValue",
-    "KAddAfter",
-    "KAddToFront",
-    "KAddToEnd",
-    "KFindKey",
-    "KDeleteKey",
-    "KRandom",
-    "KAbs",
-    "KSqrt",
-    "KGetAngle",
-    "KGetDistance",
-    "KWait",
-    "KGetTime",
-    "KStrEnd",
-    "KStrCat",
-    "KStrCmp",
-    "KStrLen",
-    "KStrCpy",
-    "KFormat",
-    "KGetFarText",
-    "KReadNumber",
-    "KBaseSetter",
-    "KDirLoop",
-    "KCantBeHere",
-    "KOnControl",
-    "KInitBresen",
-    "KDoBresen",
-    "KDoAvoider",
-    "KSetJump",
-    "KSetDebug",
-    "KInspectObj",
-    "KShowSends",
-    "KShowObjs",
-    "KShowFree",
-    "KMemoryInfo",
-    "KStackUsage",
-    "KProfiler",
-    "KGetMenu",
-    "KSetMenu",
-    "KGetSaveFiles",
-    "KGetCWD",
-    "KCheckFreeSpace",
-    "KValidPath",
-    "KCoordPri",
-    "KStrAt",
-    "KDeviceInfo",
-    "KGetSaveDir",
-    "KCheckSaveGame",
-    "KShakeScreen",
-    "KFlushResources",
-    "KSinMult",
-    "KCosMult",
-    "KSinDiv",
-    "KCosDiv",
-    "KGraph",
-    "KJoystick",
-    "KShiftScreen",
-    "KPalette",
-    "KMemorySegment",
-    "KIntersections",
-    "KMemory",
-    "KListOps",
-    "KFileIO",
-    "KDoAudio",
-    "KDoSync",
-    "KAvoidPath",
-    "KSort",
-    "KATan",
-    "KLock",
-    "KStrSplit",
-    "KMessage",
-    "KIsItSkip"
-};
-
-
-static uint GetPotentialMessageType(const SendMessageInst *sendMsg)
-{
-    uint msgType = MSG_TYPE_METHOD;
-    ConstantInt *c;
-
-    c = dyn_cast<ConstantInt>(sendMsg->getSelector());
-    if (c != nullptr)
-    {
-        uint sel = static_cast<uint>(c->getSExtValue());
-        if (!(sel == 0 || sel == 1) && GetWorld().getSelectorTable().getProperties(sel).empty())
-        {
-            return MSG_TYPE_METHOD;
-        }
-
-        if (GetWorld().getSelectorTable().getMethods(sel).empty())
-        {
-            msgType = 0;
-        }
+  C = cast<ConstantInt>(SendMsg->getArgCount());
+  unsigned Argc = static_cast<unsigned>(C->getZExtValue());
+  switch (Argc) {
+  case 0:
+    MsgType |= MSG_TYPE_PROP_GET;
+    if (SendMsg->user_empty()) {
+      assert((MsgType & MSG_TYPE_METHOD) != 0 &&
+             "Unknown message destination!");
+      return MSG_TYPE_METHOD;
     }
+    break;
 
-    c = cast<ConstantInt>(sendMsg->getArgCount());
-    uint argc = static_cast<uint>(c->getZExtValue());
-    switch (argc)
-    {
-    case 0:
-        msgType |= MSG_TYPE_PROP_GET;
-        if (sendMsg->user_empty())
-        {
-            assert((msgType & MSG_TYPE_METHOD) != 0 && "Unknown message destination!");
-            return MSG_TYPE_METHOD;
-        }
-        break;
-
-    case 1:
-        msgType |= MSG_TYPE_PROP_SET;
-        if (!sendMsg->user_empty())
-        {
-            if (sendMsg->hasOneUse())
-            {
-                const Instruction *user = sendMsg->user_back();
-                const StoreInst *store = dyn_cast<StoreInst>(user);
-                if (store != nullptr)
-                {
-                    const AllocaInst *alloc = dyn_cast<AllocaInst>(store->getPointerOperand());
-                    if (alloc != nullptr)
-                    {
-                        if (alloc->getName().equals("acc.addr"))
-                        {
-                            break;
-                        }
-                    }
-                }
-                else if (isa<ReturnInst>(user))
-                {
-                    break;
-                }
-            }
-            assert((msgType & MSG_TYPE_METHOD) != 0 && "Unknown message destination!");
-            return MSG_TYPE_METHOD;
-        }
-        break;
-
-    default:
-        assert((msgType & MSG_TYPE_METHOD) != 0 && "Unknown message destination!");
-        return MSG_TYPE_METHOD;
+  case 1:
+    MsgType |= MSG_TYPE_PROP_SET;
+    if (!SendMsg->user_empty()) {
+      if (SendMsg->hasOneUse()) {
+        const Instruction *U = SendMsg->user_back();
+        if (const StoreInst *Store = dyn_cast<StoreInst>(U)) {
+          const AllocaInst *Alloc =
+              dyn_cast<AllocaInst>(Store->getPointerOperand());
+          if (Alloc && Alloc->getName().equals("acc.addr"))
+            break;
+        } else if (isa<ReturnInst>(U))
+          break;
+      }
+      assert((MsgType & MSG_TYPE_METHOD) != 0 &&
+             "Unknown message destination!");
+      return MSG_TYPE_METHOD;
     }
-    return msgType;
+    break;
+
+  default:
+    assert((MsgType & MSG_TYPE_METHOD) != 0 && "Unknown message destination!");
+    return MSG_TYPE_METHOD;
+  }
+  return MsgType;
 }
 
+MutateCallIntrinsicsPass::MutateCallIntrinsicsPass()
+    : SizeTy(GetWorld().getSizeType()),
+      SizeBytesVal(ConstantInt::get(SizeTy, SizeTy->getBitWidth() / 8)),
+      SizeAlign(GetWorld().getSizeTypeAlignment()),
+      Int8PtrTy(Type::getInt8PtrTy(GetWorld().getContext())),
+      Zero(ConstantInt::get(SizeTy, 0)), One(ConstantInt::get(SizeTy, 1)),
+      AllOnes(cast<ConstantInt>(Constant::getAllOnesValue(SizeTy))),
+      NullPtr(ConstantPointerNull::get(SizeTy->getPointerTo())) {}
 
-MutateCallIntrinsicsPass::MutateCallIntrinsicsPass() :
-    m_sizeTy(GetWorld().getSizeType()),
-    m_sizeBytesVal(ConstantInt::get(m_sizeTy, m_sizeTy->getBitWidth() / 8)),
-    m_sizeAlign(GetWorld().getSizeTypeAlignment()),
-    m_int8PtrTy(Type::getInt8PtrTy(GetWorld().getContext())),
-    m_zero(ConstantInt::get(m_sizeTy, 0)),
-    m_one(ConstantInt::get(m_sizeTy, 1)),
-    m_allOnes(cast<ConstantInt>(Constant::getAllOnesValue(m_sizeTy))),
-    m_nullPtr(ConstantPointerNull::get(m_sizeTy->getPointerTo()))
-{
+MutateCallIntrinsicsPass::~MutateCallIntrinsicsPass() {}
+
+void MutateCallIntrinsicsPass::run() {
+  World &W = GetWorld();
+  Function *Func;
+
+  Func = W.getIntrinsic(Intrinsic::send);
+  while (!Func->user_empty()) {
+    SendMessageInst *Call = cast<SendMessageInst>(Func->user_back());
+    mutateSendMessage(Call);
+  }
+
+  Func = W.getIntrinsic(Intrinsic::call);
+  while (!Func->user_empty()) {
+    CallInternalInst *call = cast<CallInternalInst>(Func->user_back());
+    mutateCallInternal(call);
+  }
+
+  Func = W.getIntrinsic(Intrinsic::calle);
+  while (!Func->user_empty()) {
+    CallExternalInst *call = cast<CallExternalInst>(Func->user_back());
+    mutateCallExternal(call);
+  }
+
+  Func = W.getIntrinsic(Intrinsic::callk);
+  while (!Func->user_empty()) {
+    CallKernelInst *call = cast<CallKernelInst>(Func->user_back());
+    mutateCallKernel(call);
+  }
 }
 
+void MutateCallIntrinsicsPass::mutateCallKernel(CallKernelInst *Callk) {
+  unsigned KernelOrdinal =
+      static_cast<unsigned>(Callk->getKernelOrdinal()->getZExtValue());
+  Function *Func = getOrCreateKernelFunction(KernelOrdinal, Callk->getModule());
 
-MutateCallIntrinsicsPass::~MutateCallIntrinsicsPass()
-{
+  Value *Restc, *Restv;
+  extractRest(Callk, Restc, Restv);
+
+  ConstantInt *ArgcVal = cast<ConstantInt>(Callk->getArgCount());
+  CallInst *Call = delegateCall(Callk, Func, 0, Zero, AllOnes, Restc, Restv,
+                                ArgcVal, Callk->arg_begin());
+
+  Callk->replaceAllUsesWith(Call);
+  Callk->eraseFromParent();
 }
 
+void MutateCallIntrinsicsPass::mutateCallInternal(CallInternalInst *Calli) {
+  unsigned Offset = static_cast<unsigned>(Calli->getOffset()->getZExtValue());
+  Script *S = GetWorld().getScript(*Calli->getModule());
+  assert(S != nullptr && "Not a script module.");
+  Procedure *Proc = S->getProcedure(Offset);
+  assert(Proc != nullptr && "No procedure in the offset.");
+  Function *Func = getFunctionDecl(Proc->getFunction(), Calli->getModule());
 
-void MutateCallIntrinsicsPass::run()
-{
-    World &world = GetWorld();
-    Function *func;
+  Value *Restc, *Restv;
+  extractRest(Calli, Restc, Restv);
 
-    func = world.getIntrinsic(Intrinsic::send);
-    while (!func->user_empty())
-    {
-        SendMessageInst *call = cast<SendMessageInst>(func->user_back());
-        mutateSendMessage(call);
-    }
+  ConstantInt *ArgcVal = cast<ConstantInt>(Calli->getArgCount());
+  CallInst *Call = delegateCall(Calli, Func, 0, Zero, AllOnes, Restc, Restv,
+                                ArgcVal, Calli->arg_begin());
 
-    func = world.getIntrinsic(Intrinsic::call);
-    while (!func->user_empty())
-    {
-        CallInternalInst *call = cast<CallInternalInst>(func->user_back());
-        mutateCallInternal(call);
-    }
-
-    func = world.getIntrinsic(Intrinsic::calle);
-    while (!func->user_empty())
-    {
-        CallExternalInst *call = cast<CallExternalInst>(func->user_back());
-        mutateCallExternal(call);
-    }
-
-    func = world.getIntrinsic(Intrinsic::callk);
-    while (!func->user_empty())
-    {
-        CallKernelInst *call = cast<CallKernelInst>(func->user_back());
-        mutateCallKernel(call);
-    }
+  Calli->replaceAllUsesWith(Call);
+  Calli->eraseFromParent();
 }
 
+void MutateCallIntrinsicsPass::mutateCallExternal(CallExternalInst *Calle) {
+  unsigned ScriptID =
+      static_cast<unsigned>(Calle->getScriptID()->getZExtValue());
+  unsigned EntryIndex =
+      static_cast<unsigned>(Calle->getEntryIndex()->getZExtValue());
+  Script *S = GetWorld().getScript(ScriptID);
+  assert(S != nullptr && "Invalid script ID.");
+  Function *Func = getFunctionDecl(
+      cast<Function>(S->getExportedValue(EntryIndex)), Calle->getModule());
 
-void MutateCallIntrinsicsPass::mutateCallKernel(CallKernelInst *callk)
-{
-    uint kernelOrdinal = static_cast<uint>(callk->getKernelOrdinal()->getZExtValue());
-    Function *func = getOrCreateKernelFunction(kernelOrdinal, callk->getModule());
+  Value *Restc, *Restv;
+  extractRest(Calle, Restc, Restv);
 
-    Value *restc, *restv;
-    extractRest(callk, restc, restv);
+  ConstantInt *ArgcVal = cast<ConstantInt>(Calle->getArgCount());
+  CallInst *Call = delegateCall(Calle, Func, 0, Zero, AllOnes, Restc, Restv,
+                                ArgcVal, Calle->arg_begin());
 
-    ConstantInt *argcVal = cast<ConstantInt>(callk->getArgCount());
-    CallInst *call = delegateCall(callk, func, 0, m_zero, m_allOnes, restc, restv, argcVal, callk->arg_begin());
-
-    callk->replaceAllUsesWith(call);
-    callk->eraseFromParent();
+  Calle->replaceAllUsesWith(Call);
+  Calle->eraseFromParent();
 }
 
+void MutateCallIntrinsicsPass::mutateSendMessage(SendMessageInst *SendMsg) {
+  Value *Restc, *Restv;
+  extractRest(SendMsg, Restc, Restv);
 
-void MutateCallIntrinsicsPass::mutateCallInternal(CallInternalInst *calli)
-{
-    uint offset = static_cast<uint>(calli->getOffset()->getZExtValue());
-    Script *script = GetWorld().getScript(*calli->getModule());
-    assert(script != nullptr && "Not a script module.");
-    Procedure *proc = script->getProcedure(offset);
-    assert(proc != nullptr && "No procedure in the offset.");
-    Function *func = GetFunctionDecl(proc->getFunction(), calli->getModule());
+  CallInst *Call;
+  unsigned MsgType = getPotentialMessageType(SendMsg);
+  if ((MsgType & MSG_TYPE_METHOD) != 0) {
+    Call =
+        createMethodCall(SendMsg, (MsgType == MSG_TYPE_METHOD), Restc, Restv);
+  } else {
+    assert(Restc == Zero && Restv == NullPtr &&
+           "Property cannot have a 'rest' param!");
+    Call = createPropertyCall(SendMsg, (MsgType == MSG_TYPE_PROP_GET));
+  }
 
-    Value *restc, *restv;
-    extractRest(calli, restc, restv);
-
-    ConstantInt *argcVal = cast<ConstantInt>(calli->getArgCount());
-    CallInst *call = delegateCall(calli, func, 0, m_zero, m_allOnes, restc, restv, argcVal, calli->arg_begin());
-
-    calli->replaceAllUsesWith(call);
-    calli->eraseFromParent();
+  SendMsg->replaceAllUsesWith(Call);
+  SendMsg->eraseFromParent();
 }
 
+void MutateCallIntrinsicsPass::extractRest(CallInst *Call, Value *&Restc,
+                                           Value *&Restv) const {
+  auto ILast = Call->arg_end() - 1;
+  RestInst *Rest = dyn_cast<RestInst>(*ILast);
+  if (Rest) {
+    Function *ParentFunc = Call->getFunction();
+    auto A = ParentFunc->arg_begin();
+    if (ParentFunc->arg_size() != 1) {
+      assert(ParentFunc->arg_begin()->getName().equals("self") &&
+             "Function with more than one parameter that is not 'self'.");
+      ++A;
+    }
 
-void MutateCallIntrinsicsPass::mutateCallExternal(CallExternalInst *calle)
-{
-    uint scriptId = static_cast<uint>(calle->getScriptID()->getZExtValue());
-    uint entryIndex = static_cast<uint>(calle->getEntryIndex()->getZExtValue());
-    Script *script = GetWorld().getScript(scriptId);
-    assert(script != nullptr && "Invalid script ID.");
-    Function *func = GetFunctionDecl(cast<Function>(script->getExportedValue(entryIndex)), calle->getModule());
+    Value *ParentArgs = &*A;
+    Value *ParentArgc =
+        GetElementPtrInst::CreateInBounds(ParentArgs, Zero, "", Rest);
+    ParentArgc =
+        new LoadInst(ParentArgc, "argc", false,
+                     GetWorld().getElementTypeAlignment(ParentArgc), Rest);
 
-    Value *restc, *restv;
-    extractRest(calle, restc, restv);
+    ConstantInt *Idx = ConstantInt::get(
+        SizeTy, Rest->getParamIndex()->getZExtValue() - (uint64_t)1);
+    Restc = BinaryOperator::CreateSub(ParentArgc, Idx, "rest.count", Rest);
 
-    ConstantInt *argcVal = cast<ConstantInt>(calle->getArgCount());
-    CallInst *call = delegateCall(calle, func, 0, m_zero, m_allOnes, restc, restv, argcVal, calle->arg_begin());
+    Restv = GetElementPtrInst::CreateInBounds(ParentArgs, Rest->getParamIndex(),
+                                              "rest.args", Rest);
 
-    calle->replaceAllUsesWith(call);
-    calle->eraseFromParent();
+    Rest->replaceAllUsesWith(Restc);
+    Rest->eraseFromParent();
+  } else {
+    Restc = Zero;
+    Restv = NullPtr;
+  }
 }
 
+CallInst *MutateCallIntrinsicsPass::createPropertyCall(SendMessageInst *SendMsg,
+                                                       bool IsGetter) {
+  assert(!isa<ConstantInt>(SendMsg->getObject()) &&
+         "Property cannot be called for super!");
 
-void MutateCallIntrinsicsPass::mutateSendMessage(SendMessageInst *sendMsg)
-{
-    Value *restc, *restv;
-    extractRest(sendMsg, restc, restv);
+  Module *M = SendMsg->getModule();
+  StringRef OldName = SendMsg->getName();
+  std::string Name;
+  if (OldName.startswith("res@")) {
+    Name = "prop";
+    Name += OldName.substr(3);
+  } else
+    Name = OldName;
 
-    CallInst *call;
-    uint msgType = GetPotentialMessageType(sendMsg);
-    if ((msgType & MSG_TYPE_METHOD) != 0)
-    {
-        call = createMethodCall(sendMsg, (msgType == MSG_TYPE_METHOD), restc, restv);
-    }
-    else
-    {
-        assert(restc == m_zero && restv == m_nullPtr && "Property cannot have a 'rest' param!");
-        call = createPropertyCall(sendMsg, (msgType == MSG_TYPE_PROP_GET));
-    }
+  Function *Func;
+  unsigned Argc = 2;
+  Value *Args[3] = {SendMsg->getObject(), SendMsg->getSelector()};
 
-    sendMsg->replaceAllUsesWith(call);
-    sendMsg->eraseFromParent();
+  if (IsGetter) {
+    Func = getGetPropertyFunction(M);
+  } else {
+    Args[Argc++] = SendMsg->getArgOperand(0);
+    Func = getSetPropertyFunction(M);
+  }
+
+  return CallInst::Create(Func, makeArrayRef(Args, Argc), Name, SendMsg);
 }
 
+CallInst *MutateCallIntrinsicsPass::createMethodCall(SendMessageInst *SendMsg,
+                                                     bool IsMethod,
+                                                     Value *Restc,
+                                                     Value *Restv) {
+  if (isa<ConstantInt>(SendMsg->getObject()))
+    return createSuperMethodCall(SendMsg, Restc, Restv);
 
-void MutateCallIntrinsicsPass::extractRest(CallInst *call, Value *&restc, Value *&restv) const
-{
-    auto iLast = call->arg_end() - 1;
-    RestInst *rest = dyn_cast<RestInst>(*iLast);
-    if (rest != nullptr)
-    {
-        Function *parentFunc = call->getFunction();
-        auto a = parentFunc->arg_begin();
-        if (parentFunc->arg_size() != 1)
-        {
-            assert(parentFunc->arg_begin()->getName().equals("self") && "Function with more than one parameter that is not 'self'.");
-            ++a;
-        }
-
-        Value *parentArgs = &*a;
-        Value *parentArgc = GetElementPtrInst::CreateInBounds(parentArgs, m_zero, "", rest);
-        parentArgc = new LoadInst(parentArgc, "argc", false, GetWorld().getElementTypeAlignment(parentArgc), rest);
-
-        ConstantInt *idx = ConstantInt::get(m_sizeTy, rest->getParamIndex()->getZExtValue() - (uint64_t)1);
-        restc = BinaryOperator::CreateSub(parentArgc, idx, "rest.count", rest);
-
-        restv = GetElementPtrInst::CreateInBounds(parentArgs, rest->getParamIndex(), "rest.args", rest);
-
-        rest->replaceAllUsesWith(restc);
-        rest->eraseFromParent();
-    }
-    else
-    {
-        restc = m_zero;
-        restv = m_nullPtr;
-    }
+  Module *M = SendMsg->getModule();
+  ConstantInt *ArgcVal = cast<ConstantInt>(SendMsg->getArgCount());
+  Function *Func =
+      IsMethod ? getCallMethodFunction(M) : getSendMessageFunction(M);
+  return delegateCall(SendMsg, Func, 2, SendMsg->getObject(),
+                      SendMsg->getSelector(), Restc, Restv, ArgcVal,
+                      SendMsg->arg_begin());
 }
 
+CallInst *
+MutateCallIntrinsicsPass::createSuperMethodCall(SendMessageInst *SendMsg,
+                                                Value *Restc, Value *Restv) {
+  Module *M = SendMsg->getModule();
+  ConstantInt *SuperIDVal = cast<ConstantInt>(SendMsg->getObject());
+  ConstantInt *SelVal = cast<ConstantInt>(SendMsg->getSelector());
+  unsigned SuperID = static_cast<unsigned>(SuperIDVal->getZExtValue());
+  unsigned Sel = static_cast<unsigned>(SelVal->getSExtValue());
 
-CallInst* MutateCallIntrinsicsPass::createPropertyCall(SendMessageInst *sendMsg, bool getter)
-{
-    assert(!isa<ConstantInt>(sendMsg->getObject()) && "Property cannot be called for super!");
+  Class *Super = GetWorld().getClass(SuperID);
+  assert(Super != nullptr && "Invalid class ID.");
+  Method *Mtd = Super->getMethod(Sel);
+  assert(Mtd != nullptr && "Method selector not found!");
+  Function *Func = getFunctionDecl(Mtd->getFunction(), M);
 
-    Module *module = sendMsg->getModule();
-    StringRef oldName = sendMsg->getName();
-    std::string name;
-    if (oldName.startswith("res@"))
-    {
-        name = "prop";
-        name += oldName.substr(3);
+  Argument *Self = &*SendMsg->getFunction()->arg_begin();
+  assert(Self->getType() == SizeTy &&
+         "Call to 'super' is not within a method!");
+  ConstantInt *ArgcVal = cast<ConstantInt>(SendMsg->getArgCount());
+  return delegateCall(SendMsg, Func, 1, Self, SelVal, Restc, Restv, ArgcVal,
+                      SendMsg->arg_begin());
+}
+
+CallInst *MutateCallIntrinsicsPass::delegateCall(
+    CallInst *StubCall, Function *Func, unsigned Prefixc, Value *Self,
+    Value *Sel, Value *Restc, Value *Restv, ConstantInt *ArgcVal,
+    CallInst::op_iterator ArgI) {
+  Module *M = StubCall->getModule();
+  Function *DelegFunc = getOrCreateDelegator(ArgcVal, M);
+  unsigned Argc = static_cast<unsigned>(ArgcVal->getZExtValue());
+  unsigned ParamsCount = 1 /*func*/ + 1 /*prefixc*/ + 1 /*self*/ +
+                         1 /*selector*/ + 1 /*restc*/ + 1 /*restv*/ + Argc;
+
+  unsigned I = 0;
+  Value **Args = static_cast<Value **>(alloca(ParamsCount * sizeof(Value *)));
+
+  Value *FuncCast =
+      CastInst::Create(Instruction::BitCast, Func, Int8PtrTy, "", StubCall);
+  Args[I++] = FuncCast;
+  Args[I++] = ConstantInt::get(SizeTy, Prefixc);
+  Args[I++] = Self;
+  Args[I++] = Sel;
+  Args[I++] = Restc;
+  Args[I++] = Restv;
+
+  for (; I < ParamsCount; ++I, ++ArgI)
+    Args[I] = *ArgI;
+
+  CallInst *Call = CallInst::Create(DelegFunc, makeArrayRef(Args, ParamsCount),
+                                    "", StubCall);
+  Call->takeName(StubCall);
+  return Call;
+}
+
+Function *MutateCallIntrinsicsPass::getOrCreateDelegator(ConstantInt *ArgcVal,
+                                                         Module *M) {
+  //
+  // uintptr_t delegate@SCI@argc(uint8_t *func, uintptr_t prefixc, uintptr_t
+  // self, uintptr_t sel, uintptr_t restc, uintptr_t *restv, ...)
+  //
+
+  unsigned Argc = static_cast<unsigned>(ArgcVal->getZExtValue());
+
+  std::string DelegFuncName = "delegate@SCI@" + utostr(Argc);
+  Function *DelegFunc = M->getFunction(DelegFuncName);
+  if (DelegFunc != nullptr) {
+    return DelegFunc;
+  }
+
+  World &W = GetWorld();
+  LLVMContext &Ctx = W.getContext();
+  unsigned ParamsCount = 1 /*func*/ + 1 /*prefixc*/ + 1 /*self*/ +
+                         1 /*selector*/ + 1 /*restc*/ + 1 /*restv*/ + Argc;
+  unsigned I = 0;
+  Type **ParamTypes =
+      static_cast<Type **>(alloca(ParamsCount * sizeof(Type *)));
+
+  ParamTypes[I++] = Int8PtrTy;              // func
+  ParamTypes[I++] = SizeTy;                 // prefixc
+  ParamTypes[I++] = SizeTy;                 // self
+  ParamTypes[I++] = SizeTy;                 // selector
+  ParamTypes[I++] = SizeTy;                 // restc
+  ParamTypes[I++] = SizeTy->getPointerTo(); // restv
+  for (; I < ParamsCount; ++I)
+    ParamTypes[I] = SizeTy;
+
+  FunctionType *FuncTy =
+      FunctionType::get(SizeTy, makeArrayRef(ParamTypes, ParamsCount), false);
+  DelegFunc =
+      Function::Create(FuncTy, GlobalValue::PrivateLinkage, DelegFuncName, M);
+  DelegFunc->addFnAttr(Attribute::AlwaysInline);
+
+  auto Params = DelegFunc->arg_begin();
+  Argument *Func = &*Params;
+  ++Params;
+  Argument *Prefixc = &*Params;
+  ++Params;
+  Argument *Self = &*Params;
+  ++Params;
+  Argument *Sel = &*Params;
+  ++Params;
+  Argument *Restc = &*Params;
+  ++Params;
+  Argument *Restv = &*Params;
+  ++Params;
+
+  BasicBlock *BB = BasicBlock::Create(Ctx, "entry", DelegFunc);
+
+  // Add code to check if 'restc' is less than 0, then set to 0.
+  ICmpInst *Cmp = new ICmpInst(*BB, CmpInst::ICMP_SGT, Restc, Zero);
+  SelectInst::Create(Cmp, Restc, Zero, "", BB);
+
+  ConstantInt *ArgcTotal = ConstantInt::get(SizeTy, Argc + 1);
+  Value *ArgsLen = BinaryOperator::CreateAdd(Restc, ArgcTotal, "argsLen", BB);
+
+  Value *Args = new AllocaInst(SizeTy, 0, ArgsLen, SizeAlign, "args", BB);
+
+  Value *Total = BinaryOperator::CreateAdd(Restc, ArgcVal, "argc", BB);
+  new StoreInst(Total, Args, false, SizeAlign, BB);
+
+  for (I = 1; I <= Argc; ++I) {
+    Value *param = &*Params;
+    ++Params;
+
+    ConstantInt *C = ConstantInt::get(SizeTy, I);
+    Value *ArgSlot = GetElementPtrInst::CreateInBounds(Args, C, "", BB);
+    new StoreInst(param, ArgSlot, false, SizeAlign, BB);
+  }
+
+  Value *ArgRest = GetElementPtrInst::CreateInBounds(Args, ArgcTotal, "", BB);
+  Value *RestcBytes =
+      BinaryOperator::CreateMul(Restc, SizeBytesVal, "restcBytes", BB);
+
+  IRBuilder<>(BB).CreateMemCpy(ArgRest, SizeAlign, Restv, SizeAlign,
+                               RestcBytes);
+
+  BasicBlock *SwitchBBs[3];
+  SwitchBBs[2] = BasicBlock::Create(Ctx, "case.method", DelegFunc);
+  SwitchBBs[1] = BasicBlock::Create(Ctx, "case.super", DelegFunc);
+  SwitchBBs[0] = BasicBlock::Create(Ctx, "case.proc", DelegFunc);
+
+  SwitchInst *switchPrefix = SwitchInst::Create(Prefixc, SwitchBBs[2], 2, BB);
+  switchPrefix->addCase(One, SwitchBBs[1]);
+  switchPrefix->addCase(Zero, SwitchBBs[0]);
+
+  Value *CallArgs[3];
+  for (I = 0; I < 3; ++I) {
+    if (I >= 1) {
+      ParamTypes[0] = SizeTy;
+      CallArgs[0] = Self;
+
+      if (I >= 2) {
+        ParamTypes[1] = SizeTy;
+        CallArgs[1] = Sel;
+      }
     }
-    else
-    {
-        name = oldName;
-    }
 
-    Function *func;
-    uint argc = 2;
-    Value *args[3] = {
-        sendMsg->getObject(),
-        sendMsg->getSelector()
+    ParamTypes[I] = SizeTy->getPointerTo();
+    CallArgs[I] = Args;
+
+    BasicBlock *SwitchBB = SwitchBBs[I];
+    FuncTy = FunctionType::get(SizeTy, makeArrayRef(ParamTypes, I + 1), false);
+    Value *FuncCast = CastInst::Create(Instruction::BitCast, Func,
+                                       FuncTy->getPointerTo(), "", SwitchBB);
+
+    CallInst *Call =
+        CallInst::Create(FuncCast, makeArrayRef(CallArgs, I + 1), "", SwitchBB);
+    ReturnInst::Create(Ctx, Call, SwitchBB);
+  }
+
+  return DelegFunc;
+}
+
+Function *MutateCallIntrinsicsPass::getSendMessageFunction(Module *M) {
+  //
+  // uintptr_t SendMessage(uintptr_t self, uintptr_t sel, uintptr_t *args)
+  //
+
+  StringRef Name = "SendMessage";
+  Function *Func = M->getFunction(Name);
+  if (Func == nullptr) {
+    Type *Params[] = {
+        SizeTy,                // self
+        SizeTy,                // sel
+        SizeTy->getPointerTo() // args
     };
-
-    if (getter)
-    {
-        func = getGetPropertyFunction(module);
-    }
-    else
-    {
-        args[argc++] = sendMsg->getArgOperand(0);
-        func = getSetPropertyFunction(module);
-    }
-
-    return CallInst::Create(func, makeArrayRef(args, argc), name, sendMsg);
+    FunctionType *FTy = FunctionType::get(SizeTy, Params, false);
+    Func = Function::Create(FTy, GlobalValue::ExternalLinkage, Name, M);
+  }
+  return Func;
 }
 
+Function *MutateCallIntrinsicsPass::getGetPropertyFunction(Module *M) {
+  //
+  // uintptr_t GetProperty(uintptr_t self, uintptr_t sel)
+  //
 
-CallInst* MutateCallIntrinsicsPass::createMethodCall(SendMessageInst *sendMsg, bool method, Value *restc, Value *restv)
-{
-    if (isa<ConstantInt>(sendMsg->getObject()))
-    {
-        return createSuperMethodCall(sendMsg, restc, restv);
-    }
-
-    Module *module = sendMsg->getModule();
-    ConstantInt *argcVal = cast<ConstantInt>(sendMsg->getArgCount());
-    Function *func = method ? getCallMethodFunction(module) : getSendMessageFunction(module);
-    return delegateCall(sendMsg, func, 2, sendMsg->getObject(), sendMsg->getSelector(), restc, restv, argcVal, sendMsg->arg_begin());
+  StringRef Name = "GetProperty";
+  Function *Func = M->getFunction(Name);
+  if (Func == nullptr) {
+    Type *Params[] = {
+        SizeTy, // self
+        SizeTy  // sel
+    };
+    FunctionType *FTy = FunctionType::get(SizeTy, Params, false);
+    Func = Function::Create(FTy, GlobalValue::ExternalLinkage, Name, M);
+  }
+  return Func;
 }
 
+Function *MutateCallIntrinsicsPass::getSetPropertyFunction(Module *M) {
+  //
+  // uintptr_t SetProperty(uintptr_t self, uintptr_t sel, uintptr_t val)
+  //
 
-CallInst* MutateCallIntrinsicsPass::createSuperMethodCall(SendMessageInst *sendMsg, Value *restc, Value *restv)
-{
-    Module *module = sendMsg->getModule();
-    ConstantInt *superIdVal = cast<ConstantInt>(sendMsg->getObject());
-    ConstantInt *selVal = cast<ConstantInt>(sendMsg->getSelector());
-    uint superId = static_cast<uint>(superIdVal->getZExtValue());
-    uint sel = static_cast<uint>(selVal->getSExtValue());
-
-    Class *super = GetWorld().getClass(superId);
-    assert(super != nullptr && "Invalid class ID.");
-    Method *method = super->getMethod(sel);
-    assert(method != nullptr && "Method selector not found!");
-    Function *func = GetFunctionDecl(method->getFunction(), module);
-
-    Argument *self = &*sendMsg->getFunction()->arg_begin();
-    assert(self->getType() == m_sizeTy && "Call to 'super' is not within a method!");
-    ConstantInt *argcVal = cast<ConstantInt>(sendMsg->getArgCount());
-    return delegateCall(sendMsg, func, 1, self, selVal, restc, restv, argcVal, sendMsg->arg_begin());
+  StringRef Name = "SetProperty";
+  Function *Func = M->getFunction(Name);
+  if (Func == nullptr) {
+    Type *Params[] = {
+        SizeTy, // self
+        SizeTy, // sel
+        SizeTy  // val
+    };
+    FunctionType *FTy = FunctionType::get(SizeTy, Params, false);
+    Func = Function::Create(FTy, GlobalValue::ExternalLinkage, Name, M);
+  }
+  return Func;
 }
 
+Function *MutateCallIntrinsicsPass::getCallMethodFunction(Module *M) {
+  //
+  // uintptr_t CallMethod(uintptr_t self, uintptr_t sel, uintptr_t *args)
+  //
 
-CallInst* MutateCallIntrinsicsPass::delegateCall(CallInst *stubCall,
-                                                 Function *func, uint prefixc,
-                                                 Value *self, Value *sel,
-                                                 Value *restc, Value *restv,
-                                                 ConstantInt *argcVal, CallInst::op_iterator argi)
-{
-    Module *module = stubCall->getModule();
-    Function *delegFunc = getOrCreateDelegator(argcVal, module);
-    uint argc = static_cast<uint>(argcVal->getZExtValue());
-    uint paramsCount = 1/*func*/ + 1/*prefixc*/ + 1/*self*/ + 1/*selector*/ + 1/*restc*/ + 1/*restv*/ + argc;
-
-    uint i = 0;
-    Value **args = static_cast<Value **>(alloca(paramsCount * sizeof(Value *)));
-
-    Value *funcCast = CastInst::Create(Instruction::BitCast, func, m_int8PtrTy, "", stubCall);
-    args[i++] = funcCast;
-    args[i++] = ConstantInt::get(m_sizeTy, prefixc);
-    args[i++] = self;
-    args[i++] = sel;
-    args[i++] = restc;
-    args[i++] = restv;
-
-    for (; i < paramsCount; ++i, ++argi)
-    {
-        args[i] = *argi;
-    }
-
-    CallInst *call = CallInst::Create(delegFunc, makeArrayRef(args, paramsCount), "", stubCall);
-    call->takeName(stubCall);
-    return call;
+  StringRef Name = "CallMethod";
+  Function *Func = M->getFunction(Name);
+  if (Func == nullptr) {
+    Type *Params[] = {
+        SizeTy,                // self
+        SizeTy,                // sel
+        SizeTy->getPointerTo() // args
+    };
+    FunctionType *FTy = FunctionType::get(SizeTy, Params, false);
+    Func = Function::Create(FTy, GlobalValue::ExternalLinkage, Name, M);
+  }
+  return Func;
 }
 
+Function *MutateCallIntrinsicsPass::getOrCreateKernelFunction(unsigned ID,
+                                                              Module *M) {
+  if (ID >= array_lengthof(KernelNames)) {
+    return nullptr;
+  }
 
-Function* MutateCallIntrinsicsPass::getOrCreateDelegator(ConstantInt *argcVal, Module *module)
-{
-    //
-    // uintptr_t delegate@SCI@argc(uint8_t *func, uintptr_t prefixc, uintptr_t self, uintptr_t sel, uintptr_t restc, uintptr_t *restv, ...)
-    //
-
-    uint argc = static_cast<uint>(argcVal->getZExtValue());
-
-    std::string delegFuncName = "delegate@SCI@" + utostr(argc);
-    Function *delegFunc = module->getFunction(delegFuncName);
-    if (delegFunc != nullptr)
-    {
-        return delegFunc;
-    }
-
-    World &world = GetWorld();
-    LLVMContext &ctx = world.getContext();
-    uint paramsCount = 1/*func*/ + 1/*prefixc*/ + 1/*self*/ + 1/*selector*/ + 1/*restc*/ + 1/*restv*/ + argc;
-    uint i = 0;
-    Type **paramTypes = static_cast<Type **>(alloca(paramsCount * sizeof(Type *)));
-
-    paramTypes[i++] = m_int8PtrTy;              // func
-    paramTypes[i++] = m_sizeTy;                 // prefixc
-    paramTypes[i++] = m_sizeTy;                 // self
-    paramTypes[i++] = m_sizeTy;                 // selector
-    paramTypes[i++] = m_sizeTy;                 // restc
-    paramTypes[i++] = m_sizeTy->getPointerTo(); // restv
-    for (; i < paramsCount; ++i)
-    {
-        paramTypes[i] = m_sizeTy;
-    }
-
-    FunctionType *funcTy = FunctionType::get(m_sizeTy, makeArrayRef(paramTypes, paramsCount), false);
-    delegFunc = Function::Create(funcTy, GlobalValue::PrivateLinkage, delegFuncName, module);
-    delegFunc->addFnAttr(Attribute::AlwaysInline);
-
-    auto params = delegFunc->arg_begin();
-    Argument *func = &*params;
-    ++params;
-    Argument *prefixc = &*params;
-    ++params;
-    Argument *self = &*params;
-    ++params;
-    Argument *sel = &*params;
-    ++params;
-    Argument *restc = &*params;
-    ++params;
-    Argument *restv = &*params;
-    ++params;
-
-    BasicBlock *bb = BasicBlock::Create(ctx, "entry", delegFunc);
-
-    // Add code to check if 'restc' is less than 0, then set to 0.
-    ICmpInst *cmp = new ICmpInst(*bb, CmpInst::ICMP_SGT, restc, m_zero);
-    SelectInst::Create(cmp, restc, m_zero, "", bb);
-
-    ConstantInt *argcTotal = ConstantInt::get(m_sizeTy, argc + 1);
-    Value *argsLen = BinaryOperator::CreateAdd(restc, argcTotal, "argsLen", bb);
-
-    Value *args = new AllocaInst(m_sizeTy, argsLen, m_sizeAlign, "args", bb);
-
-    Value *total = BinaryOperator::CreateAdd(restc, argcVal, "argc", bb);
-    new StoreInst(total, args, false, m_sizeAlign, bb);
-
-    for (i = 1; i <= argc; ++i)
-    {
-        Value *param = &*params;
-        ++params;
-
-        ConstantInt *c = ConstantInt::get(m_sizeTy, i);
-        Value *argSlot = GetElementPtrInst::CreateInBounds(args, c, "", bb);
-        new StoreInst(param, argSlot, false, m_sizeAlign, bb);
-    }
-
-    Value *argRest = GetElementPtrInst::CreateInBounds(args, argcTotal, "", bb);
-    Value *restcBytes = BinaryOperator::CreateMul(restc, m_sizeBytesVal, "restcBytes", bb);
-
-    IRBuilder<>(bb).CreateMemCpy(argRest, restv, restcBytes, m_sizeAlign);
-
-    BasicBlock *switchBBs[3];
-    switchBBs[2] = BasicBlock::Create(ctx, "case.method", delegFunc);
-    switchBBs[1] = BasicBlock::Create(ctx, "case.super", delegFunc);
-    switchBBs[0] = BasicBlock::Create(ctx, "case.proc", delegFunc);
-
-    SwitchInst *switchPrefix = SwitchInst::Create(prefixc, switchBBs[2], 2, bb);
-    switchPrefix->addCase(m_one, switchBBs[1]);
-    switchPrefix->addCase(m_zero, switchBBs[0]);
-
-    Value *callArgs[3];
-    for (i = 0; i < 3; ++i)
-    {
-        if (i >= 1)
-        {
-            paramTypes[0] = m_sizeTy;
-            callArgs[0] = self;
-
-            if (i >= 2)
-            {
-                paramTypes[1] = m_sizeTy;
-                callArgs[1] = sel;
-            }
-        }
-
-        paramTypes[i] = m_sizeTy->getPointerTo();
-        callArgs[i] = args;
-
-        BasicBlock *switchBB = switchBBs[i];
-        funcTy = FunctionType::get(m_sizeTy, makeArrayRef(paramTypes, i + 1), false);
-        Value *funcCast = CastInst::Create(Instruction::BitCast, func, funcTy->getPointerTo(), "", switchBB);
-
-        CallInst *call = CallInst::Create(funcCast, makeArrayRef(callArgs, i + 1), "", switchBB);
-        ReturnInst::Create(ctx, call, switchBB);
-    }
-
-    return delegFunc;
+  Function *Func = M->getFunction(KernelNames[ID]);
+  if (Func == nullptr) {
+    FunctionType *FTy =
+        FunctionType::get(SizeTy, SizeTy->getPointerTo(), false);
+    Func =
+        Function::Create(FTy, GlobalValue::ExternalLinkage, KernelNames[ID], M);
+    Func->arg_begin()->setName("args");
+  }
+  return Func;
 }
-
-
-Function* MutateCallIntrinsicsPass::getSendMessageFunction(Module *module)
-{
-    //
-    // uintptr_t SendMessage(uintptr_t self, uintptr_t sel, uintptr_t *args)
-    //
-
-    StringRef name = "SendMessage";
-    Function *func = module->getFunction(name);
-    if (func == nullptr)
-    {
-        Type *params[] = {
-            m_sizeTy,                   // self
-            m_sizeTy,                   // sel
-            m_sizeTy->getPointerTo()    // args
-        };
-        FunctionType *funcTy = FunctionType::get(m_sizeTy, params, false);
-        func = Function::Create(funcTy, GlobalValue::ExternalLinkage, name, module);
-    }
-    return func;
-}
-
-
-Function* MutateCallIntrinsicsPass::getGetPropertyFunction(Module *module)
-{
-    //
-    // uintptr_t GetProperty(uintptr_t self, uintptr_t sel)
-    //
-
-    StringRef name = "GetProperty";
-    Function *func = module->getFunction(name);
-    if (func == nullptr)
-    {
-        Type *params[] = {
-            m_sizeTy,                   // self
-            m_sizeTy                    // sel
-        };
-        FunctionType *funcTy = FunctionType::get(m_sizeTy, params, false);
-        func = Function::Create(funcTy, GlobalValue::ExternalLinkage, name, module);
-    }
-    return func;
-}
-
-
-Function* MutateCallIntrinsicsPass::getSetPropertyFunction(Module *module)
-{
-    //
-    // uintptr_t SetProperty(uintptr_t self, uintptr_t sel, uintptr_t val)
-    //
-
-    StringRef name = "SetProperty";
-    Function *func = module->getFunction(name);
-    if (func == nullptr)
-    {
-        Type *params[] = {
-            m_sizeTy,                   // self
-            m_sizeTy,                   // sel
-            m_sizeTy                    // val
-        };
-        FunctionType *funcTy = FunctionType::get(m_sizeTy, params, false);
-        func = Function::Create(funcTy, GlobalValue::ExternalLinkage, name, module);
-    }
-    return func;
-}
-
-
-Function* MutateCallIntrinsicsPass::getCallMethodFunction(Module *module)
-{
-    //
-    // uintptr_t CallMethod(uintptr_t self, uintptr_t sel, uintptr_t *args)
-    //
-
-    StringRef name = "CallMethod";
-    Function *func = module->getFunction(name);
-    if (func == nullptr)
-    {
-        Type *params[] = {
-            m_sizeTy,                   // self
-            m_sizeTy,                   // sel
-            m_sizeTy->getPointerTo()    // args
-        };
-        FunctionType *funcTy = FunctionType::get(m_sizeTy, params, false);
-        func = Function::Create(funcTy, GlobalValue::ExternalLinkage, name, module);
-    }
-    return func;
-}
-
-
-Function* MutateCallIntrinsicsPass::getOrCreateKernelFunction(uint id, Module *module)
-{
-    if (id >= ARRAYSIZE(s_kernelNames))
-    {
-        return nullptr;
-    }
-
-    Function* func = module->getFunction(s_kernelNames[id]);
-    if (func == nullptr)
-    {
-        FunctionType *funcTy = FunctionType::get(m_sizeTy, m_sizeTy->getPointerTo(), false);
-        func = Function::Create(funcTy, GlobalValue::ExternalLinkage, s_kernelNames[id], module);
-        func->arg_begin()->setName("args");
-    }
-    return func;
-}
-
-
-END_NAMESPACE_SCI

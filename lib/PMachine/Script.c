@@ -3,46 +3,7 @@
 #include "sci/PMachine/PMachine.h"
 #include "sci/Kernel/Resource.h"
 
-#pragma warning(disable : 4200) // zero-sized array in struct/union
-#pragma warning(disable : 4201) // nameless struct/union
-
-#define SEG_NULL      0  // End of script resource
-#define SEG_OBJECT    1  // Object
-#define SEG_CODE      2  // Code
-#define SEG_SYNONYMS  3  // Synonym word lists
-#define SEG_SAIDSPECS 4  // Said specs
-#define SEG_STRINGS   5  // Strings
-#define SEG_CLASS     6  // Class
-#define SEG_EXPORTS   7  // Exports
-#define SEG_RELOC     8  // Relocation table
-#define SEG_TEXT      9  // Preload text
-#define SEG_LOCALS    10 // Local variables
-
-#define NextSegment(seg) ((SegHeader *)((byte *)(seg) + (seg)->size))
-
 #define NIL NullNode(Script)
-
-typedef struct SegHeader {
-    uint16_t type;
-    uint16_t size;
-} SegHeader;
-
-typedef struct ObjRes {
-    uint16_t magic;
-    uint16_t localVarOffset;
-    uint16_t funcSelOffset;
-    uint16_t varSelNum;
-    union {
-        int16_t sels[0];
-
-        struct {
-            ObjID speciesSel;
-            ObjID superSel; // This is the class selector for "OBJECT"
-            ObjID infoSel;
-            ObjID nameSel;
-        };
-    };
-} ObjRes;
 
 static List     s_scriptList          = LIST_INITIALIZER;
 byte            g_scriptHeap[0x10000] = { 0 };

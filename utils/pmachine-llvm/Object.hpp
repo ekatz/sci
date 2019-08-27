@@ -1,34 +1,40 @@
-#pragma once
-#ifndef _Object_HPP_
-#define _Object_HPP_
+//===- Object.hpp ---------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef SCI_UTILS_PMACHINE_LLVM_OBJECT_HPP
+#define SCI_UTILS_PMACHINE_LLVM_OBJECT_HPP
 
 #include "Class.hpp"
 
-BEGIN_NAMESPACE_SCI
+namespace sci {
 
-class Object : public Class
-{
+class Object : public Class {
 public:
-    uint getId() const;
+  unsigned getId() const;
 
-    virtual StringRef getName() const;
+  virtual StringRef getName() const;
 
-    llvm::GlobalVariable* getGlobal() const { return m_global; }
+  llvm::GlobalVariable *getGlobal() const { return Global; }
 
 private:
-    void setInitializer() const;
-    llvm::ConstantStruct* createInitializer(llvm::StructType *s, const Property *begin, const Property *end, const Property *&ptr) const;
+  void setInitializer() const;
+  llvm::ConstantStruct *createInitializer(llvm::StructType *STy,
+                                          const Property *From,
+                                          const Property *To,
+                                          const Property *&Ptr) const;
 
-    Object(const ObjRes &res, Script &script);
-    ~Object();
+  Object(const ObjRes &Res, Script &S);
+  ~Object();
 
-    llvm::GlobalVariable *m_global;
+  llvm::GlobalVariable *Global;
 
-
-    friend class World;
-    friend class Script;
+  friend class World;
+  friend class Script;
 };
 
-END_NAMESPACE_SCI
+} // end namespace sci
 
-#endif // !_Object_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_OBJECT_HPP

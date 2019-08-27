@@ -1,49 +1,40 @@
-#include "TranslateClassIntrinsicPass.hpp"
-#include "../World.hpp"
-#include "../Object.hpp"
-#include "../Decl.hpp"
-#include <llvm/IR/GlobalVariable.h>
+//===- Passes/TranslateClassIntrinsicPass.cpp -----------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
 
+#include "TranslateClassIntrinsicPass.hpp"
+#include "../Decl.hpp"
+#include "../Object.hpp"
+#include "../World.hpp"
+#include "llvm/IR/GlobalVariable.h"
+
+using namespace sci;
 using namespace llvm;
 
+TranslateClassIntrinsicPass::TranslateClassIntrinsicPass()
+    : SizeTy(GetWorld().getSizeType()) {}
 
-BEGIN_NAMESPACE_SCI
+TranslateClassIntrinsicPass::~TranslateClassIntrinsicPass() {}
 
-
-TranslateClassIntrinsicPass::TranslateClassIntrinsicPass() :
-    m_sizeTy(GetWorld().getSizeType())
-{
+void TranslateClassIntrinsicPass::run() {
+  Function *Func = GetWorld().getIntrinsic(Intrinsic::clss);
+  while (!Func->user_empty()) {
+    ClassInst *Call = cast<ClassInst>(Func->user_back());
+    translate(Call);
+  }
 }
 
+void TranslateClassIntrinsicPass::translate(ClassInst *Call) {
+  unsigned ClassID = static_cast<unsigned>(Call->getClassID()->getZExtValue());
+  Object *Cls = GetWorld().getClass(ClassID);
+  assert(Cls != nullptr && "Invalid class ID.");
 
-TranslateClassIntrinsicPass::~TranslateClassIntrinsicPass()
-{
+  GlobalVariable *Var =
+      getGlobalVariableDecl(Cls->getGlobal(), Call->getModule());
+  Value *Val = new PtrToIntInst(Var, SizeTy, "", Call);
+
+  Call->replaceAllUsesWith(Val);
+  Call->eraseFromParent();
 }
-
-
-void TranslateClassIntrinsicPass::run()
-{
-    Function *func = GetWorld().getIntrinsic(Intrinsic::clss);
-    while (!func->user_empty())
-    {
-        ClassInst *call = cast<ClassInst>(func->user_back());
-        translate(call);
-    }
-}
-
-
-void TranslateClassIntrinsicPass::translate(ClassInst *call)
-{
-    uint classId = static_cast<uint>(call->getClassID()->getZExtValue());
-    Object *cls = GetWorld().getClass(classId);
-    assert(cls != nullptr && "Invalid class ID.");
-
-    GlobalVariable *var = GetGlobalVariableDecl(cls->getGlobal(), call->getModule());
-    Value *val = new PtrToIntInst(var, m_sizeTy, "", call);
-
-    call->replaceAllUsesWith(val);
-    call->eraseFromParent();
-}
-
-
-END_NAMESPACE_SCI

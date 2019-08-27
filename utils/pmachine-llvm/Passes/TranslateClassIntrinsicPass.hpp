@@ -1,26 +1,30 @@
-#pragma once
-#ifndef _TranslateClassIntrinsicPass_HPP_
-#define _TranslateClassIntrinsicPass_HPP_
+//===- Passes/TranslateClassIntrinsicPass.hpp -----------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
 
-#include "../Types.hpp"
+#ifndef SCI_UTILS_PMACHINE_LLVM_PASSES_TRANSLATECLASSINTRINSICPASS_HPP
+#define SCI_UTILS_PMACHINE_LLVM_PASSES_TRANSLATECLASSINTRINSICPASS_HPP
+
 #include "../Intrinsics.hpp"
+#include "../Types.hpp"
 
-BEGIN_NAMESPACE_SCI
+namespace sci {
 
-class TranslateClassIntrinsicPass
-{
+class TranslateClassIntrinsicPass {
 public:
-    TranslateClassIntrinsicPass();
-    ~TranslateClassIntrinsicPass();
+  TranslateClassIntrinsicPass();
+  ~TranslateClassIntrinsicPass();
 
-    void run();
+  void run();
 
 private:
-    void translate(ClassInst *call);
+  void translate(ClassInst *Call);
 
-    llvm::IntegerType *m_sizeTy;
+  llvm::IntegerType *SizeTy;
 };
 
-END_NAMESPACE_SCI
+} // end namespace sci
 
-#endif // !_TranslateClassIntrinsicPass_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_PASSES_TRANSLATECLASSINTRINSICPASS_HPP

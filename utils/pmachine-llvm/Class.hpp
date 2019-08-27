@@ -1,85 +1,86 @@
-#pragma once
-#ifndef _Class_HPP_
-#define _Class_HPP_
+//===- Class.hpp ----------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
 
-#include "Types.hpp"
-#include <llvm/IR/Constants.h>
+#ifndef SCI_UTILS_PMACHINE_LLVM_CLASS_HPP
+#define SCI_UTILS_PMACHINE_LLVM_CLASS_HPP
 
-struct ObjRes;
+#include "Resource.hpp"
+#include "llvm/IR/Constants.h"
 
-BEGIN_NAMESPACE_SCI
+namespace sci {
 
 class Script;
 class Method;
 class Property;
 
-class Class
-{
+class Class {
 public:
-    static llvm::StructType* GetAbstractType();
-    static Class* Get(uint id);
+  static llvm::StructType *GetAbstractType();
+  static Class *get(unsigned ClassID);
 
-    bool loadMethods();
+  bool loadMethods();
 
-    uint getId() const { return m_id; }
+  unsigned getId() const { return ID; }
 
-    virtual StringRef getName() const;
-    llvm::StructType* getType() const { return m_type; }
+  virtual StringRef getName() const;
+  llvm::StructType *getType() const { return Ty; }
 
-    Class* getSuper() const { return m_super; }
-    ArrayRef<Method> getOverloadedMethods() const;
+  Class *getSuper() const { return Super; }
+  ArrayRef<Method> getOverloadedMethods() const;
 
-    Method* getMethod(uint id) const;
-    Method* getMethod(uint id, int &index) const;
-    ArrayRef<Method*> getMethods() const;
-    uint getMethodCount() const { return m_methodCount; }
+  Method *getMethod(unsigned MethodID) const;
+  Method *getMethod(unsigned MethodID, int &Index) const;
+  ArrayRef<Method *> getMethods() const;
+  unsigned getMethodCount() const { return MethodCount; }
 
-    Property* getProperty(uint id) const;
-    Property* getProperty(uint id, int &index) const;
-    ArrayRef<Property> getProperties() const;
-    uint getPropertyCount() const { return m_propCount; }
+  Property *getProperty(unsigned PropID) const;
+  Property *getProperty(unsigned PropID, int &Index) const;
+  ArrayRef<Property> getProperties() const;
+  unsigned getPropertyCount() const { return PropCount; }
 
-    Script& getScript() const { return m_script; }
-    llvm::Module& getModule() const;
+  Script &getScript() const { return TheScript; }
+  llvm::Module &getModule() const;
 
-    llvm::GlobalVariable* getSpecies() const { return m_species; }
+  llvm::GlobalVariable *getSpecies() const { return Species; }
 
-    bool isObject() const;
+  bool isObject() const;
 
-    uint getDepth() const { return m_depth; }
+  unsigned getDepth() const { return Depth; }
 
 private:
-    uint countMethods() const;
-    void createMethods();
+  unsigned countMethods() const;
+  void createMethods();
 
 protected:
-    void createSpecies();
-    int findMethod(uint id) const;
-    int findProperty(uint id) const;
+  void createSpecies();
+  int findMethod(unsigned MethodID) const;
+  int findProperty(unsigned PropID) const;
 
-    Class(const ObjRes &res, Script &script);
-    ~Class();
+  Class(const ObjRes &Res, Script &S);
+  ~Class();
 
+  unsigned ID;
+  unsigned Depth;
+  llvm::StructType *Ty;
+  llvm::GlobalVariable *Species;
+  llvm::GlobalVariable *MethodOffs;
 
-    uint m_id;
-    uint m_depth;
-    llvm::StructType *m_type;
-    llvm::GlobalVariable *m_species;
-    llvm::GlobalVariable *m_methodOffs;
+  Property *Props;
+  unsigned PropCount;
 
-    Property *m_props;
-    uint m_propCount;
+  Method *OverloadMethods;
+  unsigned OverloadMethodCount;
 
-    Method *m_overloadMethods;
-    uint m_overloadMethodCount;
+  std::unique_ptr<Method *[]> Methods;
+  unsigned MethodCount;
 
-    std::unique_ptr<Method*[]> m_methods;
-    uint m_methodCount;
-
-    Class *m_super;
-    Script &m_script;
+  Class *Super;
+  Script &TheScript;
 };
 
-END_NAMESPACE_SCI
+} // end namespace sci
 
-#endif // !_Class_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_CLASS_HPP

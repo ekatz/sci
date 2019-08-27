@@ -1,29 +1,33 @@
-#pragma once
-#ifndef _ExpandScriptIDPass_HPP_
-#define _ExpandScriptIDPass_HPP_
+//===- Passes/EmitScriptUtilitiesPass.hpp ---------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef SCI_UTILS_PMACHINE_LLVM_PASSES_EXPANDSCRIPTIDPASS_HPP
+#define SCI_UTILS_PMACHINE_LLVM_PASSES_EXPANDSCRIPTIDPASS_HPP
 
 #include "../Intrinsics.hpp"
 
-BEGIN_NAMESPACE_SCI
+namespace sci {
 
 class Script;
 
-class EmitScriptUtilitiesPass
-{
+class EmitScriptUtilitiesPass {
 public:
-    EmitScriptUtilitiesPass();
-    ~EmitScriptUtilitiesPass();
+  EmitScriptUtilitiesPass();
+  ~EmitScriptUtilitiesPass();
 
-    void run();
+  void run();
 
 private:
-    void expandScriptID(CallKernelInst *call);
-    void createDisposeScriptFunctions();
+  void expandScriptID(CallKernelInst *Call);
+  void createDisposeScriptFunctions();
 
-    llvm::Function* getOrCreateDisposeScriptNumFunction(Script *script);
-    llvm::Function* getOrCreateGetDispatchAddrFunction() const;
+  llvm::Function *getOrCreateDisposeScriptNumFunction(Script *S);
+  llvm::Function *getOrCreateGetDispatchAddrFunction() const;
 };
 
-END_NAMESPACE_SCI
+} // end namespace sci
 
-#endif // !_ExpandScriptIDPass_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_PASSES_EXPANDSCRIPTIDPASS_HPP

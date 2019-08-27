@@ -1,15 +1,21 @@
-#pragma once
-#ifndef _Decl_HPP_
-#define _Decl_HPP_
+//===- Decl.hpp -----------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef SCI_UTILS_PMACHINE_LLVM_DECL_HPP
+#define SCI_UTILS_PMACHINE_LLVM_DECL_HPP
 
 #include "Types.hpp"
-#include <llvm/IR/Function.h>
+#include "llvm/IR/Function.h"
 
-BEGIN_NAMESPACE_SCI
+namespace sci {
 
-llvm::Function* GetFunctionDecl(llvm::Function *orig, llvm::Module *module);
-llvm::GlobalVariable* GetGlobalVariableDecl(llvm::GlobalVariable *orig, llvm::Module *module);
+llvm::Function *getFunctionDecl(llvm::Function *Orig, llvm::Module *M);
+llvm::GlobalVariable *getGlobalVariableDecl(llvm::GlobalVariable *Orig,
+                                            llvm::Module *M);
 
-END_NAMESPACE_SCI
+} // end namespace sci
 
-#endif // !_Decl_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_DECL_HPP

@@ -44,10 +44,21 @@ typedef struct ClassEntry {
     uint16_t scriptNum; // script number
 } ClassEntry;
 
+typedef struct ResClassEntry {
+    uint16_t obj;       // pointer to Obj
+    uint16_t scriptNum; // script number
+} ResClassEntry;
+
 #define OBJHEADER(obj) ((ObjHeader *)((uint8_t *)(obj) - sizeof(ObjHeader)))
 
 #define OBJSIZE(varSelNum)                                                     \
     (sizeof(ObjHeader) + offsetof(Obj, vars[(varSelNum)]))
+
+// Bits in the -info- property.
+#define CLASSBIT  0x8000
+#define CLONEBIT  0x0001
+#define NODISPOSE 0x0002
+#define NODISPLAY 0x0004 // Don't display in ShowObj()
 
 uintptr_t *IndexedPropAddr(Obj *obj, size_t prop);
 #define IndexedProp(object, prop) (*IndexedPropAddr(object, prop))

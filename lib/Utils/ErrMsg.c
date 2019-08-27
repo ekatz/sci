@@ -9,10 +9,16 @@ static const char *ReadErrMsg(int errnum);
 static _Noreturn void DoPanic(const char *text);
 
 static boolfptr s_alertProc = (boolfptr)DoPanic;
+static boolfptr s_panicProc = (boolfptr)DoPanic;
 
 void SetAlertProc(boolfptr func)
 {
     s_alertProc = func;
+}
+
+void SetPanicProc(boolfptr func)
+{
+    s_panicProc = func;
 }
 
 bool DoAlert(const char *text)
@@ -28,18 +34,26 @@ bool RAlert(int errnum, ...)
     va_list args;
     bool    res;
 
+    if (s_alertProc == NULL) {
+        return false;
+    }
+
     va_start(args, errnum);
     res = FormatStringProc(s_alertProc, ReadErrMsg(errnum), args);
     va_end(args);
     return res;
 }
 
-_Noreturn void Panic(int errnum, ...)
+void Panic(int errnum, ...)
 {
     va_list args;
 
+    if (s_panicProc == NULL) {
+        return;
+    }
+
     va_start(args, errnum);
-    FormatStringProc((boolfptr)DoPanic, ReadErrMsg(errnum), args);
+    FormatStringProc(s_panicProc, ReadErrMsg(errnum), args);
     va_end(args);
 }
 

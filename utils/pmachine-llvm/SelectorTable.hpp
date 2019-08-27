@@ -1,64 +1,66 @@
-#pragma once
-#ifndef _SelectorTable_HPP_
-#define _SelectorTable_HPP_
+//===- SelectorTable.hpp --------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef SCI_UTILS_PMACHINE_LLVM_SELECTORTABLE_HPP
+#define SCI_UTILS_PMACHINE_LLVM_SELECTORTABLE_HPP
 
 #include "Types.hpp"
 
-BEGIN_NAMESPACE_SCI
+namespace sci {
 
 class Method;
 class Property;
 
-class SelectorTable
-{
+class SelectorTable {
 public:
-    SelectorTable();
-    ~SelectorTable();
+  SelectorTable();
+  ~SelectorTable();
 
-    size_t size() const;
+  size_t size() const;
 
-    StringRef getSelectorName(uint id) const;
-    uint getNewMethodSelector() const { return m_newMethodSel; }
+  StringRef getSelectorName(unsigned ID) const;
+  unsigned getNewMethodSelector() const { return NewMethodSel; }
 
-    ArrayRef<Method *> getMethods(uint id) const;
-    ArrayRef<Property *> getProperties(uint id) const;
+  ArrayRef<Method *> getMethods(unsigned ID) const;
+  ArrayRef<Property *> getProperties(unsigned ID) const;
 
-    bool addProperty(Property &prop, uint index);
-    bool addMethod(Method &method, uint vftblIndex);
+  bool addProperty(Property &Prop, unsigned Index);
+  bool addMethod(Method &Mtd, unsigned VftblIndex);
 
 private:
-    bool addSelector(void *ptr, uint selector, uint index, bool isMethod);
-    ArrayRef<void *> getSelectors(uint selector, bool isMethod) const;
+  bool addSelector(void *Ptr, unsigned Selector, unsigned Index, bool IsMethod);
+  ArrayRef<void *> getSelectors(unsigned Selector, bool IsMethod) const;
 
-    struct Entry
-    {
-        struct SelData
-        {
-            union {
-                void **sels;
-                void *singleSel;
-            };
+  struct Entry {
+    struct SelData {
+      union {
+        void **Sels;
+        void *SingleSel;
+      };
 
-            uint16_t count;
-            uint16_t capacity;
-            uint16_t index;
-        };
-
-        SelData props;
-        SelData methods;
-
-        uint8_t nameLength;
-        char name[1];
+      uint16_t Count;
+      uint16_t Capacity;
+      uint16_t Index;
     };
 
-    Entry* loadEntry(uint id);
+    SelData Props;
+    SelData Methods;
 
-    static void InitializeSelData(Entry::SelData &data);
+    uint8_t NameLength;
+    char Name[1];
+  };
 
-    std::vector<Entry*> m_table;
-    uint m_newMethodSel;
+  Entry *loadEntry(unsigned ID);
+
+  static void initializeSelData(Entry::SelData &Data);
+
+  std::vector<Entry *> Table;
+  unsigned NewMethodSel;
 };
 
-END_NAMESPACE_SCI
+} // end namespace sci
 
-#endif // !_SelectorTable_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_SELECTORTABLE_HPP

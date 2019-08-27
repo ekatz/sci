@@ -1,97 +1,111 @@
-#pragma once
-#ifndef _Script_HPP_
-#define _Script_HPP_
+//===- Script.hpp ---------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
 
-#include "Types.hpp"
-#include <llvm/IR/Module.h>
-#include <llvm/IR/Constants.h>
+#ifndef SCI_UTILS_PMACHINE_LLVM_SCRIPT_HPP
+#define SCI_UTILS_PMACHINE_LLVM_SCRIPT_HPP
 
-struct ObjRes;
-struct ExportTable;
-struct RelocTable;
-struct SegHeader;
+#include "Resource.hpp"
+#include "llvm/IR/Constants.h"
+#include "llvm/IR/Module.h"
 
-BEGIN_NAMESPACE_SCI
+namespace sci {
 
 class Object;
 class Procedure;
 
-class Script
-{
+class Script {
 public:
-    Script(uint id, Handle hunk);
-    ~Script();
+  Script(unsigned ID, Handle Hunk);
+  ~Script();
 
-    uint getId() const { return m_id; }
-    llvm::Module* getModule() const { return m_module.get(); }
-    llvm::GlobalVariable* getString(StringRef str);
-    llvm::GlobalVariable* getLocalString(uint offset);
+  unsigned getId() const { return ID; }
+  llvm::Module *getModule() const { return Mod.get(); }
+  llvm::GlobalVariable *getString(StringRef Str);
+  llvm::GlobalVariable *getLocalString(unsigned Offset);
 
-    Procedure* getProcedure(uint offset) const;
-    ArrayRef<Procedure> getProcedures() const;
-    uint getProcedureCount() const { return m_procCount; }
+  Procedure *getProcedure(unsigned Offset) const;
+  ArrayRef<Procedure> getProcedures() const;
+  unsigned getProcedureCount() const { return ProcCount; }
 
-    uint getLocalVariablesCount() const { return m_localCount; }
-    llvm::Value* getLocalVariable(uint idx) const;
-    llvm::Value* getGlobalVariable(uint idx);
-    llvm::GlobalObject* getExportedValue(uint idx) const;
-    llvm::Value* getRelocatedValue(uint offset) const;
+  unsigned getLocalVariablesCount() const { return LocalCount; }
+  llvm::Value *getLocalVariable(unsigned Idx) const;
+  llvm::Value *getGlobalVariable(unsigned Idx);
+  llvm::GlobalObject *getExportedValue(unsigned Idx) const;
+  llvm::Value *getRelocatedValue(unsigned Offset) const;
 
-    const char* getDataAt(uint offset) const;
-    uint getOffsetOf(const void *data) const;
+  const char *getDataAt(unsigned Offset) const;
+  unsigned getOffsetOf(const void *Data) const;
 
-    uint getObjectId(const Object &obj) const;
-    Object* getObject(uint id) const;
-    ArrayRef<Object> getObjects() const { return llvm::makeArrayRef(m_objects, m_objectCount); }
+  unsigned getObjectId(const Object &Obj) const;
+  Object *getObject(unsigned OID) const;
+  ArrayRef<Object> getObjects() const {
+    return llvm::makeArrayRef(Objects, ObjectCount);
+  }
 
-    Object* lookupObject(llvm::GlobalVariable &var) const;
+  Object *lookupObject(llvm::GlobalVariable &Var) const;
 
-    bool load();
+  bool load();
 
 private:
-    Object* addObject(const ObjRes &res);
-    void setLocals(ArrayRef<int16_t> vals, bool exported);
-    llvm::GlobalVariable* getGlobalVariables();
+  Object *addObject(const ObjRes &Res);
+  void setLocals(ArrayRef<int16_t> Vals, bool Exported);
+  llvm::GlobalVariable *getGlobalVariables();
 
-    int lookupExportTable(const ExportTable *table, uint offsetBegin, uint offsetEnd);
-    int lookupExportTable(const ExportTable *table, int pos, uint offsetBegin, uint offsetEnd);
-    llvm::GlobalObject** updateExportTable(const ExportTable *table, uint offset, llvm::GlobalObject *val = nullptr);
-    llvm::GlobalObject** updateExportTable(const ExportTable *table, uint offsetBegin, uint offsetEnd, llvm::GlobalObject *val = nullptr);
+  int lookupExportTable(const ExportTable *Table, unsigned OffsetBegin,
+                        unsigned OffsetEnd);
+  int lookupExportTable(const ExportTable *Table, int Pos, unsigned OffsetBegin,
+                        unsigned OffsetEnd);
+  llvm::GlobalObject **updateExportTable(const ExportTable *Table,
+                                         unsigned Offset,
+                                         llvm::GlobalObject *Val = nullptr);
+  llvm::GlobalObject **updateExportTable(const ExportTable *Table,
+                                         unsigned OffsetBegin,
+                                         unsigned OffsetEnd,
+                                         llvm::GlobalObject *Val = nullptr);
 
-    int lookupRelocTable(const RelocTable *table, uint offsetBegin, uint offsetEnd);
-    int lookupRelocTable(const RelocTable *table, int pos, uint offsetBegin, uint offsetEnd);
-    llvm::Value** updateRelocTable(const RelocTable *table, uint offset, llvm::GlobalObject *val = nullptr);
-    llvm::Value** updateRelocTable(const RelocTable *table, uint offsetBegin, uint offsetEnd, llvm::GlobalObject *val = nullptr);
+  int lookupRelocTable(const RelocTable *Table, unsigned OffsetBegin,
+                       unsigned OffsetEnd);
+  int lookupRelocTable(const RelocTable *Table, int Pos, unsigned OffsetBegin,
+                       unsigned OffsetEnd);
+  llvm::Value **updateRelocTable(const RelocTable *Table, unsigned Offset,
+                                 llvm::GlobalObject *Val = nullptr);
+  llvm::Value **updateRelocTable(const RelocTable *Table, unsigned OffsetBegin,
+                                 unsigned OffsetEnd,
+                                 llvm::GlobalObject *Val = nullptr);
 
-    void loadProcedures(llvm::SmallVector<uint, 8> &procOffsets, const ExportTable *exports);
-    void sortFunctions();
+  void loadProcedures(llvm::SmallVectorImpl<unsigned> &ProcOffsets,
+                      const ExportTable *ExportTbl);
+  void sortFunctions();
 
-    void growProcedureArray(uint count);
+  void growProcedureArray(unsigned Count);
 
-    const uint m_id;
-    Handle m_hunk;
-    std::unique_ptr<llvm::Module> m_module;
+  const unsigned ID;
+  Handle Hunk;
+  std::unique_ptr<llvm::Module> Mod;
 
-    std::map<std::string, llvm::GlobalVariable *> m_strings;
-    std::unique_ptr<SegHeader *[]> m_stringSegs;
-    uint m_stringSegCount;
+  std::map<std::string, llvm::GlobalVariable *> Strings;
+  std::unique_ptr<SegHeader *[]> StringSegs;
+  unsigned StringSegCount = 0U;
 
-    Object *m_objects;
-    uint m_objectCount;
+  Object *Objects = nullptr;
+  unsigned ObjectCount = 0U;
 
-    llvm::GlobalVariable *m_globals;
-    llvm::GlobalVariable *m_locals;
-    uint m_localCount;
+  llvm::GlobalVariable *Globals = nullptr;
+  llvm::GlobalVariable *Locals = nullptr;
+  unsigned LocalCount = 0U;
 
-    std::unique_ptr<llvm::GlobalObject *[]> m_exports;
-    uint m_exportCount;
+  std::unique_ptr<llvm::GlobalObject *[]> Exports;
+  unsigned ExportCount = 0U;
 
-    std::map<uint, llvm::Value *> m_relocTable;
+  std::map<unsigned, llvm::Value *> RelocTbl;
 
-    Procedure *m_procs;
-    uint m_procCount;
+  Procedure *Procs = nullptr;
+  unsigned ProcCount = 0U;
 };
 
-END_NAMESPACE_SCI
+} // end namespace sci
 
-#endif // !_Script_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_SCRIPT_HPP

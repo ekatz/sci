@@ -1,735 +1,585 @@
-#include "Script.hpp"
-#include "World.hpp"
-#include "Object.hpp"
-#include "Procedure.hpp"
-#include "PMachine.hpp"
-#include "Resource.hpp"
-#include <llvm/ADT/STLExtras.h>
+//===- Script.cpp ---------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
 
+#include "Script.hpp"
+#include "Object.hpp"
+#include "PMachine.hpp"
+#include "Procedure.hpp"
+#include "World.hpp"
+#include "llvm/ADT/STLExtras.h"
+
+using namespace sci;
 using namespace llvm;
 
+Script::Script(unsigned ID, Handle Hunk) : ID(ID), Hunk(Hunk) {}
 
-BEGIN_NAMESPACE_SCI
-
-
-Script::Script(uint id, Handle hunk) :
-    m_id(id),
-    m_hunk(hunk),
-    m_stringSegCount(0),
-    m_objects(nullptr),
-    m_objectCount(0),
-    m_globals(nullptr),
-    m_locals(nullptr),
-    m_localCount(0),
-    m_exportCount(0),
-    m_procs(nullptr),
-    m_procCount(0)
-{
+Script::~Script() {
+  if (Procs) {
+    for (unsigned I = 0, N = ProcCount; I < N; ++I)
+      Procs[I].~Procedure();
+    free(Procs);
+  }
+  if (Objects) {
+    for (unsigned I = 0, N = ObjectCount; I < N; ++I)
+      Objects[I].~Object();
+    free(Objects);
+  }
+  if (Hunk)
+    ResUnLoad(RES_SCRIPT, ID);
 }
 
-
-Script::~Script()
-{
-    if (m_procs != nullptr)
-    {
-        for (uint i = 0, n = m_procCount; i < n; ++i)
-        {
-            m_procs[i].~Procedure();
-        }
-        free(m_procs);
-    }
-    if (m_objects != nullptr)
-    {
-        for (uint i = 0, n = m_objectCount; i < n; ++i)
-        {
-            m_objects[i].~Object();
-        }
-        free(m_objects);
-    }
-    if (m_hunk != nullptr)
-    {
-        ResUnLoad(RES_SCRIPT, m_id);
-    }
-}
-
-
-bool Script::load()
-{
-    if (m_module)
-    {
-        return true;
-    }
-    else
-    {
-        char name[10];
-        sprintf(name, "Script%03u", m_id);
-        m_module.reset(new Module(name, GetWorld().getContext()));
-        m_module->setDataLayout(GetWorld().getDataLayout());
-    }
-
-
-    World &world = GetWorld();
-    SegHeader *seg;
-    ExportTable *exports = nullptr;
-    RelocTable *relocs = nullptr;
-    SmallVector<uint, 8> procOffsets;
-    uint numObjects = 0;
-
-    m_stringSegCount = 0;
-    m_localCount = 0;
-    m_procCount = 0;
-
-    seg = reinterpret_cast<SegHeader *>(m_hunk);
-    while (seg->type != SEG_NULL)
-    {
-        switch (seg->type)
-        {
-        case SEG_OBJECT:
-            numObjects++;
-            break;
-
-        case SEG_EXPORTS:
-            exports = reinterpret_cast<ExportTable *>(seg + 1);
-            break;
-
-        case SEG_RELOC:
-            relocs = reinterpret_cast<RelocTable *>(seg + 1);
-            break;
-
-        case SEG_LOCALS:
-            m_localCount = (seg->size - sizeof(SegHeader)) / sizeof(uint16_t);
-            break;
-
-        case SEG_STRINGS:
-            m_stringSegCount++;
-            break;
-
-        default:
-            break;
-        }
-
-        seg = NextSegment(seg);
-    }
-
-    m_objectCount = 0;
-    if (m_objects != nullptr)
-    {
-        free(m_objects);
-        m_objects = nullptr;
-    }
-    if (numObjects > 0)
-    {
-        size_t size = numObjects * sizeof(Object);
-        m_objects = reinterpret_cast<Object *>(malloc(size));
-        memset(m_objects, 0, size);
-    }
-
-    if (exports != nullptr && exports->numEntries > 0)
-    {
-        m_exportCount = exports->numEntries;
-        m_exports.reset(new GlobalObject*[m_exportCount]);
-        memset(m_exports.get(), 0, m_exportCount * sizeof(GlobalObject *));
-    }
-    else
-    {
-        m_exportCount = 0;
-        m_exports.release();
-    }
-
-    if (m_stringSegCount != 0)
-    {
-        m_stringSegs.reset(new SegHeader*[m_stringSegCount]);
-
-        seg = reinterpret_cast<SegHeader *>(m_hunk);
-        for (uint i = 0; i < m_stringSegCount; seg = NextSegment(seg))
-        {
-            if (seg->type == SEG_STRINGS)
-            {
-                m_stringSegs[i++] = seg;
-
-                const uint8_t *res = reinterpret_cast<uint8_t *>(seg + 1);
-                uint offsetBegin = getOffsetOf(res);
-                uint offsetEnd = offsetBegin + (static_cast<uint>(seg->size) - sizeof(SegHeader));
-                int idx;
-
-                idx = lookupExportTable(exports, offsetBegin, offsetEnd);
-                while (idx >= 0)
-                {
-                    GlobalObject *&slot = m_exports[idx];
-                    assert(slot == nullptr);
-
-                    uint offset = exports->entries[idx].ptrOff;
-                    const char *str = getDataAt(offset);
-                    slot = getString(str);
-
-                    idx = lookupExportTable(exports, idx + 1, offset + 1, offsetEnd);
-                }
-
-
-                idx = lookupRelocTable(relocs, offsetBegin, offsetEnd);
-                while (idx >= 0)
-                {
-                    uint offset = *reinterpret_cast<const uint16_t *>(getDataAt(relocs->table[idx]));
-                    Value *&slot = m_relocTable[offset];
-                    assert(slot == nullptr);
-
-                    const char *str = getDataAt(offset);
-                    slot = getString(str);
-
-                    idx = lookupRelocTable(relocs, idx + 1, offset + 1, offsetEnd);
-                }
-                break;
-            }
-        }
-    }
-
-    seg = reinterpret_cast<SegHeader *>(m_hunk);
-    while (seg->type != SEG_NULL)
-    {
-        switch (seg->type)
-        {
-        case SEG_OBJECT: {
-            const uint8_t *res = reinterpret_cast<uint8_t *>(seg + 1);
-            Object *obj = addObject(*reinterpret_cast<const ObjRes *>(res));
-            if (obj != nullptr)
-            {
-                uint offset = getOffsetOf(res + offsetof(ObjRes, sels));
-
-                updateExportTable(exports, offset, obj->getGlobal());
-                updateRelocTable(relocs, offset, obj->getGlobal());
-            }
-            break;
-        }
-
-        case SEG_CLASS: {
-            const uint8_t *res = reinterpret_cast<uint8_t *>(seg + 1);
-            Object *cls = world.addClass(*reinterpret_cast<const ObjRes *>(res), *this);
-            if (cls != nullptr)
-            {
-                uint offset = getOffsetOf(res + offsetof(ObjRes, sels));
-
-                updateExportTable(exports, offset, cls->getGlobal());
-                updateRelocTable(relocs, offset, cls->getGlobal());
-            }
-            break;
-        }
-
-        case SEG_CODE: {
-            const uint8_t *res = reinterpret_cast<uint8_t *>(seg + 1);
-            uint offsetBegin = getOffsetOf(res);
-            uint offsetEnd = offsetBegin + (static_cast<uint>(seg->size) - sizeof(SegHeader));
-
-            int idx = lookupExportTable(exports, offsetBegin, offsetEnd);
-            while (idx >= 0)
-            {
-                uint offset = exports->entries[idx].ptrOff;
-                procOffsets.push_back(offset);
-
-                idx = lookupExportTable(exports, idx + 1, offset + 1, offsetEnd);
-            }
-            break;
-        }
-
-        case SEG_SAIDSPECS:
-            assert(false); //TODO: Add support for Said!!
-            break;
-
-        case SEG_LOCALS:
-            if (m_localCount != 0)
-            {
-                const uint8_t *res = reinterpret_cast<uint8_t *>(seg + 1);
-                ArrayRef<int16_t> vals(reinterpret_cast<const int16_t *>(res), m_localCount);
-                uint offsetBegin = getOffsetOf(res);
-                uint offsetEnd = offsetBegin + (vals.size() * sizeof(uint16_t));
-
-                bool exported = false;
-                if (lookupExportTable(exports, offsetBegin, offsetEnd) >= 0)
-                {
-                    assert(false && "Currently not supported!");
-                    exported = true;
-                }
-
-                setLocals(vals, exported);
-
-                int idx = lookupRelocTable(relocs, offsetBegin, offsetEnd);
-                while (idx >= 0)
-                {
-                    uint offset = *reinterpret_cast<const uint16_t *>(getDataAt(relocs->table[idx]));
-                    // Must be 16-bit aligned.
-                    assert((offset % sizeof(uint16_t)) == 0);
-                    uint idx = (offset - offsetBegin) / sizeof(uint16_t);
-
-                    Value *&slot = m_relocTable[offset];
-                    assert(slot == nullptr);
-                    slot = getLocalVariable(idx);
-
-                    idx = lookupRelocTable(relocs, idx + 1, offset + sizeof(uint16_t), offsetEnd);
-                }
-            }
-            break;
-
-        default:
-            break;
-        }
-
-        seg = NextSegment(seg);
-    }
-
-
-    seg = reinterpret_cast<SegHeader *>(m_hunk);
-    while (seg->type != SEG_NULL)
-    {
-        switch (seg->type)
-        {
-        case SEG_CLASS: {
-            Class *cls = Class::Get(reinterpret_cast<ObjRes *>(seg + 1)->speciesSel);
-            cls->loadMethods();
-            break;
-        }
-
-        default:
-            break;
-        }
-
-        seg = NextSegment(seg);
-    }
-
-    for (uint i = 0, n = m_objectCount; i < n; ++i)
-    {
-        m_objects[i].loadMethods();
-    }
-
-    loadProcedures(procOffsets, exports);
-    sortFunctions();
-    printf("%s interpreted successfully!\n", m_module->getName().data());
+bool Script::load() {
+  if (Mod)
     return true;
-}
+  else {
+    char Name[16];
+    sprintf(Name, "Script%03u", ID);
+    Mod.reset(new Module(Name, GetWorld().getContext()));
+    Mod->setDataLayout(GetWorld().getDataLayout());
+  }
 
+  World &W = GetWorld();
+  SegHeader *Seg;
+  ExportTable *ExportTbl = nullptr;
+  RelocTable *Relocs = nullptr;
+  SmallVector<unsigned, 8> ProcOffsets;
+  unsigned NumObjects = 0;
 
-int Script::lookupExportTable(const ExportTable *table, uint offsetBegin, uint offsetEnd)
-{
-    return lookupExportTable(table, 0, offsetBegin, offsetEnd);
-}
+  StringSegCount = 0;
+  LocalCount = 0;
+  ProcCount = 0;
 
+  Seg = reinterpret_cast<SegHeader *>(Hunk);
+  while (Seg->type != SEG_NULL) {
+    switch (Seg->type) {
+    case SEG_OBJECT:
+      NumObjects++;
+      break;
 
-int Script::lookupExportTable(const ExportTable *table, int pos, uint offsetBegin, uint offsetEnd)
-{
-    if (table != nullptr)
-    {
-        assert(m_exportCount == table->numEntries);
-        for (uint n = table->numEntries; static_cast<uint>(pos) < n; ++pos)
-        {
-            assert(table->entries[pos].ptrSeg == 0);
-            uint offset = table->entries[pos].ptrOff;
-            if (offsetBegin <= offset && offset < offsetEnd)
-            {
-                return pos;
-            }
-        }
+    case SEG_EXPORTS:
+      ExportTbl = reinterpret_cast<ExportTable *>(Seg + 1);
+      break;
+
+    case SEG_RELOC:
+      Relocs = reinterpret_cast<RelocTable *>(Seg + 1);
+      break;
+
+    case SEG_LOCALS:
+      LocalCount = (Seg->size - sizeof(SegHeader)) / sizeof(uint16_t);
+      break;
+
+    case SEG_STRINGS:
+      StringSegCount++;
+      break;
+
+    default:
+      break;
     }
-    return -1;
-}
 
+    Seg = NextSegment(Seg);
+  }
 
-GlobalObject** Script::updateExportTable(const ExportTable *table, uint offset, GlobalObject *val)
-{
-    return updateExportTable(table, offset, offset + 1, val);
-}
+  ObjectCount = 0;
+  if (Objects) {
+    free(Objects);
+    Objects = nullptr;
+  }
+  if (NumObjects > 0) {
+    size_t Size = NumObjects * sizeof(Object);
+    Objects = reinterpret_cast<Object *>(malloc(Size));
+    memset(Objects, 0, Size);
+  }
 
+  if (ExportTbl && ExportTbl->numEntries > 0) {
+    ExportCount = ExportTbl->numEntries;
+    Exports.reset(new GlobalObject *[ExportCount]);
+    memset(Exports.get(), 0, ExportCount * sizeof(GlobalObject *));
+  } else {
+    ExportCount = 0;
+    Exports.release();
+  }
 
-GlobalObject** Script::updateExportTable(const ExportTable *table, uint offsetBegin, uint offsetEnd, GlobalObject *val)
-{
-    int idx = lookupExportTable(table, offsetBegin, offsetEnd);
-    if (idx >= 0)
-    {
-        GlobalObject *&slot = m_exports[idx];
-        if (slot == nullptr)
-        {
-            if (val != nullptr)
-            {
-                val->setLinkage(GlobalValue::ExternalLinkage);
-            }
-            slot = val;
-            return &slot;
+  if (StringSegCount) {
+    StringSegs.reset(new SegHeader *[StringSegCount]);
+
+    Seg = reinterpret_cast<SegHeader *>(Hunk);
+    for (unsigned I = 0; I < StringSegCount; Seg = NextSegment(Seg)) {
+      if (Seg->type == SEG_STRINGS) {
+        StringSegs[I++] = Seg;
+
+        const uint8_t *Res = reinterpret_cast<uint8_t *>(Seg + 1);
+        unsigned OffsetBegin = getOffsetOf(Res);
+        unsigned OffsetEnd = OffsetBegin + (static_cast<unsigned>(Seg->size) -
+                                            sizeof(SegHeader));
+        int Idx;
+
+        Idx = lookupExportTable(ExportTbl, OffsetBegin, OffsetEnd);
+        while (Idx >= 0) {
+          GlobalObject *&Slot = Exports[Idx];
+          assert(!Slot);
+
+          unsigned Offset = ExportTbl->entries[Idx].ptrOff;
+          const char *Str = getDataAt(Offset);
+          Slot = getString(Str);
+
+          Idx = lookupExportTable(ExportTbl, Idx + 1, Offset + 1, OffsetEnd);
         }
+
+        Idx = lookupRelocTable(Relocs, OffsetBegin, OffsetEnd);
+        while (Idx >= 0) {
+          unsigned Offset = *reinterpret_cast<const uint16_t *>(
+              getDataAt(Relocs->table[Idx]));
+          Value *&Slot = RelocTbl[Offset];
+          assert(Slot == nullptr);
+
+          const char *Str = getDataAt(Offset);
+          Slot = getString(Str);
+
+          Idx = lookupRelocTable(Relocs, Idx + 1, Offset + 1, OffsetEnd);
+        }
+        break;
+      }
     }
+  }
+
+  Seg = reinterpret_cast<SegHeader *>(Hunk);
+  while (Seg->type != SEG_NULL) {
+    switch (Seg->type) {
+    case SEG_OBJECT: {
+      const uint8_t *Res = reinterpret_cast<uint8_t *>(Seg + 1);
+      Object *Obj = addObject(*reinterpret_cast<const ObjRes *>(Res));
+      if (Obj) {
+        unsigned Offset = getOffsetOf(Res + offsetof(ObjRes, sels));
+
+        updateExportTable(ExportTbl, Offset, Obj->getGlobal());
+        updateRelocTable(Relocs, Offset, Obj->getGlobal());
+      }
+      break;
+    }
+
+    case SEG_CLASS: {
+      const uint8_t *Res = reinterpret_cast<uint8_t *>(Seg + 1);
+      Object *Cls = W.addClass(*reinterpret_cast<const ObjRes *>(Res), *this);
+      if (Cls) {
+        unsigned Offset = getOffsetOf(Res + offsetof(ObjRes, sels));
+
+        updateExportTable(ExportTbl, Offset, Cls->getGlobal());
+        updateRelocTable(Relocs, Offset, Cls->getGlobal());
+      }
+      break;
+    }
+
+    case SEG_CODE: {
+      const uint8_t *Res = reinterpret_cast<uint8_t *>(Seg + 1);
+      unsigned OffsetBegin = getOffsetOf(Res);
+      unsigned OffsetEnd =
+          OffsetBegin + (static_cast<unsigned>(Seg->size) - sizeof(SegHeader));
+
+      int Idx = lookupExportTable(ExportTbl, OffsetBegin, OffsetEnd);
+      while (Idx >= 0) {
+        unsigned Offset = ExportTbl->entries[Idx].ptrOff;
+        ProcOffsets.push_back(Offset);
+
+        Idx = lookupExportTable(ExportTbl, Idx + 1, Offset + 1, OffsetEnd);
+      }
+      break;
+    }
+
+    case SEG_SAIDSPECS:
+      assert(false); // TODO: Add support for Said!!
+      break;
+
+    case SEG_LOCALS:
+      if (LocalCount != 0) {
+        const uint8_t *Res = reinterpret_cast<uint8_t *>(Seg + 1);
+        ArrayRef<int16_t> Vals(reinterpret_cast<const int16_t *>(Res),
+                               LocalCount);
+        unsigned OffsetBegin = getOffsetOf(Res);
+        unsigned OffsetEnd = OffsetBegin + (Vals.size() * sizeof(uint16_t));
+
+        bool Exported = false;
+        if (lookupExportTable(ExportTbl, OffsetBegin, OffsetEnd) >= 0) {
+          assert(false && "Currently not supported!");
+          Exported = true;
+        }
+
+        setLocals(Vals, Exported);
+
+        int Idx = lookupRelocTable(Relocs, OffsetBegin, OffsetEnd);
+        while (Idx >= 0) {
+          unsigned Offset = *reinterpret_cast<const uint16_t *>(
+              getDataAt(Relocs->table[Idx]));
+          // Must be 16-bit aligned.
+          assert((Offset % sizeof(uint16_t)) == 0);
+          unsigned Idx = (Offset - OffsetBegin) / sizeof(uint16_t);
+
+          Value *&Slot = RelocTbl[Offset];
+          assert(!Slot);
+          Slot = getLocalVariable(Idx);
+
+          Idx = lookupRelocTable(Relocs, Idx + 1, Offset + sizeof(uint16_t),
+                                 OffsetEnd);
+        }
+      }
+      break;
+
+    default:
+      break;
+    }
+
+    Seg = NextSegment(Seg);
+  }
+
+  Seg = reinterpret_cast<SegHeader *>(Hunk);
+  while (Seg->type != SEG_NULL) {
+    switch (Seg->type) {
+    case SEG_CLASS: {
+      Class *Cls = Class::get(reinterpret_cast<ObjRes *>(Seg + 1)->speciesSel);
+      Cls->loadMethods();
+      break;
+    }
+
+    default:
+      break;
+    }
+
+    Seg = NextSegment(Seg);
+  }
+
+  for (unsigned I = 0, N = ObjectCount; I < N; ++I)
+    Objects[I].loadMethods();
+
+  loadProcedures(ProcOffsets, ExportTbl);
+  sortFunctions();
+  printf("%s interpreted successfully!\n", Mod->getName().data());
+  return true;
+}
+
+int Script::lookupExportTable(const ExportTable *Table, unsigned OffsetBegin,
+                              unsigned OffsetEnd) {
+  return lookupExportTable(Table, 0, OffsetBegin, OffsetEnd);
+}
+
+int Script::lookupExportTable(const ExportTable *Table, int Pos,
+                              unsigned OffsetBegin, unsigned OffsetEnd) {
+  if (Table) {
+    assert(ExportCount == Table->numEntries);
+    for (unsigned N = Table->numEntries; static_cast<unsigned>(Pos) < N;
+         ++Pos) {
+      assert(Table->entries[Pos].ptrSeg == 0);
+      unsigned Offset = Table->entries[Pos].ptrOff;
+      if (OffsetBegin <= Offset && Offset < OffsetEnd)
+        return Pos;
+    }
+  }
+  return -1;
+}
+
+GlobalObject **Script::updateExportTable(const ExportTable *Table,
+                                         unsigned Offset, GlobalObject *Val) {
+  return updateExportTable(Table, Offset, Offset + 1, Val);
+}
+
+GlobalObject **Script::updateExportTable(const ExportTable *Table,
+                                         unsigned OffsetBegin,
+                                         unsigned OffsetEnd,
+                                         GlobalObject *Val) {
+  int Idx = lookupExportTable(Table, OffsetBegin, OffsetEnd);
+  if (Idx >= 0) {
+    GlobalObject *&Slot = Exports[Idx];
+    if (!Slot) {
+      if (Val)
+        Val->setLinkage(GlobalValue::ExternalLinkage);
+      Slot = Val;
+      return &Slot;
+    }
+  }
+  return nullptr;
+}
+
+int Script::lookupRelocTable(const RelocTable *table, unsigned OffsetBegin,
+                             unsigned OffsetEnd) {
+  return lookupRelocTable(table, 0, OffsetBegin, OffsetEnd);
+}
+
+int Script::lookupRelocTable(const RelocTable *Table, int Pos,
+                             unsigned OffsetBegin, unsigned OffsetEnd) {
+  if (Table) {
+    assert(Table->ptrSeg == 0);
+    for (unsigned N = Table->numEntries; static_cast<unsigned>(Pos) < N;
+         ++Pos) {
+      const uint16_t *FixPtr =
+          reinterpret_cast<const uint16_t *>(getDataAt(Table->table[Pos]));
+      if (FixPtr != nullptr) {
+        unsigned Offset = *FixPtr;
+        if (OffsetBegin <= Offset && Offset <= OffsetEnd)
+          return Pos;
+      }
+    }
+  }
+  return -1;
+}
+
+Value **Script::updateRelocTable(const RelocTable *table, unsigned Offset,
+                                 GlobalObject *Val) {
+  return updateRelocTable(table, Offset, Offset + 1, Val);
+}
+
+Value **Script::updateRelocTable(const RelocTable *table, unsigned OffsetBegin,
+                                 unsigned OffsetEnd, GlobalObject *Val) {
+  int Idx = lookupRelocTable(table, OffsetBegin, OffsetEnd);
+  if (Idx >= 0) {
+    unsigned Offset =
+        *reinterpret_cast<const uint16_t *>(getDataAt(table->table[Idx]));
+    Value *&Slot = RelocTbl[Offset];
+    if (!Slot)
+      Slot = Val;
+    return &Slot;
+  }
+  return nullptr;
+}
+
+void Script::setLocals(ArrayRef<int16_t> Vals, bool Exported) {
+  if (!Vals.empty()) {
+    World &W = GetWorld();
+    IntegerType *SizeTy = W.getSizeType();
+
+    ArrayType *ArrTy = ArrayType::get(SizeTy, LocalCount);
+
+    std::unique_ptr<Constant *[]> Consts(new Constant *[LocalCount]);
+    for (unsigned I = 0, N = LocalCount; I < N; ++I)
+      Consts[I] = W.getConstantValue(Vals[I]);
+    Constant *C =
+        ConstantArray::get(ArrTy, makeArrayRef(Consts.get(), LocalCount));
+
+    if (ID == 0) {
+      Locals = getGlobalVariables();
+      Locals->setInitializer(C);
+    } else {
+      char Name[16];
+      sprintf(Name, "?locals%03u", ID);
+      GlobalValue::LinkageTypes linkage = (Exported || ID == 0)
+                                              ? GlobalValue::ExternalLinkage
+                                              : GlobalValue::InternalLinkage;
+      Locals = new GlobalVariable(*getModule(), ArrTy, false, linkage, C, Name);
+      Locals->setAlignment(16);
+    }
+  }
+}
+
+GlobalVariable *Script::getString(StringRef Str) {
+  GlobalVariable *Var;
+  auto It = Strings.find(Str);
+  if (It == Strings.end()) {
+    std::string Name =
+        "?string@" + utostr(getId()) + '@' + utostr(Strings.size());
+    Constant *C = ConstantDataArray::getString(Mod->getContext(), Str);
+    Var = new GlobalVariable(*getModule(), C->getType(), true,
+                             GlobalValue::LinkOnceODRLinkage, C, Name);
+    Var->setAlignment(GetWorld().getTypeAlignment(C->getType()));
+    Var->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+    Strings.insert(std::pair<std::string, GlobalVariable *>(Str, Var));
+  } else
+    Var = It->second;
+  return Var;
+}
+
+GlobalVariable *Script::getLocalString(unsigned Offset) {
+  if (Offset <= sizeof(SegHeader)) {
     return nullptr;
-}
+  }
 
+  for (unsigned I = 0, N = StringSegCount; I < N; ++I) {
+    SegHeader *Seg = StringSegs[I];
+    const uint8_t *Res = reinterpret_cast<uint8_t *>(Seg + 1);
+    unsigned OffsetBegin = getOffsetOf(Res);
+    unsigned OffsetEnd =
+        OffsetBegin + (static_cast<unsigned>(Seg->size) - sizeof(SegHeader));
 
-int Script::lookupRelocTable(const RelocTable *table, uint offsetBegin, uint offsetEnd)
-{
-    return lookupRelocTable(table, 0, offsetBegin, offsetEnd);
-}
-
-int Script::lookupRelocTable(const RelocTable *table, int pos, uint offsetBegin, uint offsetEnd)
-{
-    if (table != nullptr)
-    {
-        assert(table->ptrSeg == 0);
-        for (uint n = table->numEntries; static_cast<uint>(pos) < n; ++pos)
-        {
-            const uint16_t *fixPtr = reinterpret_cast<const uint16_t *>(getDataAt(table->table[pos]));
-            if (fixPtr != nullptr)
-            {
-                uint offset = *fixPtr;
-                if (offsetBegin <= offset && offset <= offsetEnd)
-                {
-                    return pos;
-                }
-            }
-        }
+    if (OffsetBegin <= Offset && Offset < OffsetEnd) {
+      const char *Str = getDataAt(Offset);
+      return getString(Str);
     }
-    return -1;
+  }
+  return nullptr;
 }
 
-
-Value** Script::updateRelocTable(const RelocTable *table, uint offset, GlobalObject *val)
-{
-    return updateRelocTable(table, offset, offset + 1, val);
-}
-
-
-Value** Script::updateRelocTable(const RelocTable *table, uint offsetBegin, uint offsetEnd, GlobalObject *val)
-{
-    int idx = lookupRelocTable(table, offsetBegin, offsetEnd);
-    if (idx >= 0)
-    {
-        uint offset = *reinterpret_cast<const uint16_t *>(getDataAt(table->table[idx]));
-        Value *&slot = m_relocTable[offset];
-        if (slot == nullptr)
-        {
-            slot = val;
-        }
-        return &slot;
+void Script::sortFunctions() {
+  World &W = GetWorld();
+  std::map<unsigned, Function *> SortedFuncs;
+  for (Function &Func : *Mod) {
+    Procedure *Proc = W.getProcedure(Func);
+    if (Proc) {
+      bool IsNew = SortedFuncs.emplace(Proc->getOffset(), &Func).second;
+      assert(IsNew);
+      Func.removeFromParent();
     }
-    return nullptr;
+  }
+
+  auto &FuncList = Mod->getFunctionList();
+  for (auto &P : SortedFuncs)
+    FuncList.push_back(P.second);
 }
 
+void Script::growProcedureArray(unsigned Count) {
+  size_t Size = (ProcCount + Count) * sizeof(Procedure);
+  void *Mem = realloc(Procs, Size);
+  if (Mem != Procs) {
+    if (!Mem) {
+      Mem = malloc(Size);
+      if (ProcCount > 0) {
+        memcpy(Mem, Procs, ProcCount * sizeof(Procedure));
+        free(Procs);
+      }
+    }
 
-void Script::setLocals(ArrayRef<int16_t> vals, bool exported)
-{
-    if (!vals.empty())
-    {
-        World &world = GetWorld();
-        IntegerType *sizeTy = world.getSizeType();
+    // Re-register all procedures.
+    World &W = GetWorld();
+    Procedure *Proc = reinterpret_cast<Procedure *>(Mem);
+    for (unsigned I = 0, N = ProcCount; I < N; ++I, ++Proc)
+      W.registerProcedure(*Proc);
+  }
+  Procs = reinterpret_cast<Procedure *>(Mem);
+  ProcCount += Count;
+}
 
-        ArrayType *arrTy = ArrayType::get(sizeTy, m_localCount);
+void Script::loadProcedures(SmallVectorImpl<unsigned> &ProcOffsets,
+                            const ExportTable *ExportTbl) {
+  World &world = GetWorld();
+  Function *FuncGlobalCallIntrin = Intrinsic::Get(Intrinsic::call);
+  Function *FuncLocalCallIntrin = nullptr;
 
-        std::unique_ptr<Constant*[]> consts(new Constant*[m_localCount]);
-        for (uint i = 0, n = m_localCount; i < n; ++i)
-        {
-            consts[i] = world.getConstantValue(vals[i]);
-        }
-        Constant *c = ConstantArray::get(arrTy, makeArrayRef(consts.get(), m_localCount));
+  do {
+    if (!ProcOffsets.empty()) {
+      unsigned Count = ProcCount;
+      // Only the first set of procedures are from the export table.
+      bool Exported = (Count == 0);
 
-        if (m_id == 0)
-        {
-            m_locals = getGlobalVariables();
-            m_locals->setInitializer(c);
-        }
+      growProcedureArray(static_cast<unsigned>(ProcOffsets.size()));
+
+      Procedure *Proc = &Procs[Count];
+      for (unsigned Offset : ProcOffsets) {
+        new (Proc) Procedure(Offset, *this);
+        Function *Func = Proc->load();
+        assert(Func != nullptr);
+
+        if (Exported)
+          updateExportTable(ExportTbl, Offset, Func);
         else
-        {
-            char name[12];
-            sprintf(name, "?locals%03u", m_id);
-            GlobalValue::LinkageTypes linkage = (exported || m_id == 0) ? GlobalValue::ExternalLinkage : GlobalValue::InternalLinkage;
-            m_locals = new GlobalVariable(*getModule(), arrTy, false, linkage, c, name);
-            m_locals->setAlignment(16);
-        }
+          Func->setLinkage(GlobalValue::InternalLinkage);
+
+        Proc++;
+      }
+      ProcOffsets.clear();
     }
+
+    if (FuncLocalCallIntrin || (FuncLocalCallIntrin = getModule()->getFunction(
+                                    FuncGlobalCallIntrin->getName()))) {
+      for (User *U : FuncLocalCallIntrin->users()) {
+        CallInst *Call = cast<CallInst>(U);
+        unsigned Offset = static_cast<unsigned>(
+            cast<ConstantInt>(Call->getArgOperand(0))->getZExtValue());
+
+        if (!getProcedure(Offset) && !is_contained(ProcOffsets, Offset))
+          ProcOffsets.push_back(Offset);
+      }
+      FuncLocalCallIntrin->replaceAllUsesWith(FuncGlobalCallIntrin);
+    }
+  } while (!ProcOffsets.empty());
+
+  if (FuncLocalCallIntrin) {
+    assert(FuncLocalCallIntrin->user_empty());
+    FuncLocalCallIntrin->eraseFromParent();
+  }
 }
 
-
-GlobalVariable* Script::getString(StringRef str)
-{
-    GlobalVariable *var;
-    auto it = m_strings.find(str);
-    if (it == m_strings.end())
-    {
-        std::string name = "?string@" + utostr(getId()) + '@' + utostr(m_strings.size());
-        Constant *c = ConstantDataArray::getString(m_module->getContext(), str);
-        var = new GlobalVariable(*getModule(),
-                                 c->getType(),
-                                 true,
-                                 GlobalValue::LinkOnceODRLinkage,
-                                 c,
-                                 name);
-        var->setAlignment(GetWorld().getTypeAlignment(c->getType()));
-        var->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
-        m_strings.insert(std::pair<std::string, GlobalVariable *>(str, var));
-    }
-    else
-    {
-        var = it->second;
-    }
-    return var;
+Procedure *Script::getProcedure(unsigned Offset) const {
+  for (unsigned I = 0, N = ProcCount; I < N; ++I)
+    if (Procs[I].getOffset() == Offset)
+      return &Procs[I];
+  return nullptr;
 }
 
+ArrayRef<Procedure> Script::getProcedures() const {
+  return makeArrayRef(Procs, ProcCount);
+}
 
-GlobalVariable* Script::getLocalString(uint offset)
-{
-    if (offset <= sizeof(SegHeader))
-    {
-        return nullptr;
-    }
-
-    for (uint i = 0, n = m_stringSegCount; i < n; ++i)
-    {
-        SegHeader *seg = m_stringSegs[i];
-        const uint8_t *res = reinterpret_cast<uint8_t *>(seg + 1);
-        uint offsetBegin = getOffsetOf(res);
-        uint offsetEnd = offsetBegin + (static_cast<uint>(seg->size) - sizeof(SegHeader));
-
-        if (offsetBegin <= offset && offset < offsetEnd)
-        {
-            const char *str = getDataAt(offset);
-            return getString(str);
-        }
-    }
+llvm::Value *Script::getLocalVariable(unsigned Idx) const {
+  if (Idx >= LocalCount)
     return nullptr;
+
+  IntegerType *SizeTy = GetWorld().getSizeType();
+  Value *Indices[] = {ConstantInt::get(SizeTy, 0),
+                      ConstantInt::get(SizeTy, Idx)};
+  return GetElementPtrInst::CreateInBounds(Locals, Indices);
 }
 
-
-void Script::sortFunctions()
-{
-    World &world = GetWorld();
-    std::map<uint, Function *> sortedFuncs;
-    for (auto i = m_module->begin(), e = m_module->end(); i != e;)
-    {
-        Function &func = *i++;
-        Procedure *proc = world.getProcedure(func);
-        if (proc != nullptr)
-        {
-            bool isNew = sortedFuncs.emplace(proc->getOffset(), &func).second;
-            assert(isNew);
-            func.removeFromParent();
-        }
-    }
-
-    auto &funcList = m_module->getFunctionList();
-    for (auto &p : sortedFuncs)
-    {
-        funcList.push_back(p.second);
-    }
-}
-
-
-void Script::growProcedureArray(uint count)
-{
-    size_t size = (m_procCount + count) * sizeof(Procedure);
-    void *mem = realloc(m_procs, size);
-    if (mem != m_procs)
-    {
-        if (mem == nullptr)
-        {
-            mem = malloc(size);
-            if (m_procCount > 0)
-            {
-                memcpy(mem, m_procs, m_procCount * sizeof(Procedure));
-                free(m_procs);
-            }
-        }
-
-        // Re-register all procedures.
-        World &world = GetWorld();
-        Procedure *proc = reinterpret_cast<Procedure *>(mem);
-        for (uint i = 0, n = m_procCount; i < n; ++i, ++proc)
-        {
-            world.registerProcedure(*proc);
-        }
-    }
-    m_procs = reinterpret_cast<Procedure *>(mem);
-    m_procCount += count;
-}
-
-
-void Script::loadProcedures(SmallVector<uint, 8> &procOffsets, const ExportTable *exports)
-{
-    World &world = GetWorld();
-    Function *funcGlobalCallIntrin = Intrinsic::Get(Intrinsic::call);
-    Function *funcLocalCallIntrin = nullptr;
-
-    do
-    {
-        if (!procOffsets.empty())
-        {
-            uint count = m_procCount;
-            // Only the first set of procedures are from the export table.
-            bool exported = (count == 0);
-
-            growProcedureArray(static_cast<uint>(procOffsets.size()));
-
-            Procedure *proc = &m_procs[count];
-            for (uint offset : procOffsets)
-            {
-                new(proc) Procedure(offset, *this);
-                Function *func = proc->load();
-                assert(func != nullptr);
-
-                if (exported)
-                {
-                    updateExportTable(exports, offset, func);
-                }
-                else
-                {
-                    func->setLinkage(GlobalValue::InternalLinkage);
-                }
-
-                proc++;
-            }
-            procOffsets.clear();
-        }
-
-        if (funcLocalCallIntrin != nullptr || (funcLocalCallIntrin = getModule()->getFunction(funcGlobalCallIntrin->getName())) != nullptr)
-        {
-            for (User *user : funcLocalCallIntrin->users())
-            {
-                CallInst *call = cast<CallInst>(user);
-                uint offset = static_cast<uint>(cast<ConstantInt>(call->getArgOperand(0))->getZExtValue());
-
-                if (getProcedure(offset) == nullptr && find(procOffsets, offset) == procOffsets.end())
-                {
-                    procOffsets.push_back(offset);
-                }
-            }
-            funcLocalCallIntrin->replaceAllUsesWith(funcGlobalCallIntrin);
-        }
-    }
-    while (!procOffsets.empty());
-
-    if (funcLocalCallIntrin != nullptr)
-    {
-        assert(funcLocalCallIntrin->user_empty());
-        funcLocalCallIntrin->eraseFromParent();
-    }
-}
-
-
-Procedure* Script::getProcedure(uint offset) const
-{
-    for (uint i = 0, n = m_procCount; i < n; ++i)
-    {
-        if (m_procs[i].getOffset() == offset)
-        {
-            return &m_procs[i];
-        }
-    }
+llvm::Value *Script::getGlobalVariable(unsigned Idx) {
+  if (Idx >= GetWorld().getGlobalVariablesCount())
     return nullptr;
+
+  IntegerType *SizeTy = GetWorld().getSizeType();
+  Value *Indices[] = {ConstantInt::get(SizeTy, 0),
+                      ConstantInt::get(SizeTy, Idx)};
+  return GetElementPtrInst::CreateInBounds(getGlobalVariables(), Indices);
 }
 
-
-ArrayRef<Procedure> Script::getProcedures() const
-{
-    return makeArrayRef(m_procs, m_procCount);
+llvm::GlobalVariable *Script::getGlobalVariables() {
+  if (!Globals) {
+    World &W = GetWorld();
+    ArrayType *ArrTy =
+        ArrayType::get(W.getSizeType(), W.getGlobalVariablesCount());
+    Globals = new GlobalVariable(*getModule(), ArrTy, false,
+                                 GlobalValue::ExternalLinkage, nullptr,
+                                 "g_globalVars");
+    Globals->setAlignment(16);
+  }
+  return Globals;
 }
 
-
-llvm::Value* Script::getLocalVariable(uint idx) const
-{
-    if (idx >= m_localCount)
-    {
-        return nullptr;
-    }
-
-    IntegerType *sizeTy = GetWorld().getSizeType();
-    Value *indices[] = {
-        ConstantInt::get(sizeTy, 0),
-        ConstantInt::get(sizeTy, idx)
-    };
-    return GetElementPtrInst::CreateInBounds(m_locals, indices);
+GlobalObject *Script::getExportedValue(unsigned Idx) const {
+  return (Idx < ExportCount) ? Exports[Idx] : nullptr;
 }
 
-
-llvm::Value* Script::getGlobalVariable(uint idx)
-{
-    if (idx >= GetWorld().getGlobalVariablesCount())
-    {
-        return nullptr;
-    }
-
-    IntegerType *sizeTy = GetWorld().getSizeType();
-    Value *indices[] = {
-        ConstantInt::get(sizeTy, 0),
-        ConstantInt::get(sizeTy, idx)
-    };
-    return GetElementPtrInst::CreateInBounds(getGlobalVariables(), indices);
+Value *Script::getRelocatedValue(unsigned Offset) const {
+  auto It = RelocTbl.find(Offset);
+  return (It != RelocTbl.end()) ? It->second : nullptr;
 }
 
-
-llvm::GlobalVariable* Script::getGlobalVariables()
-{
-    if (m_globals == nullptr)
-    {
-        World &world = GetWorld();
-        ArrayType *arrTy = ArrayType::get(world.getSizeType(), world.getGlobalVariablesCount());
-        m_globals = new GlobalVariable(*getModule(), arrTy, false, GlobalValue::ExternalLinkage, nullptr, "g_globalVars");
-        m_globals->setAlignment(16);
-    }
-    return m_globals;
+unsigned Script::getObjectId(const Object &Obj) const {
+  assert(Objects <= (&Obj) && (&Obj) < (Objects + ObjectCount));
+  return (&Obj) - Objects;
 }
 
-
-GlobalObject* Script::getExportedValue(uint idx) const
-{
-    return (idx < m_exportCount) ? m_exports[idx] : nullptr;
+Object *Script::getObject(unsigned OID) const {
+  return (OID < ObjectCount) ? &Objects[OID] : nullptr;
 }
 
-
-Value* Script::getRelocatedValue(uint offset) const
-{
-    auto it = m_relocTable.find(offset);
-    return (it != m_relocTable.end()) ? it->second : nullptr;
+Object *Script::addObject(const ObjRes &Res) {
+  Object *Obj = &Objects[ObjectCount++];
+  new (Obj) Object(Res, *this);
+  return Obj;
 }
 
-
-uint Script::getObjectId(const Object &obj) const
-{
-    assert(m_objects <= (&obj) && (&obj) < (m_objects + m_objectCount));
-    return (&obj) - m_objects;
+const char *Script::getDataAt(unsigned Offset) const {
+  return (static_cast<int16_t>(Offset) > 0)
+             ? reinterpret_cast<const char *>(Hunk) + Offset
+             : nullptr;
 }
 
-
-Object* Script::getObject(uint id) const
-{
-    return (id < m_objectCount) ? &m_objects[id] : nullptr;
+unsigned Script::getOffsetOf(const void *Data) const {
+  return (reinterpret_cast<uintptr_t>(Data) > reinterpret_cast<uintptr_t>(Hunk))
+             ? reinterpret_cast<const char *>(Data) -
+                   reinterpret_cast<const char *>(Hunk)
+             : 0;
 }
 
-
-Object* Script::addObject(const ObjRes &res)
-{
-    Object *obj = &m_objects[m_objectCount++];
-    new(obj) Object(res, *this);
-    return obj;
+Object *Script::lookupObject(GlobalVariable &Var) const {
+  for (unsigned I = 0, N = ObjectCount; I < N; ++I)
+    if (Objects[I].getGlobal() == &Var)
+      return &Objects[I];
+  return nullptr;
 }
-
-
-const char* Script::getDataAt(uint offset) const
-{
-    return (static_cast<int16_t>(offset) > 0) ?
-        reinterpret_cast<const char *>(m_hunk) + offset :
-        nullptr;
-}
-
-
-uint Script::getOffsetOf(const void *data) const
-{
-    return (reinterpret_cast<uintptr_t>(data) > reinterpret_cast<uintptr_t>(m_hunk)) ?
-        reinterpret_cast<const char *>(data) - reinterpret_cast<const char *>(m_hunk) :
-        0;
-}
-
-
-Object* Script::lookupObject(GlobalVariable &var) const
-{
-    for (uint i = 0, n = m_objectCount; i < n; ++i)
-    {
-        if (m_objects[i].getGlobal() == &var)
-        {
-            return &m_objects[i];
-        }
-    }
-    return nullptr;
-}
-
-
-END_NAMESPACE_SCI

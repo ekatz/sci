@@ -1,485 +1,345 @@
-#include "Class.hpp"
-#include "Object.hpp"
-#include "Method.hpp"
-#include "Property.hpp"
-#include "World.hpp"
-#include "Script.hpp"
-#include "Resource.hpp"
-#include "Decl.hpp"
+//===- Class.cpp ----------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
 
+#include "Class.hpp"
+#include "Decl.hpp"
+#include "Method.hpp"
+#include "Object.hpp"
+#include "Property.hpp"
+#include "Resource.hpp"
+#include "Script.hpp"
+#include "World.hpp"
+
+using namespace sci;
 using namespace llvm;
 
-
-BEGIN_NAMESPACE_SCI
-
-
-static uint CalcNumInheritedElements(StructType *s)
-{
-    uint num = 0;
-    for (auto i = s->element_begin(), e = s->element_end(); i != e; ++i)
-    {
-        if ((*i)->isIntegerTy())
-        {
-            num++;
-        }
-        else
-        {
-            num += CalcNumInheritedElements(cast<StructType>(*i));
-        }
-    }
-    return num;
-}
-
-
-StructType* Class::GetAbstractType()
-{
-    return GetWorld().getAbstractClassType();
-}
-
-
-Class* Class::Get(uint id)
-{
-    return GetWorld().getClass(id);
-}
-
-
-Class::Class(const ObjRes &res, Script &script) :
-    m_script(script),
-    m_species(nullptr),
-    m_methodOffs(nullptr),
-    m_props(nullptr),
-    m_overloadMethods(nullptr)
-{
-    assert(res.magic == OBJID);
-
-    World &world = GetWorld();
-    SelectorTable &sels = world.getSelectorTable();
-    IntegerType *sizeTy = world.getSizeType();
-    IntegerType *i16Ty = Type::getInt16Ty(world.getContext());
-    uint i, n;
-
-    m_id = res.speciesSel;
-    m_super = world.getClass(selector_cast<uint>(res.superSel));
-    m_depth = (m_super != nullptr) ? m_super->m_depth + 1 : 0;
-
-    const int16_t *propVals = res.getPropertyValues();
-    m_propCount = res.getPropertyCount();
-    if (m_propCount > 0)
-    {
-        size_t size = m_propCount * sizeof(Property);
-        m_props = reinterpret_cast<Property *>(malloc(size));
-        memset(m_props, 0, size);
-
-        if (res.isClass())
-        {
-            const ObjID *propSels = res.getPropertySelectors();
-            for (i = 0, n = m_propCount; i < n; ++i)
-            {
-                new(&m_props[i]) Property(propSels[i], propVals[i], *this);
-                sels.addProperty(m_props[i], i);
-            }
-
-            if (m_super != nullptr)
-            {
-                ArrayRef<Property> superProps = m_super->getProperties();
-                assert(superProps.size() <= m_propCount);
-                for (i = 0, n = superProps.size(); i < n; ++i)
-                {
-                    assert(m_props[i].getSelector() == superProps[i].getSelector());
-                }
-            }
-        }
-        else
-        {
-            assert(m_super != nullptr && m_super->getPropertyCount() <= m_propCount);
-            ArrayRef<Property> superProps = m_super->getProperties();
-            for (i = 0, n = superProps.size(); i < n; ++i)
-            {
-                new(&m_props[i]) Property(static_cast<ObjID>(superProps[i].getSelector()), propVals[i], *this);
-                sels.addProperty(m_props[i], i);
-            }
-        }
-    }
-
-    std::vector<Type *> args;
-    n = m_propCount;
-    if (m_super != nullptr)
-    {
-        args.push_back(m_super->getType());
-        i = m_super->getPropertyCount();
-        assert(i != 0);
-        assert((i + 1) == CalcNumInheritedElements(m_super->getType()));
-    }
+static unsigned CalcNumInheritedElements(StructType *STy) {
+  unsigned Num = 0;
+  for (Type *ElemTy : STy->elements())
+    if (ElemTy->isIntegerTy())
+      Num++;
     else
-    {
-        // Add the species pointer.
-        args.push_back(sizeTy);
-        i = 0;
-    }
-    for (; i < n; ++i)
-    {
-        args.push_back(sizeTy);
-    }
+      Num += CalcNumInheritedElements(cast<StructType>(ElemTy));
+  return Num;
+}
 
-    StringRef name;
-    std::string nameStr;
-    const char *nameSel = m_script.getDataAt(res.nameSel);
-    if (nameSel != nullptr && nameSel[0] != '\0')
-    {
-        if (m_super != nullptr && m_super->getName() == "MenuBar@255")
-        {
-            nameStr = "TheMenuBar";
+StructType *Class::GetAbstractType() {
+  return GetWorld().getAbstractClassType();
+}
+
+Class *Class::get(unsigned ClassID) { return GetWorld().getClass(ClassID); }
+
+Class::Class(const ObjRes &Res, Script &S)
+    : TheScript(S), Species(nullptr), MethodOffs(nullptr), Props(nullptr),
+      OverloadMethods(nullptr) {
+  assert(Res.magic == OBJID);
+
+  World &W = GetWorld();
+  SelectorTable &Sels = W.getSelectorTable();
+  IntegerType *SizeTy = W.getSizeType();
+  IntegerType *Int16Ty = Type::getInt16Ty(W.getContext());
+  unsigned I, N;
+
+  ID = Res.speciesSel;
+  Super = W.getClass(selector_cast<unsigned>(Res.superSel));
+  Depth = (Super != nullptr) ? Super->Depth + 1 : 0;
+
+  const int16_t *PropVals = Res.getPropertyValues();
+  PropCount = Res.getPropertyCount();
+  if (PropCount > 0) {
+    size_t Size = PropCount * sizeof(Property);
+    Props = reinterpret_cast<Property *>(malloc(Size));
+    memset(Props, 0, Size);
+
+    if (Res.isClass()) {
+      const ObjID *propSels = Res.getPropertySelectors();
+      for (I = 0, N = PropCount; I < N; ++I) {
+        new (&Props[I]) Property(propSels[I], PropVals[I], *this);
+        Sels.addProperty(Props[I], I);
+      }
+
+      if (Super != nullptr) {
+        ArrayRef<Property> SuperProps = Super->getProperties();
+        assert(SuperProps.size() <= PropCount);
+        for (I = 0, N = SuperProps.size(); I < N; ++I) {
+          assert(Props[I].getSelector() == SuperProps[I].getSelector());
         }
+      }
+    } else {
+      assert(Super != nullptr && Super->getPropertyCount() <= PropCount);
+      ArrayRef<Property> SuperProps = Super->getProperties();
+      for (I = 0, N = SuperProps.size(); I < N; ++I) {
+        new (&Props[I])
+            Property(static_cast<ObjID>(SuperProps[I].getSelector()),
+                     PropVals[I], *this);
+        Sels.addProperty(Props[I], I);
+      }
+    }
+  }
+
+  std::vector<Type *> Args;
+  N = PropCount;
+  if (Super != nullptr) {
+    Args.push_back(Super->getType());
+    I = Super->getPropertyCount();
+    assert(I != 0);
+    assert((I + 1) == CalcNumInheritedElements(Super->getType()));
+  } else {
+    // Add the species pointer.
+    Args.push_back(SizeTy);
+    I = 0;
+  }
+  for (; I < N; ++I)
+    Args.push_back(SizeTy);
+
+  StringRef Name;
+  std::string NameStr;
+  const char *NameSel = TheScript.getDataAt(Res.nameSel);
+  if (NameSel != nullptr && NameSel[0] != '\0') {
+    if (Super != nullptr && Super->getName() == "MenuBar@255")
+      NameStr = "TheMenuBar";
+    else
+      NameStr = NameSel;
+  } else {
+    if (S.getId() == 255) {
+      if (ID == 9)
+        NameStr = "MenuBar";
+      else if (ID == 10)
+        NameStr = "DItem";
+    }
+    if (NameStr.empty()) {
+      NameStr = Res.isClass() ? "Class" : "obj";
+      NameStr += '@' + utostr(getId());
+    }
+  }
+  NameStr += '@' + utostr(TheScript.getId());
+  Name = NameStr;
+
+  Ty = StructType::create(W.getContext(), Args, Name);
+
+  const uint16_t *MethodOffs = Res.getMethodOffsets();
+  const ObjID *MethodSels = Res.getMethodSelectors();
+  OverloadMethodCount = Res.getMethodCount();
+  if (OverloadMethodCount > 0) {
+    size_t Size = OverloadMethodCount * sizeof(Method);
+    OverloadMethods = reinterpret_cast<Method *>(malloc(Size));
+    memset(OverloadMethods, 0, Size);
+
+    for (I = 0, N = OverloadMethodCount; I < N; ++I)
+      new (&OverloadMethods[I]) Method(MethodSels[I], MethodOffs[I], *this);
+  }
+
+  createMethods();
+  createSpecies();
+}
+
+Class::~Class() {
+  if (OverloadMethods != nullptr) {
+    for (unsigned I = 0, N = OverloadMethodCount; I < N; ++I)
+      OverloadMethods[I].~Method();
+    free(OverloadMethods);
+  }
+
+  if (Props != nullptr) {
+    for (unsigned I = 0, N = PropCount; I < N; ++I)
+      Props[I].~Property();
+    free(Props);
+  }
+}
+
+StringRef Class::getName() const { return Ty->getName(); }
+
+ArrayRef<Method> Class::getOverloadedMethods() const {
+  return makeArrayRef(OverloadMethods, OverloadMethodCount);
+}
+
+ArrayRef<Method *> Class::getMethods() const {
+  return makeArrayRef(Methods.get(), MethodCount);
+}
+
+Method *Class::getMethod(unsigned MethodID) const {
+  int Index;
+  return getMethod(MethodID, Index);
+}
+
+Method *Class::getMethod(unsigned MethodID, int &Index) const {
+  Index = findMethod(MethodID);
+  return (Index >= 0) ? Methods[Index] : nullptr;
+}
+
+Property *Class::getProperty(unsigned PropID) const {
+  int Index;
+  return getProperty(PropID, Index);
+}
+
+Property *Class::getProperty(unsigned PropID, int &Index) const {
+  Index = findProperty(PropID);
+  return (Index >= 0) ? &Props[Index] : nullptr;
+}
+
+ArrayRef<Property> Class::getProperties() const {
+  return makeArrayRef(Props, PropCount);
+}
+
+Module &Class::getModule() const { return *TheScript.getModule(); }
+
+void Class::createSpecies() {
+  World &W = GetWorld();
+  LLVMContext &Ctx = W.getContext();
+  Module &M = getModule();
+  PointerType *Int8PtrTy = Type::getInt8PtrTy(Ctx);
+  IntegerType *Int16Ty = Type::getInt16Ty(Ctx);
+
+  MethodOffs =
+      new GlobalVariable(M, ArrayType::get(Int8PtrTy, MethodCount), true,
+                         GlobalValue::LinkOnceODRLinkage, nullptr,
+                         std::string("?methodOffs@") + getName());
+  MethodOffs->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+  MethodOffs->setAlignment(W.getTypeAlignment(Int8PtrTy));
+
+  GlobalVariable *MethodSels;
+  MethodSels =
+      new GlobalVariable(M, ArrayType::get(Int16Ty, MethodCount + 1), true,
+                         GlobalValue::LinkOnceODRLinkage, nullptr,
+                         std::string("?methodSels@") + getName());
+  MethodSels->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+  MethodSels->setAlignment(W.getTypeAlignment(Int16Ty));
+
+  GlobalVariable *PropSels;
+  PropSels = new GlobalVariable(M, ArrayType::get(Int16Ty, PropCount + 1), true,
+                                GlobalValue::LinkOnceODRLinkage, nullptr,
+                                std::string("?propSels@") + getName());
+  PropSels->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+  PropSels->setAlignment(W.getTypeAlignment(Int16Ty));
+
+  Species = new GlobalVariable(M, ArrayType::get(Int8PtrTy, 4), true,
+                               GlobalValue::LinkOnceODRLinkage, nullptr,
+                               std::string("?species@") + getName());
+  Species->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+  Species->setAlignment(W.getTypeAlignment(Int8PtrTy));
+
+  std::unique_ptr<Constant *[]> InitVals(
+      new Constant *[std::max({MethodCount + 1, PropCount + 1, 4U})]);
+  Constant *C;
+  ArrayType *ArrTy;
+  Type *ElemTy;
+
+  ArrTy = cast<ArrayType>(MethodSels->getType()->getElementType());
+  InitVals[0] = ConstantInt::get(Int16Ty, MethodCount);
+
+  for (unsigned I = 0, N = MethodCount; I < N; ++I) {
+    InitVals[I + 1] = ConstantInt::get(Int16Ty, Methods[I]->getSelector());
+  }
+
+  C = ConstantArray::get(ArrTy, makeArrayRef(InitVals.get(), MethodCount + 1));
+  MethodSels->setInitializer(C);
+
+  ArrTy = cast<ArrayType>(PropSels->getType()->getElementType());
+  InitVals[0] = ConstantInt::get(Int16Ty, PropCount);
+
+  for (unsigned I = 0, N = PropCount; I < N; ++I) {
+    InitVals[I + 1] = ConstantInt::get(Int16Ty, Props[I].getSelector());
+  }
+
+  C = ConstantArray::get(ArrTy, makeArrayRef(InitVals.get(), PropCount + 1));
+  PropSels->setInitializer(C);
+
+  ArrTy = cast<ArrayType>(Species->getType()->getElementType());
+  ElemTy = ArrTy->getElementType();
+
+  if (Super != nullptr) {
+    GlobalVariable *SuperSpecies =
+        getGlobalVariableDecl(Super->getSpecies(), &M);
+    InitVals[0] = ConstantExpr::getBitCast(SuperSpecies, ElemTy);
+  } else {
+    InitVals[0] = Constant::getNullValue(ElemTy);
+  }
+  InitVals[1] = ConstantExpr::getBitCast(PropSels, ElemTy);
+  InitVals[2] = ConstantExpr::getBitCast(MethodSels, ElemTy);
+  InitVals[3] = ConstantExpr::getBitCast(MethodOffs, ElemTy);
+
+  C = ConstantArray::get(ArrTy, makeArrayRef(InitVals.get(), 4));
+  Species->setInitializer(C);
+}
+
+int Class::findProperty(unsigned PropID) const {
+  for (unsigned I = 0, N = PropCount; I < N; ++I)
+    if (Props[I].getSelector() == PropID)
+      return static_cast<int>(I);
+  return -1;
+}
+
+int Class::findMethod(unsigned MethodID) const {
+  for (unsigned I = 0, N = MethodCount; I < N; ++I)
+    if (Methods[I]->getSelector() == MethodID)
+      return static_cast<int>(I);
+  return -1;
+}
+
+unsigned Class::countMethods() const {
+  unsigned Count;
+  if (Super && Super->getMethodCount()) {
+    Count = Super->getMethodCount();
+    for (unsigned I = 0, N = OverloadMethodCount; I < N; ++I)
+      if (Super->findMethod(OverloadMethods[I].getSelector()) < 0)
+        Count++;
+  } else
+    Count = OverloadMethodCount;
+  return Count;
+}
+
+void Class::createMethods() {
+  MethodCount = countMethods();
+  if (MethodCount) {
+    Methods.reset(new Method *[MethodCount]);
+
+    if (Super && Super->getMethodCount()) {
+      unsigned Count = Super->getMethodCount();
+      memcpy(Methods.get(), Super->Methods.get(), Count * sizeof(Method *));
+
+      for (unsigned I = 0, N = OverloadMethodCount; I < N; ++I) {
+        Method *method = &OverloadMethods[I];
+        int Pos = Super->findMethod(method->getSelector());
+        if (Pos >= 0)
+          Methods[Pos] = method;
         else
-        {
-            nameStr = nameSel;
-        }
-    }
-    else
-    {
-        if (script.getId() == 255)
-        {
-            if (m_id == 9)
-            {
-                nameStr = "MenuBar";
-            }
-            else if (m_id == 10)
-            {
-                nameStr = "DItem";
-            }
-        }
-        if (nameStr.empty())
-        {
-            nameStr = res.isClass() ? "Class" : "obj";
-            nameStr += '@' + utostr(getId());
-        }
-    }
-    nameStr += '@' + utostr(m_script.getId());
-    name = nameStr;
-
-    m_type = StructType::create(world.getContext(), args, name);
-
-    const uint16_t *methodOffs = res.getMethodOffsets();
-    const ObjID *methodSels = res.getMethodSelectors();
-    m_overloadMethodCount = res.getMethodCount();
-    if (m_overloadMethodCount > 0)
-    {
-        size_t size = m_overloadMethodCount * sizeof(Method);
-        m_overloadMethods = reinterpret_cast<Method *>(malloc(size));
-        memset(m_overloadMethods, 0, size);
-
-        for (i = 0, n = m_overloadMethodCount; i < n; ++i)
-        {
-            new(&m_overloadMethods[i]) Method(methodSels[i], methodOffs[i], *this);
-        }
-    }
-
-    createMethods();
-    createSpecies();
+          Methods[Count++] = method;
+      }
+    } else
+      for (unsigned I = 0, N = OverloadMethodCount; I < N; ++I)
+        Methods[I] = &OverloadMethods[I];
+  }
 }
 
-
-Class::~Class()
-{
-    if (m_overloadMethods != nullptr)
-    {
-        for (uint i = 0, n = m_overloadMethodCount; i < n; ++i)
-        {
-            m_overloadMethods[i].~Method();
-        }
-        free(m_overloadMethods);
-    }
-
-    if (m_props != nullptr)
-    {
-        for (uint i = 0, n = m_propCount; i < n; ++i)
-        {
-            m_props[i].~Property();
-        }
-        free(m_props);
-    }
-}
-
-
-StringRef Class::getName() const
-{
-    return m_type->getName();
-}
-
-
-ArrayRef<Method> Class::getOverloadedMethods() const
-{
-    return makeArrayRef(m_overloadMethods, m_overloadMethodCount);
-}
-
-
-ArrayRef<Method*> Class::getMethods() const
-{
-    return makeArrayRef(m_methods.get(), m_methodCount);
-}
-
-
-Method* Class::getMethod(uint id) const
-{
-    int index;
-    return getMethod(id, index);
-}
-
-
-Method* Class::getMethod(uint id, int &index) const
-{
-    index = findMethod(id);
-    return (index >= 0) ? m_methods[index] : nullptr;
-}
-
-
-Property* Class::getProperty(uint id) const
-{
-    int index;
-    return getProperty(id, index);
-}
-
-
-Property* Class::getProperty(uint id, int &index) const
-{
-    index = findProperty(id);
-    return (index >= 0) ? &m_props[index] : nullptr;
-}
-
-
-ArrayRef<Property> Class::getProperties() const
-{
-    return makeArrayRef(m_props, m_propCount);
-}
-
-
-Module& Class::getModule() const
-{
-    return *m_script.getModule();
-}
-
-
-void Class::createSpecies()
-{
-    World &world = GetWorld();
-    LLVMContext &ctx = world.getContext();
-    Module &module = getModule();
-    PointerType *int8PtrTy = Type::getInt8PtrTy(ctx);
-    IntegerType *int16Ty = Type::getInt16Ty(ctx);
-
-    m_methodOffs = new GlobalVariable(module,
-                                      ArrayType::get(int8PtrTy, m_methodCount),
-                                      true,
-                                      GlobalValue::LinkOnceODRLinkage,
-                                      nullptr,
-                                      std::string("?methodOffs@") + getName());
-    m_methodOffs->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
-    m_methodOffs->setAlignment(world.getTypeAlignment(int8PtrTy));
-
-    GlobalVariable *methodSels;
-    methodSels = new GlobalVariable(module,
-                                    ArrayType::get(int16Ty, m_methodCount + 1),
-                                    true,
-                                    GlobalValue::LinkOnceODRLinkage,
-                                    nullptr,
-                                    std::string("?methodSels@") + getName());
-    methodSels->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
-    methodSels->setAlignment(world.getTypeAlignment(int16Ty));
-
-    GlobalVariable *propSels;
-    propSels = new GlobalVariable(module,
-                                  ArrayType::get(int16Ty, m_propCount + 1),
-                                  true,
-                                  GlobalValue::LinkOnceODRLinkage,
-                                  nullptr,
-                                  std::string("?propSels@") + getName());
-    propSels->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
-    propSels->setAlignment(world.getTypeAlignment(int16Ty));
-
-    m_species = new GlobalVariable(module,
-                                   ArrayType::get(int8PtrTy, 4),
-                                   true,
-                                   GlobalValue::LinkOnceODRLinkage,
-                                   nullptr,
-                                   std::string("?species@") + getName());
-    m_species->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
-    m_species->setAlignment(world.getTypeAlignment(int8PtrTy));
-
-
-    std::unique_ptr<Constant*[]> initVals(new Constant*[std::max({ m_methodCount + 1, m_propCount + 1, 4U })]);
-    Constant *c;
-    ArrayType *arrTy;
-    Type *elemTy;
-
-
-    arrTy = cast<ArrayType>(methodSels->getType()->getElementType());
-    initVals[0] = ConstantInt::get(int16Ty, m_methodCount);
-
-    for (uint i = 0, n = m_methodCount; i < n; ++i)
-    {
-        initVals[i + 1] = ConstantInt::get(int16Ty, m_methods[i]->getSelector());
-    }
-
-    c = ConstantArray::get(arrTy, makeArrayRef(initVals.get(), m_methodCount + 1));
-    methodSels->setInitializer(c);
-
-
-    arrTy = cast<ArrayType>(propSels->getType()->getElementType());
-    initVals[0] = ConstantInt::get(int16Ty, m_propCount);
-
-    for (uint i = 0, n = m_propCount; i < n; ++i)
-    {
-        initVals[i + 1] = ConstantInt::get(int16Ty, m_props[i].getSelector());
-    }
-
-    c = ConstantArray::get(arrTy, makeArrayRef(initVals.get(), m_propCount + 1));
-    propSels->setInitializer(c);
-
-
-    arrTy = cast<ArrayType>(m_species->getType()->getElementType());
-    elemTy = arrTy->getElementType();
-
-    if (m_super != nullptr)
-    {
-        GlobalVariable *superSpecies = GetGlobalVariableDecl(m_super->getSpecies(), &module);
-        initVals[0] = ConstantExpr::getBitCast(superSpecies, elemTy);
-    }
-    else
-    {
-        initVals[0] = Constant::getNullValue(elemTy);
-    }
-    initVals[1] = ConstantExpr::getBitCast(propSels, elemTy);
-    initVals[2] = ConstantExpr::getBitCast(methodSels, elemTy);
-    initVals[3] = ConstantExpr::getBitCast(m_methodOffs, elemTy);
-
-    c = ConstantArray::get(arrTy, makeArrayRef(initVals.get(), 4));
-    m_species->setInitializer(c);
-}
-
-
-int Class::findProperty(uint id) const
-{
-    for (uint i = 0, n = m_propCount; i < n; ++i)
-    {
-        if (m_props[i].getSelector() == id)
-        {
-            return static_cast<int>(i);
-        }
-    }
-    return -1;
-}
-
-
-int Class::findMethod(uint id) const
-{
-    for (uint i = 0, n = m_methodCount; i < n; ++i)
-    {
-        if (m_methods[i]->getSelector() == id)
-        {
-            return static_cast<int>(i);
-        }
-    }
-    return -1;
-}
-
-
-uint Class::countMethods() const
-{
-    uint count;
-    if (m_super != nullptr && m_super->getMethodCount() > 0)
-    {
-        count = m_super->getMethodCount();
-        for (uint i = 0, n = m_overloadMethodCount; i < n; ++i)
-        {
-            if (m_super->findMethod(m_overloadMethods[i].getSelector()) < 0)
-            {
-                count++;
-            }
-        }
-    }
-    else
-    {
-        count = m_overloadMethodCount;
-    }
-    return count;
-}
-
-
-void Class::createMethods()
-{
-    m_methodCount = countMethods();
-    if (m_methodCount > 0)
-    {
-        m_methods.reset(new Method*[m_methodCount]);
-
-        if (m_super != nullptr && m_super->getMethodCount() > 0)
-        {
-            uint count = m_super->getMethodCount();
-            memcpy(m_methods.get(), m_super->m_methods.get(), count * sizeof(Method*));
-
-            for (uint i = 0, n = m_overloadMethodCount; i < n; ++i)
-            {
-                Method *method = &m_overloadMethods[i];
-                int pos = m_super->findMethod(method->getSelector());
-                if (pos >= 0)
-                {
-                    m_methods[pos] = method;
-                }
-                else
-                {
-                    m_methods[count++] = method;
-                }
-            }
-        }
-        else
-        {
-            for (uint i = 0, n = m_overloadMethodCount; i < n; ++i)
-            {
-                m_methods[i] = &m_overloadMethods[i];
-            }
-        }
-    }
-}
-
-
-bool Class::loadMethods()
-{
-    if (m_methodOffs->hasInitializer())
-    {
-        return true;
-    }
-
-    SelectorTable &sels = GetWorld().getSelectorTable();
-    ArrayType *arrTy = cast<ArrayType>(m_methodOffs->getType()->getElementType());
-    Type *elemTy = arrTy->getElementType();
-
-    std::unique_ptr<Constant*[]> offsInit(new Constant*[m_methodCount]);
-
-    for (uint i = 0, n = m_methodCount; i < n; ++i)
-    {
-        Method *method = m_methods[i];
-        sels.addMethod(*method, i);
-
-        Function *func = method->load();
-        if (func == nullptr)
-        {
-            return false;
-        }
-
-        func = GetFunctionDecl(func, &getModule());
-        offsInit[i] = ConstantExpr::getBitCast(func, elemTy);
-    }
-
-    Constant *c = ConstantArray::get(arrTy, makeArrayRef(offsInit.get(), m_methodCount));
-    m_methodOffs->setInitializer(c);
+bool Class::loadMethods() {
+  if (MethodOffs->hasInitializer())
     return true;
+
+  SelectorTable &Sels = GetWorld().getSelectorTable();
+  ArrayType *ArrTy = cast<ArrayType>(MethodOffs->getType()->getElementType());
+  Type *ElemTy = ArrTy->getElementType();
+
+  std::unique_ptr<Constant *[]> OffsInit(new Constant *[MethodCount]);
+
+  for (unsigned I = 0, N = MethodCount; I < N; ++I) {
+    Method *method = Methods[I];
+    Sels.addMethod(*method, I);
+
+    Function *Func = method->load();
+    if (!Func)
+      return false;
+
+    Func = getFunctionDecl(Func, &getModule());
+    OffsInit[I] = ConstantExpr::getBitCast(Func, ElemTy);
+  }
+
+  Constant *C =
+      ConstantArray::get(ArrTy, makeArrayRef(OffsInit.get(), MethodCount));
+  MethodOffs->setInitializer(C);
+  return true;
 }
 
-
-bool Class::isObject() const
-{
-    return (GetWorld().getClass(m_id) != this);
-}
-
-
-END_NAMESPACE_SCI
+bool Class::isObject() const { return (GetWorld().getClass(ID) != this); }

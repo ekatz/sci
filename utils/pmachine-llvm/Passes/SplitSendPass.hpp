@@ -1,26 +1,30 @@
-#pragma once
-#ifndef _SplitSendPass_HPP_
-#define _SplitSendPass_HPP_
+//===- Passes/SplitSendPass.hpp -------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef SCI_UTILS_PMACHINE_LLVM_PASSES_SPLITSENDPASS_HPP
+#define SCI_UTILS_PMACHINE_LLVM_PASSES_SPLITSENDPASS_HPP
 
 #include "../Types.hpp"
-#include <llvm/IR/Instructions.h>
+#include "llvm/IR/Instructions.h"
 
-BEGIN_NAMESPACE_SCI
+namespace sci {
 
-class SplitSendPass
-{
+class SplitSendPass {
 public:
-    SplitSendPass();
-    ~SplitSendPass();
+  SplitSendPass();
+  ~SplitSendPass();
 
-    void run();
+  void run();
 
 private:
-    bool splitSend(llvm::CallInst *callSend);
+  bool splitSend(llvm::CallInst *CallSend);
 
-    std::unique_ptr<llvm::Function> m_fnStubSend;
+  std::unique_ptr<llvm::Function> FnStubSend;
 };
 
-END_NAMESPACE_SCI
+} // end namespace sci
 
-#endif // !_SplitSendPass_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_PASSES_SPLITSENDPASS_HPP

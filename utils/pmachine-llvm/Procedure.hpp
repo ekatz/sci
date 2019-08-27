@@ -1,43 +1,47 @@
-#pragma once
-#ifndef _Procedure_HPP_
-#define _Procedure_HPP_
+//===- Procedure.hpp ------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef SCI_UTILS_PMACHINE_LLVM_PROCEDURE_HPP
+#define SCI_UTILS_PMACHINE_LLVM_PROCEDURE_HPP
 
 #include "Types.hpp"
-#include <llvm/IR/Function.h>
+#include "llvm/IR/Function.h"
 
-BEGIN_NAMESPACE_SCI
+namespace sci {
 
 class Script;
 class Class;
 class Method;
 
-class Procedure
-{
+class Procedure {
 public:
-    Procedure(uint16_t offset, Script &script);
+  Procedure(uint16_t Offset, Script &S);
 
-    llvm::Function* load();
+  llvm::Function *load();
 
-    llvm::Function* getFunction() const { return m_func; }
-    uint getOffset() const { return m_offset; }
+  llvm::Function *getFunction() const { return Func; }
+  unsigned getOffset() const { return Offset; }
 
-    bool isMethod() const;
-    const Method* asMethod() const;
-    Method* asMethod();
+  bool isMethod() const;
+  const Method *asMethod() const;
+  Method *asMethod();
 
-    Script& getScript() const { return m_script; }
+  Script &getScript() const { return TheScript; }
 
 protected:
-    Procedure(ObjID selector, uint16_t offset, Script &script);
-    llvm::Function* load(StringRef name, Class *cls = nullptr);
+  Procedure(ObjID Selector, uint16_t Offset, Script &S);
+  llvm::Function *load(StringRef Name, Class *Cls = nullptr);
 
-    const ObjID m_selector;
-    const uint16_t m_offset;
+  const ObjID Selector;
+  const uint16_t Offset;
 
-    llvm::Function *m_func;
-    Script &m_script;
+  llvm::Function *Func;
+  Script &TheScript;
 };
 
-END_NAMESPACE_SCI
+} // end namespace sci
 
-#endif // !_Procedure_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_PROCEDURE_HPP

@@ -1,73 +1,52 @@
+//===- Procedure.cpp ------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
 #include "Procedure.hpp"
 #include "Method.hpp"
-#include "Script.hpp"
 #include "PMachine.hpp"
+#include "Script.hpp"
 
+using namespace sci;
 using namespace llvm;
 
+Procedure::Procedure(uint16_t Offset, Script &Script)
+    : Procedure((ObjID)-1, Offset, Script) {}
 
-BEGIN_NAMESPACE_SCI
+Procedure::Procedure(ObjID Selector, uint16_t Offset, Script &S)
+    : Selector(Selector), Offset(Offset), Func(nullptr), TheScript(S) {}
 
-
-Procedure::Procedure(uint16_t offset, Script &script) :
-    Procedure((ObjID)-1, offset, script)
-{
+Function *Procedure::load() {
+  if (!Func) {
+    std::string Name = "proc@";
+    Name += utohexstr(Offset, true);
+    Name += '@';
+    Name += utostr(TheScript.getId());
+    load(Name);
+  }
+  return Func;
 }
 
+Function *Procedure::load(StringRef Name, Class *Cls) {
+  PMachine Machine(TheScript);
+  const uint8_t *Code =
+      reinterpret_cast<const uint8_t *>(TheScript.getDataAt(Offset));
+  Func = Machine.interpretFunction(Code, Name,
+                                   selector_cast<unsigned>(Selector), Cls);
 
-Procedure::Procedure(ObjID selector, uint16_t offset, Script &script) :
-    m_selector(selector),
-    m_offset(offset),
-    m_func(nullptr),
-    m_script(script)
-{
+  if (Func)
+    GetWorld().registerProcedure(*this);
+  return Func;
 }
 
+bool Procedure::isMethod() const { return (Selector != -1U); }
 
-Function* Procedure::load()
-{
-    if (m_func == nullptr)
-    {
-        std::string name = "proc@";
-        name += utohexstr(m_offset, true);
-        name += '@';
-        name += utostr(m_script.getId());
-        load(name);
-    }
-    return m_func;
+const Method *Procedure::asMethod() const {
+  return isMethod() ? static_cast<const Method *>(this) : nullptr;
 }
 
-
-Function* Procedure::load(StringRef name, Class *cls)
-{
-    PMachine pmachine(m_script);
-    const uint8_t *code = reinterpret_cast<const uint8_t *>(m_script.getDataAt(m_offset));
-    m_func = pmachine.interpretFunction(code, name, selector_cast<uint>(m_selector), cls);
-
-    if (m_func != nullptr)
-    {
-        GetWorld().registerProcedure(*this);
-    }
-    return m_func;
+Method *Procedure::asMethod() {
+  return isMethod() ? static_cast<Method *>(this) : nullptr;
 }
-
-
-bool Procedure::isMethod() const
-{
-    return (m_selector != (uint)-1);
-}
-
-
-const Method* Procedure::asMethod() const
-{
-    return isMethod() ? static_cast<const Method *>(this) : nullptr;
-}
-
-
-Method* Procedure::asMethod()
-{
-    return isMethod() ? static_cast<Method *>(this) : nullptr;
-}
-
-
-END_NAMESPACE_SCI

@@ -1,39 +1,31 @@
-#include "Method.hpp"
-#include "World.hpp"
-#include "Class.hpp"
-#include "SelectorTable.hpp"
-#include "PMachine.hpp"
+//===- Method.cpp ---------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
 
+#include "Method.hpp"
+#include "Class.hpp"
+#include "PMachine.hpp"
+#include "SelectorTable.hpp"
+#include "World.hpp"
+
+using namespace sci;
 using namespace llvm;
 
+Method::Method(ObjID Selector, uint16_t Offset, Class &Parent)
+    : Procedure(Selector, Offset, Parent.getScript()), Parent(Parent) {}
 
-BEGIN_NAMESPACE_SCI
-
-
-Method::Method(ObjID selector, uint16_t offset, Class &cls) :
-    Procedure(selector, offset, cls.getScript()),
-    m_class(cls)
-{
+StringRef Method::getName() const {
+  return GetWorld().getSelectorTable().getSelectorName(getSelector());
 }
 
-
-StringRef Method::getName() const
-{
-    return GetWorld().getSelectorTable().getSelectorName(getSelector());
+Function *Method::load() {
+  if (!Func) {
+    std::string Name = getName();
+    Name += '@';
+    Name += Parent.getName();
+    Procedure::load(Name, &Parent);
+  }
+  return Func;
 }
-
-
-Function* Method::load()
-{
-    if (m_func == nullptr)
-    {
-        std::string name = getName();
-        name += '@';
-        name += m_class.getName();
-        Procedure::load(name, &m_class);
-    }
-    return m_func;
-}
-
-
-END_NAMESPACE_SCI

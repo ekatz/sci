@@ -1,54 +1,45 @@
+//===- Decl.cpp -----------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
 #include "Decl.hpp"
-#include <llvm/IR/Module.h>
+#include "llvm/IR/Module.h"
 
 using namespace llvm;
 
+namespace sci {
 
-BEGIN_NAMESPACE_SCI
+Function *getFunctionDecl(Function *Orig, Module *M) {
+  assert(Orig->hasName() && "Declaration must have a name!");
+  Function *F = M->getFunction(Orig->getName());
+  if (F == nullptr) {
+    F = Function::Create(Orig->getFunctionType(), GlobalValue::ExternalLinkage,
+                         Orig->getName(), M);
+    F->copyAttributesFrom(Orig);
 
-
-Function* GetFunctionDecl(Function *orig, Module *module)
-{
-    assert(orig->hasName() && "Declaration must have a name!");
-    Function *func = module->getFunction(orig->getName());
-    if (func == nullptr)
-    {
-        func = Function::Create(orig->getFunctionType(), GlobalValue::ExternalLinkage, orig->getName(), module);
-        func->copyAttributesFrom(orig);
-
-        if (!orig->hasExternalLinkage())
-        {
-            orig->setLinkage(GlobalValue::ExternalLinkage);
-        }
-    }
-    return func;
+    if (!Orig->hasExternalLinkage())
+      Orig->setLinkage(GlobalValue::ExternalLinkage);
+  }
+  return F;
 }
 
-GlobalVariable* GetGlobalVariableDecl(GlobalVariable *orig, Module *module)
-{
-    assert(orig->hasName() && "Declaration must have a name!");
-    GlobalVariable *var = module->getGlobalVariable(orig->getName(), true);
-    if (var == nullptr)
-    {
-        var = new GlobalVariable(*module,
-                                 orig->getType()->getElementType(),
-                                 orig->isConstant(),
-                                 GlobalValue::ExternalLinkage,
-                                 nullptr,
-                                 orig->getName(),
-                                 nullptr,
-                                 orig->getThreadLocalMode(),
-                                 orig->getType()->getAddressSpace());
-        var->copyAttributesFrom(orig);
-        var->setAlignment(orig->getAlignment());
+GlobalVariable *getGlobalVariableDecl(GlobalVariable *Orig, Module *M) {
+  assert(Orig->hasName() && "Declaration must have a name!");
+  GlobalVariable *GV = M->getGlobalVariable(Orig->getName(), true);
+  if (GV == nullptr) {
+    GV = new GlobalVariable(
+        *M, Orig->getType()->getElementType(), Orig->isConstant(),
+        GlobalValue::ExternalLinkage, nullptr, Orig->getName(), nullptr,
+        Orig->getThreadLocalMode(), Orig->getType()->getAddressSpace());
+    GV->copyAttributesFrom(Orig);
+    GV->setAlignment(Orig->getAlignment());
 
-        if (!orig->hasExternalLinkage())
-        {
-            orig->setLinkage(GlobalValue::ExternalLinkage);
-        }
-    }
-    return var;
+    if (!Orig->hasExternalLinkage())
+      Orig->setLinkage(GlobalValue::ExternalLinkage);
+  }
+  return GV;
 }
 
-
-END_NAMESPACE_SCI
+} // end namespace sci

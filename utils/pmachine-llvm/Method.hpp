@@ -1,29 +1,33 @@
-#pragma once
-#ifndef _Method_HPP_
-#define _Method_HPP_
+//===- Method.hpp ---------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef SCI_UTILS_PMACHINE_LLVM_METHOD_HPP
+#define SCI_UTILS_PMACHINE_LLVM_METHOD_HPP
 
 #include "Procedure.hpp"
 
-BEGIN_NAMESPACE_SCI
+namespace sci {
 
 class Class;
 
-class Method : public Procedure
-{
+class Method : public Procedure {
 public:
-    Method(ObjID selector, uint16_t offset, Class &cls);
+  Method(ObjID Selector, uint16_t Offset, Class &Parent);
 
-    llvm::Function* load();
+  llvm::Function *load();
 
-    uint getSelector() const { return selector_cast<uint>(m_selector); }
-    Class& getClass() const { return m_class; }
+  unsigned getSelector() const { return selector_cast<unsigned>(Selector); }
+  Class &getClass() const { return Parent; }
 
-    StringRef getName() const;
+  StringRef getName() const;
 
 private:
-    Class &m_class;
+  Class &Parent;
 };
 
-END_NAMESPACE_SCI
+} // end namespace sci
 
-#endif // !_Method_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_METHOD_HPP

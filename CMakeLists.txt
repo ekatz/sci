@@ -103,5 +103,6 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     )
 endif()
 
+add_subdirectory(utils/pmachine-llvm)
 add_subdirectory(lib)
 add_subdirectory(tools)

@@ -1,203 +1,190 @@
-#include "EmitScriptUtilitiesPass.hpp"
-#include "../World.hpp"
-#include "../Script.hpp"
-#include "../Object.hpp"
-#include "../Decl.hpp"
-#include <llvm/IR/IRBuilder.h>
+//===- Passes/EmitScriptUtilitiesPass.cpp ---------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
 
+#include "EmitScriptUtilitiesPass.hpp"
+#include "../Decl.hpp"
+#include "../Object.hpp"
+#include "../Script.hpp"
+#include "../World.hpp"
+#include "llvm/IR/IRBuilder.h"
+
+using namespace sci;
 using namespace llvm;
 
+#define KORDINAL_ScriptID 2
 
-#define KORDINAL_ScriptID   2
+EmitScriptUtilitiesPass::EmitScriptUtilitiesPass() {}
 
+EmitScriptUtilitiesPass::~EmitScriptUtilitiesPass() {}
 
-BEGIN_NAMESPACE_SCI
+void EmitScriptUtilitiesPass::run() {
+  World &W = GetWorld();
 
+  Function *F = W.getIntrinsic(Intrinsic::callk);
+  auto UI = F->user_begin();
+  while (UI != F->user_end()) {
+    CallKernelInst *Call = cast<CallKernelInst>(*UI);
+    ++UI;
 
-EmitScriptUtilitiesPass::EmitScriptUtilitiesPass()
-{
+    if (static_cast<unsigned>(Call->getKernelOrdinal()->getZExtValue()) ==
+        KORDINAL_ScriptID)
+      expandScriptID(Call);
+  }
+
+  createDisposeScriptFunctions();
 }
 
+void EmitScriptUtilitiesPass::expandScriptID(CallKernelInst *Call) {
+  unsigned Argc = static_cast<unsigned>(
+      cast<ConstantInt>(Call->getArgCount())->getZExtValue());
+  assert((Argc == 1 || Argc == 2) && "Invalid KScriptID call!");
 
-EmitScriptUtilitiesPass::~EmitScriptUtilitiesPass()
-{
+  unsigned EntryIndex =
+      (Argc == 2)
+          ? static_cast<unsigned>(
+                cast<ConstantInt>(Call->getArgOperand(1))->getZExtValue())
+          : 0;
+
+  Value *V;
+  World &W = GetWorld();
+  Value *ScriptIDVal = Call->getArgOperand(0);
+  if (isa<ConstantInt>(ScriptIDVal)) {
+    unsigned ScriptID =
+        static_cast<unsigned>(cast<ConstantInt>(ScriptIDVal)->getZExtValue());
+
+    Script *S = W.getScript(ScriptID);
+    assert(S != nullptr && "Invalid script ID.");
+
+    GlobalVariable *Var = cast<GlobalVariable>(S->getExportedValue(EntryIndex));
+    Var = getGlobalVariableDecl(Var, Call->getModule());
+    V = new PtrToIntInst(Var, W.getSizeType(), "", Call);
+  } else {
+    assert(EntryIndex == 0 &&
+           "Non-constant Script ID is not supported without entry index 0!");
+    Function *F = getOrCreateGetDispatchAddrFunction();
+    F = getFunctionDecl(F, Call->getModule());
+    V = CallInst::Create(F, ScriptIDVal, "", Call);
+  }
+
+  Call->replaceAllUsesWith(V);
+  Call->eraseFromParent();
 }
 
+void EmitScriptUtilitiesPass::createDisposeScriptFunctions() {
+  World &W = GetWorld();
+  LLVMContext &Ctx = W.getContext();
+  IntegerType *SizeTy = W.getSizeType();
+  Module *MainModule = W.getScript(0)->getModule();
 
-void EmitScriptUtilitiesPass::run()
-{
-    World &world = GetWorld();
+  FunctionType *FTy;
 
-    Function *func = world.getIntrinsic(Intrinsic::callk);
-    auto u = func->user_begin();
-    while (u != func->user_end())
-    {
-        CallKernelInst *call = cast<CallKernelInst>(*u);
-        ++u;
+  FTy = FunctionType::get(Type::getVoidTy(Ctx), false);
+  Function *DisposeAllFunc = Function::Create(FTy, GlobalValue::ExternalLinkage,
+                                              "DisposeAllScripts", MainModule);
+  BasicBlock *AllBB = BasicBlock::Create(Ctx, "entry", DisposeAllFunc);
 
-        if (static_cast<uint>(call->getKernelOrdinal()->getZExtValue()) == KORDINAL_ScriptID)
-        {
-            expandScriptID(call);
-        }
-    }
+  FTy = FunctionType::get(Type::getVoidTy(Ctx), SizeTy, false);
+  Function *DisposeFunc = Function::Create(FTy, GlobalValue::ExternalLinkage,
+                                           "DisposeScript", MainModule);
+  BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", DisposeFunc);
 
-    createDisposeScriptFunctions();
+  BasicBlock *UnknownBB = BasicBlock::Create(Ctx, "case.unknown", DisposeFunc);
+  ReturnInst::Create(Ctx, UnknownBB);
+
+  SwitchInst *SwitchScript = SwitchInst::Create(
+      &*DisposeFunc->arg_begin(), UnknownBB, W.getScriptCount(), EntryBB);
+
+  for (Script &S : W.scripts()) {
+    Function *F = getOrCreateDisposeScriptNumFunction(&S);
+    F = getFunctionDecl(F, MainModule);
+
+    CallInst::Create(F, "", AllBB);
+
+    BasicBlock *CaseBB = BasicBlock::Create(
+        Ctx, "case." + S.getModule()->getName(), DisposeFunc, UnknownBB);
+    CallInst::Create(F, "", CaseBB);
+    ReturnInst::Create(Ctx, CaseBB);
+
+    SwitchScript->addCase(ConstantInt::get(SizeTy, S.getId()), CaseBB);
+  }
+
+  ReturnInst::Create(Ctx, AllBB);
 }
 
+llvm::Function *
+EmitScriptUtilitiesPass::getOrCreateDisposeScriptNumFunction(Script *S) {
+  World &W = GetWorld();
+  LLVMContext &Ctx = W.getContext();
+  IntegerType *SizeTy = W.getSizeType();
+  Module *M = S->getModule();
 
-void EmitScriptUtilitiesPass::expandScriptID(CallKernelInst *call)
-{
-    uint argc = static_cast<uint>(cast<ConstantInt>(call->getArgCount())->getZExtValue());
-    assert((argc == 1 || argc == 2) && "Invalid KScriptID call!");
+  char Name[32];
+  sprintf(Name, "DisposeScript%03u", S->getId());
 
-    uint entryIndex = (argc == 2) ? static_cast<uint>(cast<ConstantInt>(call->getArgOperand(1))->getZExtValue()) : 0;
+  Function *F = M->getFunction(Name);
+  if (F)
+    return F;
 
-    Value *val;
-    World &world = GetWorld();
-    Value *scriptIdVal = call->getArgOperand(0);
-    if (isa<ConstantInt>(scriptIdVal))
-    {
-        uint scriptId = static_cast<uint>(cast<ConstantInt>(scriptIdVal)->getZExtValue());
+  FunctionType *FTy = FunctionType::get(Type::getVoidTy(Ctx), false);
+  F = Function::Create(FTy, GlobalValue::ExternalLinkage, Name, M);
+  BasicBlock *BB = BasicBlock::Create(Ctx, "entry", F);
 
-        Script *script = world.getScript(scriptId);
-        assert(script != nullptr && "Invalid script ID.");
+  for (GlobalVariable &Var : M->globals()) {
+    if (Var.isConstant() || !Var.hasInitializer())
+      continue;
 
-        GlobalVariable *var = cast<GlobalVariable>(script->getExportedValue(entryIndex));
-        var = GetGlobalVariableDecl(var, call->getModule());
-        val = new PtrToIntInst(var, world.getSizeType(), "", call);
-    }
-    else
-    {
-        assert(entryIndex == 0 && "Non-constant Script ID is not supported without entry index 0!");
-        Function *func = getOrCreateGetDispatchAddrFunction();
-        func = GetFunctionDecl(func, call->getModule());
-        val = CallInst::Create(func, scriptIdVal, "", call);
-    }
+    Constant *C = Var.getInitializer();
+    Type *Ty = Var.getType()->getElementType();
+    GlobalVariable *Init =
+        new GlobalVariable(*M, Ty, true, GlobalValue::PrivateLinkage, C);
+    Init->setAlignment(Var.getAlignment());
 
-    call->replaceAllUsesWith(val);
-    call->eraseFromParent();
+    IRBuilder<>(BB).CreateMemCpy(&Var, Var.getAlignment(), Init,
+                                 Init->getAlignment(),
+                                 W.getDataLayout().getTypeAllocSize(Ty));
+  }
+
+  ReturnInst::Create(Ctx, BB);
+  return F;
 }
 
+Function *EmitScriptUtilitiesPass::getOrCreateGetDispatchAddrFunction() const {
+  StringRef Name = "GetDispatchAddr";
+  World &W = GetWorld();
+  LLVMContext &Ctx = W.getContext();
+  IntegerType *SizeTy = W.getSizeType();
+  Module *MainModule = W.getScript(0)->getModule();
 
-void EmitScriptUtilitiesPass::createDisposeScriptFunctions()
-{
-    World &world = GetWorld();
-    LLVMContext &ctx = world.getContext();
-    IntegerType *sizeTy = world.getSizeType();
-    Module *mainModule = world.getScript(0)->getModule();
+  Function *F = MainModule->getFunction(Name);
+  if (F)
+    return F;
 
-    FunctionType *funcTy;
+  FunctionType *FTy = FunctionType::get(SizeTy, SizeTy, false);
+  F = Function::Create(FTy, GlobalValue::InternalLinkage, Name, MainModule);
 
-    funcTy = FunctionType::get(Type::getVoidTy(ctx), false);
-    Function *disposeAllFunc = Function::Create(funcTy, GlobalValue::ExternalLinkage, "DisposeAllScripts", mainModule);
-    BasicBlock *bbAll = BasicBlock::Create(ctx, "entry", disposeAllFunc);
+  BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", F);
 
-    funcTy = FunctionType::get(Type::getVoidTy(ctx), sizeTy, false);
-    Function *disposeFunc = Function::Create(funcTy, GlobalValue::ExternalLinkage, "DisposeScript", mainModule);
-    BasicBlock *bbEntry = BasicBlock::Create(ctx, "entry", disposeFunc);
+  BasicBlock *UnknownBB = BasicBlock::Create(Ctx, "case.unknown", F);
+  ReturnInst::Create(Ctx, Constant::getNullValue(SizeTy), UnknownBB);
 
-    BasicBlock *bbUnknown = BasicBlock::Create(ctx, "case.unknown", disposeFunc);
-    ReturnInst::Create(ctx, bbUnknown);
+  SwitchInst *SwitchScript = SwitchInst::Create(&*F->arg_begin(), UnknownBB,
+                                                W.getScriptCount(), EntryBB);
 
-    SwitchInst *switchScript = SwitchInst::Create(&*disposeFunc->arg_begin(), bbUnknown, world.getScriptCount(), bbEntry);
+  for (Script &S : W.scripts()) {
+    GlobalVariable *Var =
+        dyn_cast_or_null<GlobalVariable>(S.getExportedValue(0));
+    if (Var) {
+      Var = getGlobalVariableDecl(Var, MainModule);
+      BasicBlock *CaseBB = BasicBlock::Create(
+          Ctx, "case." + S.getModule()->getName(), F, UnknownBB);
+      Value *V = new PtrToIntInst(Var, SizeTy, "", CaseBB);
+      ReturnInst::Create(Ctx, V, CaseBB);
 
-    for (Script &script : world.scripts())
-    {
-        Function *func = getOrCreateDisposeScriptNumFunction(&script);
-        func = GetFunctionDecl(func, mainModule);
-
-        CallInst::Create(func, "", bbAll);
-
-        BasicBlock *bbCase = BasicBlock::Create(ctx, "case." + script.getModule()->getName(), disposeFunc, bbUnknown);
-        CallInst::Create(func, "", bbCase);
-        ReturnInst::Create(ctx, bbCase);
-
-        switchScript->addCase(ConstantInt::get(sizeTy, script.getId()), bbCase);
+      SwitchScript->addCase(ConstantInt::get(SizeTy, S.getId()), CaseBB);
     }
-
-    ReturnInst::Create(ctx, bbAll);
+  }
+  return F;
 }
-
-
-llvm::Function* EmitScriptUtilitiesPass::getOrCreateDisposeScriptNumFunction(Script *script)
-{
-    World &world = GetWorld();
-    LLVMContext &ctx = world.getContext();
-    IntegerType *sizeTy = world.getSizeType();
-    Module *module = script->getModule();
-
-    char name[17];
-    sprintf(name, "DisposeScript%03u", script->getId());
-
-    Function *func = module->getFunction(name);
-    if (func != nullptr)
-    {
-        return func;
-    }
-
-    FunctionType *funcTy = FunctionType::get(Type::getVoidTy(ctx), false);
-    func = Function::Create(funcTy, GlobalValue::ExternalLinkage, name, module);
-    BasicBlock *bb = BasicBlock::Create(ctx, "entry", func);
-
-    for (GlobalVariable &var : module->globals())
-    {
-        if (var.isConstant() || !var.hasInitializer())
-        {
-            continue;
-        }
-
-        Constant *c = var.getInitializer();
-        Type *type = var.getType()->getElementType();
-        GlobalVariable *init = new GlobalVariable(*module, type, true, GlobalValue::PrivateLinkage, c);
-        init->setAlignment(var.getAlignment());
-
-        IRBuilder<>(bb).CreateMemCpy(&var, init, world.getDataLayout().getTypeAllocSize(type), init->getAlignment());
-    }
-
-    ReturnInst::Create(ctx, bb);
-    return func;
-}
-
-
-Function* EmitScriptUtilitiesPass::getOrCreateGetDispatchAddrFunction() const
-{
-    StringRef name = "GetDispatchAddr";
-    World &world = GetWorld();
-    LLVMContext &ctx = world.getContext();
-    IntegerType *sizeTy = world.getSizeType();
-    Module *mainModule = world.getScript(0)->getModule();
-
-    Function *func = mainModule->getFunction(name);
-    if (func != nullptr)
-    {
-        return func;
-    }
-
-    FunctionType *funcTy = FunctionType::get(sizeTy, sizeTy, false);
-    func = Function::Create(funcTy, GlobalValue::InternalLinkage, name, mainModule);
-
-    BasicBlock *bbEntry = BasicBlock::Create(ctx, "entry", func);
-
-    BasicBlock *bbUnknown = BasicBlock::Create(ctx, "case.unknown", func);
-    ReturnInst::Create(ctx, Constant::getNullValue(sizeTy), bbUnknown);
-
-    SwitchInst *switchScript = SwitchInst::Create(&*func->arg_begin(), bbUnknown, world.getScriptCount(), bbEntry);
-
-    for (Script &script : world.scripts())
-    {
-        GlobalVariable *var = dyn_cast_or_null<GlobalVariable>(script.getExportedValue(0));
-        if (var != nullptr)
-        {
-            var = GetGlobalVariableDecl(var, mainModule);
-            BasicBlock *bbCase = BasicBlock::Create(ctx, "case." + script.getModule()->getName(), func, bbUnknown);
-            Value *val = new PtrToIntInst(var, sizeTy, "", bbCase);
-            ReturnInst::Create(ctx, val, bbCase);
-
-            switchScript->addCase(ConstantInt::get(sizeTy, script.getId()), bbCase);
-        }
-    }
-    return func;
-}
-
-
-END_NAMESPACE_SCI

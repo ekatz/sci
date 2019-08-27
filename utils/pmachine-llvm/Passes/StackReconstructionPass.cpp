@@ -1,487 +1,378 @@
+//===- Passes/StackReconstructionPass.cpp ---------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
 #include "StackReconstructionPass.hpp"
 #include "../World.hpp"
-#include <llvm/IR/CFG.h>
-#include <llvm/IR/CallSite.h>
+#include "llvm/IR/CFG.h"
+#include "llvm/IR/CallSite.h"
 
+using namespace sci;
 using namespace llvm;
 
+static void
+addWorkItem(BasicBlock *BB, int Balance,
+            SmallVectorImpl<std::pair<BasicBlock *, int>> &WorkList) {
+  for (auto &P : WorkList)
+    if (P.first == BB)
+      return;
 
-BEGIN_NAMESPACE_SCI
+  WorkList.push_back(std::make_pair(BB, Balance));
+}
 
+static void
+addPredecessors(BasicBlock *BB, int Balance,
+                SmallVectorImpl<std::pair<BasicBlock *, int>> &WorkList) {
+  for (BasicBlock *Pred : predecessors(BB))
+    addWorkItem(Pred, Balance, WorkList);
+}
 
-static void AddWorkItem(BasicBlock *bb, int balance, SmallVector<std::pair<BasicBlock *, int>, 8> &workList)
-{
-    for (auto i = workList.begin(), e = workList.end(); i != e; ++i)
-    {
-        if (i->first == bb)
-        {
-            return;
-        }
+static void
+addSuccessors(BasicBlock *BB, int Balance,
+              SmallVectorImpl<std::pair<BasicBlock *, int>> &WorkList) {
+  for (BasicBlock *Succ : successors(BB))
+    addWorkItem(Succ, Balance, WorkList);
+}
+
+static Instruction *getFirstInsertionPoint(BasicBlock &BB) {
+  for (Instruction &I : BB)
+    if (!isa<AllocaInst>(I))
+      return &I;
+
+  return nullptr;
+}
+
+StackReconstructionPass::StackReconstructionPass() : InsertPt(nullptr) {
+  World &W = GetWorld();
+  IntegerType *SizeTy = W.getSizeType();
+  Type *Params[] = {SizeTy, SizeTy->getPointerTo()};
+  FunctionType *FTy;
+
+  FTy = FunctionType::get(Type::getVoidTy(W.getContext()), Params, false);
+  FnStubStore.reset(
+      Function::Create(FTy, GlobalValue::ExternalLinkage, "stub_store@SCI"));
+
+  FTy = FunctionType::get(SizeTy, Params[1], false);
+  FnStubLoad.reset(
+      Function::Create(FTy, GlobalValue::ExternalLinkage, "stub_load@SCI"));
+}
+
+StackReconstructionPass::~StackReconstructionPass() {
+  assert(!FnStubStore || FnStubStore->getNumUses() == 0);
+  assert(!FnStubLoad || FnStubLoad->getNumUses() == 0);
+}
+
+void StackReconstructionPass::run() {
+  Function *Caller = nullptr;
+  Function *PopFunc = Intrinsic::Get(Intrinsic::pop);
+  while (!PopFunc->user_empty()) {
+    CallInst *Call = cast<CallInst>(PopFunc->user_back());
+    Function *Func = Call->getParent()->getParent();
+    if (Caller != Func) {
+      Caller = Func;
+      InsertPt = getFirstInsertionPoint(Func->getEntryBlock());
+    }
+    runOnPop(Call);
+  }
+
+  eliminateRedundantStores();
+  mutateStubs();
+}
+
+Instruction *StackReconstructionPass::runOnPop(CallInst *CallPop,
+                                               AllocaInst *StackAddr) {
+  World &W = GetWorld();
+  SmallVector<std::pair<BasicBlock *, int>, 8> WorkList;
+  unsigned WorkIdx = 0;
+
+  int Balance = 0;
+  Instruction *Inst = CallPop;
+  while (true) {
+    if (Inst) {
+      Instruction *Prev = Inst->getPrevNode();
+      if (!Prev)
+        addPredecessors(Inst->getParent(), Balance, WorkList);
+      Inst = Prev;
     }
 
-    workList.push_back(std::make_pair(bb, balance));
-}
+    if (!Inst) {
+      if (WorkIdx >= WorkList.size())
+        break;
 
-
-static void AddPredecessors(BasicBlock *bb, int balance, SmallVector<std::pair<BasicBlock *, int>, 8> &workList)
-{
-    for (pred_iterator pi = pred_begin(bb), pe = pred_end(bb); pi != pe; ++pi)
-    {
-        AddWorkItem(*pi, balance, workList);
-    }
-}
-
-
-static void AddSuccessors(BasicBlock *bb, int balance, SmallVector<std::pair<BasicBlock *, int>, 8> &workList)
-{
-    for (succ_iterator si = succ_begin(bb), se = succ_end(bb); si != se; ++si)
-    {
-        AddWorkItem(*si, balance, workList);
-    }
-}
-
-
-static Instruction* GetFirstInsertionPoint(BasicBlock &bb)
-{
-    for (Instruction &i : bb)
-    {
-        if (!isa<AllocaInst>(i))
-        {
-            return &i;
-        }
-    }
-    return nullptr;
-}
-
-
-StackReconstructionPass::StackReconstructionPass() :
-    m_insertPt(nullptr)
-{
-    World &world = GetWorld();
-    IntegerType *sizeTy = world.getSizeType();
-    Type *params[] = { sizeTy, sizeTy->getPointerTo() };
-    FunctionType *funcTy;
-
-    funcTy = FunctionType::get(Type::getVoidTy(world.getContext()), params, false);
-    m_fnStubStore.reset(Function::Create(funcTy, GlobalValue::ExternalLinkage, "stub_store@SCI"));
-
-    funcTy = FunctionType::get(sizeTy, params[1], false);
-    m_fnStubLoad.reset(Function::Create(funcTy, GlobalValue::ExternalLinkage, "stub_load@SCI"));
-}
-
-
-StackReconstructionPass::~StackReconstructionPass()
-{
-    assert(!m_fnStubStore || m_fnStubStore->getNumUses() == 0);
-    assert(!m_fnStubLoad || m_fnStubLoad->getNumUses() == 0);
-}
-
-
-void StackReconstructionPass::run()
-{
-    Function *caller = nullptr;
-    Function *popFunc = Intrinsic::Get(Intrinsic::pop);
-    while (!popFunc->user_empty())
-    {
-        CallInst *call = cast<CallInst>(popFunc->user_back());
-        Function *func = call->getParent()->getParent();
-        if (caller != func)
-        {
-            caller = func;
-            m_insertPt = GetFirstInsertionPoint(func->getEntryBlock());
-        }
-        runOnPop(call);
+      auto &Item = WorkList[WorkIdx++];
+      Inst = &Item.first->back();
+      Balance = Item.second;
     }
 
-    eliminateRedundantStores();
-    mutateStubs();
+    if (isa<CallInst>(Inst)) {
+      CallInst *Call = cast<CallInst>(Inst);
+      Function *CalledFunc = Call->getCalledFunction();
+      if (isa<PushInst>(Call)) {
+        if (Balance == 0) {
+          if (WorkList.empty()) {
+            Value *val = cast<PushInst>(Call)->getValue();
+            Call->eraseFromParent();
+
+            CallPop->replaceAllUsesWith(val);
+            CallPop->eraseFromParent();
+            return nullptr;
+          } else {
+            if (!StackAddr) {
+              assert(InsertPt);
+              StackAddr =
+                  new AllocaInst(W.getSizeType(), 0, "stack.addr", InsertPt);
+              StackAddr->setAlignment(W.getSizeTypeAlignment());
+            }
+
+            CallPop = createStubLoad(CallPop, StackAddr);
+            runOnPush(Call, StackAddr);
+            Inst = nullptr;
+          }
+        } else
+          Balance++;
+      } else if (isa<PopInst>(Call)) {
+        Inst = Call->getNextNode();
+        runOnPop(Call);
+      } else if (FnStubStore.get() == CalledFunc) {
+        if (Balance == 0) {
+          AllocaInst *allocaInst = cast<AllocaInst>(Call->getArgOperand(1));
+          if (!StackAddr)
+            StackAddr = allocaInst;
+          else {
+            assert(StackAddr == allocaInst);
+          }
+
+          CallPop = createStubLoad(CallPop, StackAddr);
+          Inst = nullptr;
+        } else {
+          assert(StackAddr != cast<AllocaInst>(Call->getArgOperand(1)));
+          Balance++;
+        }
+      } else if (FnStubLoad.get() == CalledFunc) {
+        assert(StackAddr != cast<AllocaInst>(Call->getArgOperand(0)));
+        Balance--;
+      }
+    }
+  }
+  return CallPop;
 }
 
+Instruction *StackReconstructionPass::runOnPush(CallInst *CallPush,
+                                                AllocaInst *StackAddr) {
+  assert(StackAddr);
 
-Instruction* StackReconstructionPass::runOnPop(CallInst *callPop, AllocaInst *stackAddr)
-{
-    World &world = GetWorld();
-    SmallVector<std::pair<BasicBlock *, int>, 8> workList;
-    uint workIdx = 0;
+  World &W = GetWorld();
+  SmallVector<std::pair<BasicBlock *, int>, 8> WorkList;
+  unsigned WorkIdx = 0;
 
-    int balance = 0;
-    Instruction *inst = callPop;
-    while (true)
-    {
-        if (inst != nullptr)
-        {
-            Instruction *prev = inst->getPrevNode();
-            if (prev == nullptr)
-            {
-                AddPredecessors(inst->getParent(), balance, workList);
-            }
-            inst = prev;
-        }
-
-        if (inst == nullptr)
-        {
-            if (workIdx >= workList.size())
-            {
-                break;
-            }
-            auto item = workList[workIdx++];
-            inst = &item.first->back();
-            balance = item.second;
-        }
-
-        if (isa<CallInst>(inst))
-        {
-            CallInst *call = cast<CallInst>(inst);
-            Function *calledFunc = call->getCalledFunction();
-            if (isa<PushInst>(call))
-            {
-                if (balance == 0)
-                {
-                    if (workList.empty())
-                    {
-                        Value *val = cast<PushInst>(call)->getValue();
-                        call->eraseFromParent();
-
-                        callPop->replaceAllUsesWith(val);
-                        callPop->eraseFromParent();
-                        return nullptr;
-                    }
-                    else
-                    {
-                        if (stackAddr == nullptr)
-                        {
-                            assert(m_insertPt != nullptr);
-                            stackAddr = new AllocaInst(world.getSizeType(), "stack.addr", m_insertPt);
-                            stackAddr->setAlignment(world.getSizeTypeAlignment());
-                        }
-
-                        callPop = createStubLoad(callPop, stackAddr);
-                        runOnPush(call, stackAddr);
-                        inst = nullptr;
-                    }
-                }
-                else
-                {
-                    balance++;
-                }
-            }
-            else if (isa<PopInst>(call))
-            {
-                inst = call->getNextNode();
-                runOnPop(call);
-            }
-            else if (m_fnStubStore.get() == calledFunc)
-            {
-                if (balance == 0)
-                {
-                    AllocaInst *allocaInst = cast<AllocaInst>(call->getArgOperand(1));
-                    if (stackAddr == nullptr)
-                    {
-                        stackAddr = allocaInst;
-                    }
-                    else
-                    {
-                        assert(stackAddr == allocaInst);
-                    }
-
-                    callPop = createStubLoad(callPop, stackAddr);
-                    inst = nullptr;
-                }
-                else
-                {
-                    assert(stackAddr != cast<AllocaInst>(call->getArgOperand(1)));
-                    balance++;
-                }
-            }
-            else if (m_fnStubLoad.get() == calledFunc)
-            {
-                assert(stackAddr != cast<AllocaInst>(call->getArgOperand(0)));
-                balance--;
-            }
-        }
+  int Balance = 0;
+  Instruction *Inst = CallPush;
+  while (true) {
+    if (Inst) {
+      Instruction *Next = Inst->getNextNode();
+      if (!Next)
+        addSuccessors(Inst->getParent(), Balance, WorkList);
+      Inst = Next;
     }
-    return callPop;
+
+    if (!Inst) {
+      if (WorkIdx >= WorkList.size())
+        break;
+
+      auto &Item = WorkList[WorkIdx++];
+      Inst = &Item.first->front();
+      Balance = Item.second;
+    }
+
+    if (isa<CallInst>(Inst)) {
+      CallInst *Call = cast<CallInst>(Inst);
+      Function *CalledFunc = Call->getCalledFunction();
+      if (isa<PushInst>(Call) || FnStubStore.get() == CalledFunc) {
+        assert(FnStubStore.get() != CalledFunc ||
+               StackAddr != cast<AllocaInst>(Call->getArgOperand(1)));
+        Balance++;
+      } else if (isa<PopInst>(Call) || FnStubLoad.get() == CalledFunc) {
+        if (Balance == 0) {
+          CallPush = createStubStore(CallPush, StackAddr);
+
+          if (isa<PopInst>(Call))
+            runOnPop(Call, StackAddr);
+          else {
+            assert(StackAddr == cast<AllocaInst>(Call->getArgOperand(0)));
+          }
+
+          Inst = nullptr;
+        } else {
+          assert(FnStubLoad.get() != CalledFunc ||
+                 StackAddr != cast<AllocaInst>(Call->getArgOperand(0)));
+          Balance--;
+        }
+      }
+    }
+  }
+  return CallPush;
 }
 
+CallInst *StackReconstructionPass::createStubStore(CallInst *CallPush,
+                                                   AllocaInst *StackAddr) {
+  if (CallPush->getCalledFunction() == FnStubStore.get())
+    return CallPush;
 
-Instruction* StackReconstructionPass::runOnPush(CallInst *callPush, AllocaInst *stackAddr)
-{
-    assert(stackAddr != nullptr);
+  Value *Val = CallPush->getArgOperand(0);
+  Value *Args[] = {Val, StackAddr};
+  CallInst *Stub = CallInst::Create(FnStubStore.get(), Args, "", CallPush);
 
-    World &world = GetWorld();
-    SmallVector<std::pair<BasicBlock *, int>, 8> workList;
-    uint workIdx = 0;
-
-    int balance = 0;
-    Instruction *inst = callPush;
-    while (true)
-    {
-        if (inst != nullptr)
-        {
-            Instruction *next = inst->getNextNode();
-            if (next == nullptr)
-            {
-                AddSuccessors(inst->getParent(), balance, workList);
-            }
-            inst = next;
-        }
-
-        if (inst == nullptr)
-        {
-            if (workIdx >= workList.size())
-            {
-                break;
-            }
-            auto item = workList[workIdx++];
-            inst = &item.first->front();
-            balance = item.second;
-        }
-
-        if (isa<CallInst>(inst))
-        {
-            CallInst *call = cast<CallInst>(inst);
-            Function *calledFunc = call->getCalledFunction();
-            if (isa<PushInst>(call) || m_fnStubStore.get() == calledFunc)
-            {
-                assert(m_fnStubStore.get() != calledFunc || stackAddr != cast<AllocaInst>(call->getArgOperand(1)));
-                balance++;
-            }
-            else if (isa<PopInst>(call) || m_fnStubLoad.get() == calledFunc)
-            {
-                if (balance == 0)
-                {
-                    callPush = createStubStore(callPush, stackAddr);
-
-                    if (isa<PopInst>(call))
-                    {
-                        runOnPop(call, stackAddr);
-                    }
-                    else
-                    {
-                        assert(stackAddr == cast<AllocaInst>(call->getArgOperand(0)));
-                    }
-
-                    inst = nullptr;
-                }
-                else
-                {
-                    assert(m_fnStubLoad.get() != calledFunc || stackAddr != cast<AllocaInst>(call->getArgOperand(0)));
-                    balance--;
-                }
-            }
-        }
-    }
-    return callPush;
+  CallPush->eraseFromParent();
+  return Stub;
 }
 
+CallInst *StackReconstructionPass::createStubLoad(CallInst *CallPop,
+                                                  AllocaInst *StackAddr) {
+  if (CallPop->getCalledFunction() == FnStubLoad.get()) {
+    return CallPop;
+  }
 
-CallInst* StackReconstructionPass::createStubStore(CallInst *callPush, AllocaInst *stackAddr)
-{
-    if (callPush->getCalledFunction() == m_fnStubStore.get())
-    {
-        return callPush;
-    }
+  CallInst *Stub = CallInst::Create(FnStubLoad.get(), StackAddr, "", CallPop);
+  CallPop->replaceAllUsesWith(Stub);
 
-    Value *val = callPush->getArgOperand(0);
-    Value *args[] = { val, stackAddr };
-    CallInst *stub = CallInst::Create(m_fnStubStore.get(), args, "", callPush);
-
-    callPush->eraseFromParent();
-    return stub;
+  CallPop->eraseFromParent();
+  return Stub;
 }
 
-
-CallInst* StackReconstructionPass::createStubLoad(CallInst *callPop, AllocaInst *stackAddr)
-{
-    if (callPop->getCalledFunction() == m_fnStubLoad.get())
-    {
-        return callPop;
+unsigned StackReconstructionPass::countStores(AllocaInst &Inst, Constant *&C) {
+  unsigned StoreCount = 0;
+  C = nullptr;
+  for (User *U : Inst.users()) {
+    CallInst *Call = cast<CallInst>(U);
+    if (Call->getCalledFunction() == FnStubStore.get()) {
+      if (++StoreCount > 1) {
+        if (!C || C != dyn_cast<Constant>(Call->getArgOperand(0)))
+          return -1U;
+      } else
+        C = dyn_cast<Constant>(Call->getArgOperand(0));
     }
-
-    CallInst *stub = CallInst::Create(m_fnStubLoad.get(), stackAddr, "", callPop);
-    callPop->replaceAllUsesWith(stub);
-
-    callPop->eraseFromParent();
-    return stub;
+  }
+  return StoreCount;
 }
 
+void StackReconstructionPass::eliminateRedundantStores() {
+  for (auto U = FnStubStore->user_begin(), E = FnStubStore->user_end();
+       U != E;) {
+    CallInst *CallStore = cast<CallInst>(*U);
+    ++U;
 
-uint StackReconstructionPass::countStores(AllocaInst &inst, Constant *&c)
-{
-    uint storeCount = 0;
-    c = nullptr;
-    for (User *user : inst.users())
-    {
-        CallInst *call = cast<CallInst>(user);
-        if (call->getCalledFunction() == m_fnStubStore.get())
-        {
-            if (++storeCount > 1)
-            {
-                if (c == nullptr || c != dyn_cast<Constant>(call->getArgOperand(0)))
-                {
-                    return (uint)-1;
-                }
-            }
-            else
-            {
-                c = dyn_cast<Constant>(call->getArgOperand(0));
-            }
+    Instruction *Prev = CallStore->getPrevNode();
+    if (Prev && isa<CallInst>(Prev)) {
+      CallInst *PrevCall = cast<CallInst>(Prev);
+      if (PrevCall->getCalledFunction() == FnStubLoad.get()) {
+        Value *Val = CallStore->getArgOperand(0);
+        if (Val == PrevCall) {
+          AllocaInst *StoreAddr = cast<AllocaInst>(CallStore->getArgOperand(1));
+          AllocaInst *LoadAddr = cast<AllocaInst>(PrevCall->getArgOperand(0));
+          if (StoreAddr == LoadAddr)
+            CallStore->eraseFromParent();
         }
+      }
     }
-    return storeCount;
+  }
 }
 
+void StackReconstructionPass::mutateStubs() {
+  while (!FnStubStore->user_empty()) {
+    CallInst *CallStub = cast<CallInst>(FnStubStore->user_back());
 
-void StackReconstructionPass::eliminateRedundantStores()
-{
-    for (auto u = m_fnStubStore->user_begin(), e = m_fnStubStore->user_end(); u != e;)
-    {
-        CallInst *callStore = cast<CallInst>(*u);
-        ++u;
+    Value *Val = CallStub->getArgOperand(0);
+    AllocaInst *StackAddr = cast<AllocaInst>(CallStub->getArgOperand(1));
 
-        Instruction *prev = callStore->getPrevNode();
-        if (prev != nullptr && isa<CallInst>(prev))
-        {
-            CallInst *prevCall = cast<CallInst>(prev);
-            if (prevCall->getCalledFunction() == m_fnStubLoad.get())
-            {
-                Value *val = callStore->getArgOperand(0);
-                if (val == prevCall)
-                {
-                    AllocaInst *storeAddr = cast<AllocaInst>(callStore->getArgOperand(1));
-                    AllocaInst *loadAddr = cast<AllocaInst>(prevCall->getArgOperand(0));
-                    if (storeAddr == loadAddr)
-                    {
-                        callStore->eraseFromParent();
-                    }
-                }
-            }
-        }
+    Constant *C;
+    unsigned Stores = countStores(*StackAddr, C);
+
+    // If there is only 1 store.
+    if (Stores == 1) {
+      CallStub->eraseFromParent();
+      while (!StackAddr->user_empty()) {
+        CallStub = cast<CallInst>(StackAddr->user_back());
+        CallStub->replaceAllUsesWith(Val);
+        CallStub->eraseFromParent();
+      }
+      StackAddr->eraseFromParent();
     }
+    // If there is a constant value common to all stores.
+    else if (C) {
+      while (!StackAddr->user_empty()) {
+        CallStub = cast<CallInst>(StackAddr->user_back());
+        if (CallStub->getCalledFunction() == FnStubLoad.get())
+          CallStub->replaceAllUsesWith(Val);
+        CallStub->eraseFromParent();
+      }
+      StackAddr->eraseFromParent();
+    } else {
+      for (auto U = StackAddr->user_begin(), E = StackAddr->user_end();
+           U != E;) {
+        CallStub = cast<CallInst>(*U);
+        ++U;
+
+        if (CallStub->getCalledFunction() == FnStubStore.get()) {
+          Val = CallStub->getArgOperand(0);
+          new StoreInst(Val, StackAddr, false, GetWorld().getTypeAlignment(Val),
+                        CallStub);
+        } else { // (callStub->getCalledFunction() == m_fnStubLoad.get())
+          LoadInst *Load = new LoadInst(
+              StackAddr, "", false,
+              GetWorld().getTypeAlignment(StackAddr->getAllocatedType()),
+              CallStub);
+          CallStub->replaceAllUsesWith(Load);
+        }
+        CallStub->eraseFromParent();
+      }
+    }
+  }
+  assert(FnStubLoad->user_empty());
 }
 
+bool StackReconstructionPass::verifyFunction(llvm::Function &Func) {
+  std::map<BasicBlock *, int> Balances;
+  for (BasicBlock &BB : Func) {
+    int Balance = calcBasicBlockBalance(BB);
+    Balances[&BB] = Balance;
+  }
 
-void StackReconstructionPass::mutateStubs()
-{
-    while (!m_fnStubStore->user_empty())
-    {
-        CallInst *callStub = cast<CallInst>(m_fnStubStore->user_back());
-
-        Value *val = callStub->getArgOperand(0);
-        AllocaInst *stackAddr = cast<AllocaInst>(callStub->getArgOperand(1));
-
-        Constant *c;
-        uint stores = countStores(*stackAddr, c);
-
-        // If there is only 1 store.
-        if (stores == 1)
-        {
-            callStub->eraseFromParent();
-            while (!stackAddr->user_empty())
-            {
-                callStub = cast<CallInst>(stackAddr->user_back());
-                callStub->replaceAllUsesWith(val);
-                callStub->eraseFromParent();
-            }
-            stackAddr->eraseFromParent();
-        }
-        // If there is a constant value common to all stores.
-        else if (c != nullptr)
-        {
-            while (!stackAddr->user_empty())
-            {
-                callStub = cast<CallInst>(stackAddr->user_back());
-                if (callStub->getCalledFunction() == m_fnStubLoad.get())
-                {
-                    callStub->replaceAllUsesWith(val);
-                }
-                callStub->eraseFromParent();
-            }
-            stackAddr->eraseFromParent();
-        }
-        else
-        {
-            for (auto u = stackAddr->user_begin(), e = stackAddr->user_end(); u != e;)
-            {
-                callStub = cast<CallInst>(*u);
-                ++u;
-
-                if (callStub->getCalledFunction() == m_fnStubStore.get())
-                {
-                    val = callStub->getArgOperand(0);
-                    new StoreInst(val, stackAddr, false, GetWorld().getTypeAlignment(val), callStub);
-                }
-                else // (callStub->getCalledFunction() == m_fnStubLoad.get())
-                {
-                    LoadInst *load = new LoadInst(stackAddr, "", false, GetWorld().getTypeAlignment(stackAddr->getAllocatedType()), callStub);
-                    callStub->replaceAllUsesWith(load);
-                }
-                callStub->eraseFromParent();
-            }
-        }
-    }
-    assert(m_fnStubLoad->user_empty());
+  std::set<llvm::BasicBlock *> Visits;
+  Visits.insert(&Func.getEntryBlock());
+  return verifyPath(Func.getEntryBlock(), 0, Balances, Visits);
 }
 
-
-bool StackReconstructionPass::verifyFunction(llvm::Function &func)
-{
-    std::map<BasicBlock *, int> balances;
-    for (BasicBlock &bb : func)
-    {
-        int balance = calcBasicBlockBalance(bb);
-        balances[&bb] = balance;
-    }
-
-    std::set<llvm::BasicBlock *> visits;
-    visits.insert(&func.getEntryBlock());
-    return verifyPath(func.getEntryBlock(), 0, balances, visits);
+int StackReconstructionPass::calcBasicBlockBalance(llvm::BasicBlock &BB) {
+  int Balance = 0;
+  World &W = GetWorld();
+  for (Instruction &Inst : BB) {
+    if (isa<PushInst>(&Inst))
+      Balance++;
+    else if (isa<PopInst>(&Inst))
+      Balance--;
+  }
+  return Balance;
 }
 
+bool StackReconstructionPass::verifyPath(
+    llvm::BasicBlock &BB, int Balance,
+    const std::map<llvm::BasicBlock *, int> &Balances,
+    std::set<llvm::BasicBlock *> &Visits) {
+  Balance += Balances.find(&BB)->second;
+  succ_iterator SI = succ_begin(&BB), SE = succ_end(&BB);
+  if (SI == SE)
+    return (Balance >= 0);
 
-int StackReconstructionPass::calcBasicBlockBalance(llvm::BasicBlock &bb)
-{
-    int balance = 0;
-    World &world = GetWorld();
-    for (Instruction &inst : bb)
-    {
-        if (isa<PushInst>(&inst))
-        {
-            balance++;
-        }
-        else if (isa<PopInst>(&inst))
-        {
-            balance--;
-        }
+  for (; SI != SE; ++SI) {
+    BasicBlock *succ = *SI;
+    auto I = Visits.insert(succ); // To prevent loops!
+    if (I.second) {
+      if (!verifyPath(*succ, Balance, Balances, Visits))
+        return false;
+      Visits.erase(I.first);
     }
-    return balance;
+  }
+  return true;
 }
-
-
-bool StackReconstructionPass::verifyPath(llvm::BasicBlock &bb, int balance, const std::map<llvm::BasicBlock *, int> &balances, std::set<llvm::BasicBlock *> &visits)
-{
-    balance += balances.find(&bb)->second;
-    succ_iterator si = succ_begin(&bb), se = succ_end(&bb);
-    if (si == se)
-    {
-        return (balance >= 0);
-    }
-
-    for (; si != se; ++si)
-    {
-        BasicBlock *succ = *si;
-        auto i = visits.insert(succ); // To prevent loops!
-        if (i.second)
-        {
-            if (!verifyPath(*succ, balance, balances, visits))
-            {
-                return false;
-            }
-            visits.erase(i.first);
-        }
-    }
-    return true;
-}
-
-
-END_NAMESPACE_SCI

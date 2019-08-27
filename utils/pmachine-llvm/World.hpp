@@ -1,108 +1,119 @@
-#pragma once
-#ifndef _World_HPP_
-#define _World_HPP_
+//===- World.hpp ----------------------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef SCI_UTILS_PMACHINE_LLVM_WORLD_HPP
+#define SCI_UTILS_PMACHINE_LLVM_WORLD_HPP
 
 #include "Intrinsics.hpp"
-#include "SelectorTable.hpp"
+#include "Resource.hpp"
 #include "ScriptIterator.hpp"
-#include <llvm/IR/DataLayout.h>
-#include <llvm/ADT/iterator_range.h>
+#include "SelectorTable.hpp"
+#include "llvm/ADT/iterator_range.h"
+#include "llvm/IR/DataLayout.h"
 
-struct ObjRes;
-
-
-BEGIN_NAMESPACE_SCI
+namespace sci {
 
 class Class;
 class Object;
 class Procedure;
 
-class World
-{
+class World {
 public:
-    World();
-    ~World();
+  World();
+  ~World();
 
-    void setDataLayout(const llvm::DataLayout &dl);
-    const llvm::DataLayout& getDataLayout() const { return m_dataLayout; }
-    uint getTypeAlignment(llvm::Value *val) const { return getTypeAlignment(val->getType()); }
-    uint getTypeAlignment(llvm::Type *type) const { return m_dataLayout.getPrefTypeAlignment(type); }
-    uint getElementTypeAlignment(llvm::Value *val) const { return getElementTypeAlignment(val->getType()); }
-    uint getElementTypeAlignment(llvm::Type *type) const { return getTypeAlignment(type->getPointerElementType()); }
-    uint getSizeTypeAlignment() const { return getTypeAlignment(m_sizeTy); }
+  void setDataLayout(const llvm::DataLayout &DL);
+  const llvm::DataLayout &getDataLayout() const { return DL; }
+  unsigned getTypeAlignment(llvm::Value *V) const {
+    return getTypeAlignment(V->getType());
+  }
+  unsigned getTypeAlignment(llvm::Type *Ty) const {
+    return DL.getPrefTypeAlignment(Ty);
+  }
+  unsigned getElementTypeAlignment(llvm::Value *V) const {
+    return getElementTypeAlignment(V->getType());
+  }
+  unsigned getElementTypeAlignment(llvm::Type *Ty) const {
+    return getTypeAlignment(Ty->getPointerElementType());
+  }
+  unsigned getSizeTypeAlignment() const { return getTypeAlignment(SizeTy); }
 
-    bool load();
+  bool load();
 
-    llvm::LLVMContext& getContext() { return m_ctx; }
-    llvm::IntegerType* getSizeType() const { return m_sizeTy; }
-    llvm::ConstantInt* getConstantValue(int16_t val) const;
+  llvm::LLVMContext &getContext() { return Context; }
+  llvm::IntegerType *getSizeType() const { return SizeTy; }
+  llvm::ConstantInt *getConstantValue(int16_t Val) const;
 
-    Object* addClass(const ObjRes &res, Script &script);
-    Object* getClass(uint id);
-    ArrayRef<Object> getClasses() const { return llvm::makeArrayRef(m_classes, m_classCount); }
-    llvm::StructType* getAbstractClassType() const { return m_absClassTy; }
+  Object *addClass(const ObjRes &Res, Script &S);
+  Object *getClass(unsigned ClassID);
+  ArrayRef<Object> getClasses() const {
+    return llvm::makeArrayRef(Classes, ClassCount);
+  }
+  llvm::StructType *getAbstractClassType() const { return AbsClassTy; }
 
-    SelectorTable& getSelectorTable() { return m_sels; }
-    StringRef getSelectorName(uint id);
+  SelectorTable &getSelectorTable() { return Sels; }
+  StringRef getSelectorName(unsigned SelID);
 
-    uint getGlobalVariablesCount() const;
+  unsigned getGlobalVariablesCount() const;
 
-    llvm::Function* getIntrinsic(Intrinsic::ID iid) const { return m_intrinsics->get(iid); }
+  llvm::Function *getIntrinsic(Intrinsic::ID IID) const {
+    return Intrinsics->get(IID);
+  }
 
-    Script* getScript(llvm::Module &module) const;
-    Script* getScript(uint id) const;
-    uint getScriptCount() const { return m_scriptCount; }
+  Script *getScript(llvm::Module &M) const;
+  Script *getScript(unsigned ScriptID) const;
+  unsigned getScriptCount() const { return ScriptCount; }
 
-    Object* lookupObject(llvm::GlobalVariable &var) const;
+  Object *lookupObject(llvm::GlobalVariable &Var) const;
 
-    bool registerProcedure(Procedure &proc);
-    Procedure* getProcedure(const llvm::Function &func) const;
+  bool registerProcedure(Procedure &Proc);
+  Procedure *getProcedure(const llvm::Function &Func) const;
 
+  const_script_iterator begin() const {
+    return const_script_iterator(&Scripts[0], &Scripts[1000]);
+  }
+  script_iterator begin() {
+    return script_iterator(&Scripts[0], &Scripts[1000]);
+  }
 
-    const_script_iterator begin() const {
-        return const_script_iterator(&m_scripts[0], &m_scripts[1000]);
-    }
-    script_iterator begin() {
-        return script_iterator(&m_scripts[0], &m_scripts[1000]);
-    }
+  const_script_iterator end() const {
+    return const_script_iterator(&Scripts[1000], &Scripts[1000]);
+  }
+  script_iterator end() {
+    return script_iterator(&Scripts[1000], &Scripts[1000]);
+  }
 
-    const_script_iterator end() const {
-        return const_script_iterator(&m_scripts[1000], &m_scripts[1000]);
-    }
-    script_iterator end() {
-        return script_iterator(&m_scripts[1000], &m_scripts[1000]);
-    }
+  llvm::iterator_range<script_iterator> scripts() {
+    return llvm::make_range(begin(), end());
+  }
 
-    llvm::iterator_range<script_iterator> scripts() {
-        return llvm::make_range(begin(), end());
-    }
-
-    llvm::iterator_range<const_script_iterator> scripts() const {
-        return llvm::make_range(begin(), end());
-    }
+  llvm::iterator_range<const_script_iterator> scripts() const {
+    return llvm::make_range(begin(), end());
+  }
 
 private:
-    Script* acquireScript(uint id);
+  Script *acquireScript(unsigned ScriptID);
 
+  llvm::DataLayout DL;
+  llvm::LLVMContext Context;
+  llvm::IntegerType *SizeTy;
+  llvm::StructType *AbsClassTy;
+  std::unique_ptr<Script> Scripts[1000];
+  unsigned ScriptCount;
+  Object *Classes;
+  unsigned ClassCount;
 
-    llvm::DataLayout m_dataLayout;
-    llvm::LLVMContext m_ctx;
-    llvm::IntegerType *m_sizeTy;
-    llvm::StructType *m_absClassTy;
-    std::unique_ptr<Script> m_scripts[1000];
-    uint m_scriptCount;
-    Object *m_classes;
-    uint m_classCount;
+  llvm::DenseMap<const llvm::Function *, Procedure *> FuncMap;
+  SelectorTable Sels;
 
-    llvm::DenseMap<const llvm::Function *, Procedure *> m_funcMap;
-    SelectorTable m_sels;
-
-    std::unique_ptr<Intrinsic> m_intrinsics;
+  std::unique_ptr<Intrinsic> Intrinsics;
 };
 
+World &GetWorld();
 
-World& GetWorld();
+} // end namespace sci
 
-END_NAMESPACE_SCI
-
-#endif // !_World_HPP_
+#endif // SCI_UTILS_PMACHINE_LLVM_WORLD_HPP

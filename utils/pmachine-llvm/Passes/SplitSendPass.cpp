@@ -1,125 +1,105 @@
+//===- Passes/SplitSendPass.cpp -------------------------------------------===//
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
 #include "SplitSendPass.hpp"
 #include "../World.hpp"
-#include <llvm/IR/Instructions.h>
+#include "llvm/IR/Instructions.h"
 
+using namespace sci;
 using namespace llvm;
 
-
-BEGIN_NAMESPACE_SCI
-
-
-static std::string CreateCallInstName(Value *sel)
-{
-    std::string name;
-    if (isa<ConstantInt>(sel))
-    {
-        name = GetWorld().getSelectorTable().getSelectorName(static_cast<uint>(cast<ConstantInt>(sel)->getSExtValue()));
-        if (!name.empty())
-        {
-            name = "res@" + name;
-        }
-    }
-    return name;
+static std::string createCallInstName(Value *Sel) {
+  std::string Name;
+  if (isa<ConstantInt>(Sel)) {
+    Name = GetWorld().getSelectorTable().getSelectorName(
+        static_cast<unsigned>(cast<ConstantInt>(Sel)->getSExtValue()));
+    if (!Name.empty())
+      Name = "res@" + Name;
+  }
+  return Name;
 }
 
+SplitSendPass::SplitSendPass() {
+  World &W = GetWorld();
+  IntegerType *SizeTy = W.getSizeType();
+  Type *Params[] = {SizeTy, SizeTy, SizeTy};
 
-SplitSendPass::SplitSendPass()
-{
-    World &world = GetWorld();
-    IntegerType *sizeTy = world.getSizeType();
-    Type *params[] = { sizeTy, sizeTy, sizeTy };
-
-    FunctionType *funcTy = FunctionType::get(sizeTy, params, true);
-    m_fnStubSend.reset(Function::Create(funcTy, GlobalValue::ExternalLinkage, "stub_send@SCI"));
+  FunctionType *FTy = FunctionType::get(SizeTy, Params, true);
+  FnStubSend.reset(
+      Function::Create(FTy, GlobalValue::ExternalLinkage, "stub_send@SCI"));
 }
 
-
-SplitSendPass::~SplitSendPass()
-{
-    assert(!m_fnStubSend || m_fnStubSend->getNumUses() == 0);
+SplitSendPass::~SplitSendPass() {
+  assert(!FnStubSend || FnStubSend->getNumUses() == 0);
 }
 
+void SplitSendPass::run() {
+  Function *SendFunc = Intrinsic::Get(Intrinsic::send);
+  for (auto U = SendFunc->user_begin(), E = SendFunc->user_end(); U != E;) {
+    CallInst *Call = cast<CallInst>(*U);
+    ++U;
 
-void SplitSendPass::run()
-{
-    Function *sendFunc = Intrinsic::Get(Intrinsic::send);
-    for (auto u = sendFunc->user_begin(), e = sendFunc->user_end(); u != e;)
-    {
-        CallInst *call = cast<CallInst>(*u);
-        ++u;
+    splitSend(Call);
+  }
 
-        splitSend(call);
-    }
-
-    m_fnStubSend->replaceAllUsesWith(sendFunc);
+  FnStubSend->replaceAllUsesWith(SendFunc);
 }
 
+bool SplitSendPass::splitSend(CallInst *CallSend) {
+  ConstantInt *Argc = cast<ConstantInt>(CallSend->getArgOperand(2));
+  unsigned N = static_cast<unsigned>(Argc->getZExtValue());
 
-bool SplitSendPass::splitSend(CallInst *callSend)
-{
-    ConstantInt *argc = cast<ConstantInt>(callSend->getArgOperand(2));
-    uint n = static_cast<uint>(argc->getZExtValue());
+  auto AE = CallSend->arg_end() - 1;
+  Value *Rest = nullptr;
+  if (isa<RestInst>(*AE)) {
+    Rest = *AE;
+    --AE;
+    ++N;
+  }
 
-    auto iLast = callSend->arg_end() - 1;
-    Value *rest = nullptr;
-    if (isa<RestInst>(*iLast))
-    {
-        rest = *iLast;
-        --iLast;
-        ++n;
+  if (CallSend->getNumArgOperands() == (N + 3)) {
+    if (!CallSend->hasName()) {
+      Value *Sel = CallSend->getArgOperand(1);
+      std::string Name = createCallInstName(Sel);
+      if (!Name.empty())
+        CallSend->setName(Name);
+    }
+    return false;
+  }
+
+  SmallVector<Value *, 16> Args;
+  auto AI = CallSend->arg_begin();
+
+  Value *Obj = *AI;
+  Value *Acc = nullptr;
+
+  while (AI != AE) {
+    Args.clear();
+
+    Value *Sel = *++AI;
+    Argc = cast<ConstantInt>(*++AI);
+
+    Args.push_back(Obj);
+    Args.push_back(Sel);
+    Args.push_back(Argc);
+
+    N = static_cast<unsigned>(Argc->getZExtValue());
+    for (unsigned I = 0; I < N; ++I)
+      Args.push_back(*++AI);
+
+    if (Rest) {
+      Args.push_back(Rest);
+      Rest = nullptr;
     }
 
-    if (callSend->getNumArgOperands() == (n + 3))
-    {
-        if (!callSend->hasName())
-        {
-            Value *sel = callSend->getArgOperand(1);
-            std::string name = CreateCallInstName(sel);
-            if (!name.empty())
-            {
-                callSend->setName(name);
-            }
-        }
-        return false;
-    }
+    std::string Name = createCallInstName(Sel);
+    Acc = CallInst::Create(FnStubSend.get(), Args, Name, CallSend);
+  }
 
-    SmallVector<Value *, 16> args;
-    auto iArg = callSend->arg_begin();
-
-    Value *obj = *iArg;
-    Value *acc;
-
-    while (iArg != iLast)
-    {
-        args.clear();
-
-        Value *sel = *++iArg;
-        argc = cast<ConstantInt>(*++iArg);
-
-        args.push_back(obj);
-        args.push_back(sel);
-        args.push_back(argc);
-
-        n = static_cast<uint>(argc->getZExtValue());
-        for (uint i = 0; i < n; ++i)
-        {
-            args.push_back(*++iArg);
-        }
-
-        if (rest != nullptr)
-        {
-            args.push_back(rest);
-            rest = nullptr;
-        }
-
-        std::string name = CreateCallInstName(sel);
-        acc = CallInst::Create(m_fnStubSend.get(), args, name, callSend);
-    }
-
-    callSend->replaceAllUsesWith(acc);
-    callSend->eraseFromParent();
-    return true;
+  CallSend->replaceAllUsesWith(Acc);
+  CallSend->eraseFromParent();
+  return true;
 }
-
-
-END_NAMESPACE_SCI

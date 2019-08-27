@@ -36,8 +36,6 @@ typedef struct ResSegHeader {
     uint16_t compression;
 } ResSegHeader;
 
-bool g_isExternal = false;
-
 static void  *s_resourceMap = NULL;
 static int    s_resVolFd    = -1;
 static ushort s_resVolNum   = 1;
@@ -126,9 +124,7 @@ Handle DoLoad(int resType, size_t resNum)
         }
 #endif
         if (!FindDirEntry(&volNum, &offset, resType, resNum)) {
-            if (!g_isExternal) {
-                Panic(E_NOT_FOUND, ResNameMake(fileName, resType, resNum));
-            }
+            Panic(E_NOT_FOUND, ResNameMake(fileName, resType, resNum));
             return NULL;
         }
 
