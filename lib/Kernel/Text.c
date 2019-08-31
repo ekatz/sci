@@ -29,6 +29,10 @@ void RTextSize(RRect *r, const char *text, int font, int def)
     const char *str;
     const char *first;
 
+    if (text == NULL) {
+        return;
+    }
+
     // We are sizing this text in the font requested.
     oldFont = GetFont();
 
@@ -238,9 +242,5 @@ void ShowText(const char *str, uint first, uint count)
 
 const char *GetTextPointer(uintptr_t native)
 {
-    if ((intptr_t)native < 0x10000) {
-        return (const char *)GetScriptHeapPtr((uint16_t)native);
-    } else {
-        return (const char *)native;
-    }
+    return (const char *)GetScriptHeapPtr(native);
 }

@@ -13,36 +13,19 @@
 #include <AudioToolbox/AudioToolbox.h>
 #endif
 
-#define CDAUDIOMAP        "CDAUDIO.MAP"
 #define AUDIO_BUFFER_SIZE (28 * 1024)
-
-#pragma pack(push, 2)
-typedef struct ResAudEntry {
-    uint16_t resId;
-    uint32_t offset : 28;
-    uint32_t volNum : 4;
-    uint32_t length;
-} ResAudEntry;
-#pragma pack(pop)
 
 static int ReadAudioFile(void *buffer, uint size);
 
-static bool   s_audioInit     = false;
-static bool   s_audioPlaying  = false;
-static bool   s_audioStopping = false;
-static bool   s_memCheck      = false;
-static uint   s_audioStopTick = 0;
-static int    s_fd            = -1;
-static uint   s_fileSize      = 0;
-static uint   s_dataRead      = 0;
-static bool   s_useAudio      = true;
-static bool   s_audioDrv      = false;
-static uint   s_audioRate     = 0;
-static int    s_audioType     = 0;
-static Handle s_audioMap      = NULL;
-static ushort s_audioVolNum   = (ushort)-1;
-static ushort s_dacType       = (ushort)-1;
-static size_t s_playingNum    = (size_t)-1;
+static bool s_audioInit     = false;
+static bool s_audioPlaying  = false;
+static bool s_audioStopping = false;
+static bool s_memCheck      = false;
+static uint s_audioStopTick = 0;
+static int  s_fd            = -1;
+static uint s_fileSize      = 0;
+static uint s_dataRead      = 0;
+static uint s_audioRate     = 0;
 
 #if defined(__WINDOWS__)
 extern HWND         g_hWndMain;
@@ -247,6 +230,9 @@ int AudioDrv(int function, uintptr_t qualifier)
 
         case A_STOP:
             s_audioStopping = true;
+#if defined(__WINDOWS__)
+            waveOutReset(s_hWaveOut);
+#endif
             while (s_audioPlaying) {
                 PollInputEvent();
             }

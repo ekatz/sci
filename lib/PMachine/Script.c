@@ -5,10 +5,12 @@
 
 #define NIL NullNode(Script)
 
-static List     s_scriptList          = LIST_INITIALIZER;
-byte            g_scriptHeap[0x10000] = { 0 };
-static uint16_t s_scriptHeapSize      = 0;
-static uint16_t s_scriptHeapMap[1000] = { 0 };
+#define HEAP_MAX ((uint)((uint16_t)-1) + 1U)
+
+static List s_scriptList = LIST_INITIALIZER;
+static byte s_scriptHeap[HEAP_MAX * HEAP_MUL] = { 0 };
+static uint s_scriptHeapSize = 0;
+static uint s_scriptHeapMap[1000] = { 0 };
 
 static Handle GetHeapHandle(uint size, uint num);
 static void DisposeHeapHandle(Handle handle);
@@ -185,8 +187,6 @@ static void InitHunkRes(Handle hunk, Script *script, bool alloc)
         heap = (byte *)script->heap;
     }
 
-    DoFixups(script, relocTable, numRelocEntries, exportTable, numExports);
-
     seg = (SegHeader *)hunk;
     while (seg->type != SEG_NULL) {
         switch (seg->type) {
@@ -273,6 +273,8 @@ static void InitHunkRes(Handle hunk, Script *script, bool alloc)
         seg = NextSegment(seg);
     }
 
+    DoFixups(script, relocTable, numRelocEntries, exportTable, numExports);
+
     if (relocTable != NULL) {
         // TODO: Should this be a pointer or an offset?
         //  relocTable->offset = heap;
@@ -340,6 +342,75 @@ static void DoFixups(Script      *script,
     }
 }
 
+static SegHeader *FindSegment(byte *hunk, byte **heap, void *fixPtr)
+{
+    SegHeader *seg;
+
+    seg = (SegHeader *)hunk;
+    while (seg->type != SEG_NULL) {
+        if ((uintptr_t)fixPtr < ((uintptr_t)seg + seg->size)) {
+            assert((uintptr_t)fixPtr > (uintptr_t)seg);
+            return seg;
+        }
+
+        switch (seg->type) {
+            case SEG_OBJECT:
+            case SEG_CLASS:
+                *heap += OBJSIZE(((ObjRes *)(seg + 1))->varSelNum);
+                break;
+
+            case SEG_SAIDSPECS:
+            case SEG_STRINGS:
+                *heap += seg->size - sizeof(SegHeader);
+                break;
+
+            case SEG_LOCALS:
+                *heap += (seg->size - sizeof(SegHeader)) / sizeof(uint16_t) *
+                         sizeof(uintptr_t);
+                break;
+
+            default:
+                break;
+        }
+
+        seg = NextSegment(seg);
+    }
+    return seg;
+}
+
+static const uint8_t s_lofsOpcodeModifiers[] = { 0, 1, 5, 9 };
+
+static void FixRelocPtr(byte *hunk, byte *heap, void *fixPtr, uint fixedValue)
+{
+    SegHeader *seg;
+
+    seg = FindSegment(hunk, &heap, fixPtr);
+    switch (seg->type) {
+        case SEG_CODE: {
+            uint16_t truncValue = (uint16_t)(fixedValue / HEAP_MUL);
+
+            *((uint8_t *)fixPtr - 1) +=
+              s_lofsOpcodeModifiers[fixedValue % HEAP_MUL];
+            *(uint16_t *)fixPtr = truncValue;
+            break;
+        }
+
+        case SEG_OBJECT:
+        case SEG_CLASS: {
+            ObjRes *cls = (ObjRes *)(seg + 1);
+            Obj    *obj = (Obj *)((ObjHeader *)heap + 1);
+            size_t  i   = (int16_t *)fixPtr - cls->sels;
+
+            assert(i < (size_t)cls->varSelNum);
+            obj->vars[i] = fixedValue;
+            break;
+        }
+
+        default:
+            break;
+    }
+}
+
 static void FixRelocTable(SegHeader  *seg,
                           byte       *hunk,
                           byte       *heap,
@@ -390,7 +461,7 @@ static void FixRelocTable(SegHeader  *seg,
             }
 
             // Make the pointer relative to the heap instead of the hunk.
-            *fixPtr = (uint16_t)(heapEntry - g_scriptHeap);
+            FixRelocPtr(hunk, heap, fixPtr, (uint)(heapEntry - s_scriptHeap));
         }
 
         ++fixDone;
@@ -443,8 +514,7 @@ static void FixExportsTable(SegHeader   *seg,
             }
 
             // Make the pointer relative to the heap instead of the hunk.
-            entry->ptrOff = (uint16_t)(heapEntry - g_scriptHeap);
-            entry->ptrSeg = (uint16_t)-1;
+            entry->ptr = (uint32_t)(heapEntry - s_scriptHeap);
         }
 
         ++fixDone;
@@ -534,15 +604,15 @@ static Handle GetHeapHandle(uint size, uint num)
 
     if (s_scriptHeapMap[num] == 0) {
         s_scriptHeapMap[num] = s_scriptHeapSize;
-        handle               = (uint32_t *)(g_scriptHeap + s_scriptHeapSize);
-        *handle              = size;
+        handle  = (uint32_t *)(s_scriptHeap + s_scriptHeapSize);
+        *handle = size;
         handle++;
 
         s_scriptHeapSize +=
-          (uint16_t)(sizeof(uint32_t) + ALIGN_UP(size, sizeof(uint32_t)));
-        assert(s_scriptHeapSize < 0x10000);
+          (uint)(sizeof(uint32_t) + ALIGN_UP(size, sizeof(uint32_t)));
+        assert(s_scriptHeapSize <= sizeof(s_scriptHeap));
     } else {
-        handle = (uint32_t *)(g_scriptHeap + s_scriptHeapMap[num]);
+        handle = (uint32_t *)(s_scriptHeap + s_scriptHeapMap[num]);
         handle++;
         assert(size == ResHandleSize(handle));
     }
@@ -558,5 +628,6 @@ static void DisposeHeapHandle(Handle handle)
 
 byte *GetScriptHeapPtr(size_t offset)
 {
-    return g_scriptHeap + offset;
+    return offset < sizeof(s_scriptHeap) ? s_scriptHeap + offset
+                                         : (byte *)offset;
 }

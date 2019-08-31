@@ -123,7 +123,7 @@ static LRESULT CALLBACK WindowProc(HWND   hWnd,
         return 0;
     }
 
-    return DefWindowProc(hWnd, uMsg, wParam, lParam);
+    return DefWindowProcA(hWnd, uMsg, wParam, lParam);
 }
 
 int CALLBACK WinMain(_In_ HINSTANCE hInstance,

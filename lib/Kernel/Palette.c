@@ -57,12 +57,13 @@ void RSetPalette(RPalette *srcPal, int mode)
     // Save to note any change requiring a SetCLUT call.
     valid = g_sysPalette.valid;
 
-    if (mode == PAL_REPLACE || srcPal->valid != g_sysPalette.valid) {
+    // TODO: this is a timing issue patch!!
+    /*if (mode == PAL_REPLACE || srcPal->valid != g_sysPalette.valid)*/ {
         InsertPalette(srcPal, &g_sysPalette, mode);
 
         // Validate the source palette.
         srcPal->valid = g_sysPalette.valid;
-        if (valid != g_sysPalette.valid && g_picNotValid == 0) {
+        if (/*valid != g_sysPalette.valid &&*/ g_picNotValid == 0) {
             SetCLUT(&g_sysPalette);
         }
     }

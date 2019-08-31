@@ -5,13 +5,13 @@ void PollInputEvent(void)
 #ifdef __WINDOWS__
     MSG msg;
 
-    while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+    while (PeekMessageA(&msg, NULL, 0, 0, PM_REMOVE)) {
         if (msg.message == WM_QUIT) {
             exit(1);
         }
 
         TranslateMessage(&msg);
-        DispatchMessage(&msg);
+        DispatchMessageA(&msg);
     }
 #endif
 }

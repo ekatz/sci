@@ -996,7 +996,7 @@ void KFormat(argList)
                             strArg =
                               GetFarText((uint)theArg, (uint)arg(n++), temp);
                         } else {
-                            strArg = GetTextPointer((uint)theArg);
+                            strArg = GetTextPointer(theArg);
                         }
                         text += sci_sprintf(text, theStr, strArg);
                     } else {

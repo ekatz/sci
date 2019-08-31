@@ -150,19 +150,19 @@
 #define OP_ipTos_ONE   0x6F
 #define OP_dpTos_TWO   0x70
 #define OP_dpTos_ONE   0x71
-#define OP_lofsa_TWO   0x72
-//      BadOp          0x73
-#define OP_lofss_TWO   0x74
-//      BadOp          0x75
+#define OP_lofsa0_TWO  0x72
+#define OP_lofsa1_TWO  0x73
+#define OP_lofss0_TWO  0x74
+#define OP_lofss1_TWO  0x75
 #define OP_push0       0x76
-//      BadOp          0x77
+#define OP_lofsa2_TWO  0x77
 #define OP_push1       0x78
-//      BadOp          0x79
+#define OP_lofss2_TWO  0x79
 #define OP_push2       0x7A
-//      BadOp          0x7B
+#define OP_lofsa3_TWO  0x7B
 #define OP_pushSelf    0x7C
-//      BadOp          0x7B
-//      BadOp          0x7B
+#define OP_lofss3_TWO  0x7D
+//      BadOp          0x7E
 //      BadOp          0x7F
 #define OP_lag_TWO     0x80
 #define OP_lag_ONE     0x81
@@ -457,6 +457,36 @@ static Script *GetDispatchAddrInHunk(uint      scriptNum,
                                      uint8_t **code);
 static char *GetKernelName(uint num, char *buffer);
 
+static uintptr_t lofsaToModifier(uint8_t opcode)
+{
+    switch (opcode) {
+        default:
+        case OP_lofsa0_TWO:
+            return 0;
+        case OP_lofsa1_TWO:
+            return 1;
+        case OP_lofsa2_TWO:
+            return 2;
+        case OP_lofsa3_TWO:
+            return 3;
+    }
+}
+
+static uintptr_t lofssToModifier(uint8_t opcode)
+{
+    switch (opcode) {
+        default:
+        case OP_lofss0_TWO:
+            return 0;
+        case OP_lofss1_TWO:
+            return 1;
+        case OP_lofss2_TWO:
+            return 2;
+        case OP_lofss3_TWO:
+            return 3;
+    }
+}
+
 void PMachine(void)
 {
     Script *script;
@@ -505,7 +535,8 @@ uintptr_t GetGlobalVariable(size_t index)
 void ExecuteCode(void)
 {
     while (true) {
-        switch (GetByte()) {
+        uint8_t opcode = GetByte();
+        switch (opcode) {
             // Do a bitwise not of the acc.
             case OP_bnot: {
                 LogDebug("bnot");
@@ -1077,10 +1108,14 @@ void ExecuteCode(void)
             } break;
 
             // Load offset
-            case OP_lofsa_TWO: {
-                LogDebug("lofsa %+d", *((int16_t *)g_pc));
+            case OP_lofsa0_TWO:
+            case OP_lofsa1_TWO:
+            case OP_lofsa2_TWO:
+            case OP_lofsa3_TWO: {
+                LogDebug("lofsa %u", *((uint16_t *)g_pc));
 #if defined __WINDOWS__ || 1
-                uintptr_t offset = GetWord();
+                uintptr_t offset =
+                  (uintptr_t)GetWord() * HEAP_MUL + lofsaToModifier(opcode);
                 SetAcc((uintptr_t)GetScriptHeapPtr(offset));
 #else
 #error Not implemented
@@ -1088,10 +1123,14 @@ void ExecuteCode(void)
             } break;
 
             // Load offset to stack
-            case OP_lofss_TWO: {
-                LogDebug("lofss %+d", *((int16_t *)g_pc));
+            case OP_lofss0_TWO:
+            case OP_lofss1_TWO:
+            case OP_lofss2_TWO:
+            case OP_lofss3_TWO: {
+                LogDebug("lofss %u", *((uint16_t *)g_pc));
 #if defined __WINDOWS__ || 1
-                uintptr_t offset = GetWord();
+                uintptr_t offset =
+                  (uintptr_t)GetWord() * HEAP_MUL + lofssToModifier(opcode);
                 Push((uintptr_t)GetScriptHeapPtr(offset));
 #else
 #error Not implemented
@@ -1952,9 +1991,7 @@ static Script *GetDispatchAddrInHeap(uint scriptNum, uint entryNum, Obj **obj)
     Script *script = ScriptPtr(scriptNum);
     // TODO: should this be "<=" ???
     if (script != NULL && entryNum < (uint)script->exports->numEntries) {
-        assert(script->exports->entries[entryNum].ptrSeg == (uint16_t)-1);
-        *obj =
-          (Obj *)GetScriptHeapPtr(script->exports->entries[entryNum].ptrOff);
+        *obj = (Obj *)GetScriptHeapPtr(script->exports->entries[entryNum].ptr);
     }
     return script;
 }
@@ -1965,9 +2002,8 @@ static Script *GetDispatchAddrInHunk(uint      scriptNum,
 {
     Script *script = ScriptPtr(scriptNum);
     if (script != NULL && entryNum < (uint)script->exports->numEntries) {
-        assert(script->exports->entries[entryNum].ptrSeg == 0);
         *code =
-          (uint8_t *)script->hunk + script->exports->entries[entryNum].ptrOff;
+          (uint8_t *)script->hunk + script->exports->entries[entryNum].ptr;
     }
     return script;
 }

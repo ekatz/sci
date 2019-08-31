@@ -13,10 +13,15 @@ typedef struct RelocTable {
     uint16_t table[0];
 } RelocTable;
 
-typedef struct ExportTableEntry {
-    uint16_t ptrOff;
-    uint16_t ptrSeg;
+#pragma pack(push, 2)
+typedef union ExportTableEntry {
+    struct {
+        uint16_t ptrOff;
+        uint16_t ptrSeg;
+    };
+    uint32_t ptr;
 } ExportTableEntry;
+#pragma pack(pop)
 
 typedef struct ExportTable {
     uint16_t         numEntries;
@@ -70,6 +75,8 @@ typedef struct ObjRes {
 #define SEG_LOCALS    10 // Local variables
 
 #define NextSegment(seg) ((SegHeader *)((byte *)(seg) + (seg)->size))
+
+#define HEAP_MUL (sizeof(void *) / sizeof(uint16_t))
 
 byte *GetScriptHeapPtr(size_t offset);
 
