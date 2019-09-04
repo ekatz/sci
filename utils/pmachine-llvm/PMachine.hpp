@@ -126,6 +126,7 @@ private:
 
   Script &TheScript;
   llvm::LLVMContext &Context;
+  llvm::IntegerType *Int32Ty;
   llvm::IntegerType *SizeTy;
   llvm::Function *FuncCallIntrin = nullptr;
   const uint8_t *PC = nullptr;

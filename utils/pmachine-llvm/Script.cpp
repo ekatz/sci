@@ -10,6 +10,7 @@
 #include "Procedure.hpp"
 #include "World.hpp"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/Debug.h"
 
 using namespace sci;
 using namespace llvm;
@@ -252,9 +253,9 @@ bool Script::load() {
   for (unsigned I = 0, N = ObjectCount; I < N; ++I)
     Objects[I].loadMethods();
 
+  dbgs() << "Translating script " << Mod->getName().take_back(3) << '\n';
   loadProcedures(ProcOffsets, ExportTbl);
   sortFunctions();
-  printf("%s interpreted successfully!\n", Mod->getName().data());
   return true;
 }
 
@@ -410,7 +411,8 @@ GlobalVariable *Script::getLocalString(unsigned Offset) {
 void Script::sortFunctions() {
   World &W = GetWorld();
   std::map<unsigned, Function *> SortedFuncs;
-  for (Function &Func : *Mod) {
+  for (auto I = Mod->begin(), E = Mod->end(); I != E;) {
+    Function &Func = *I++;
     Procedure *Proc = W.getProcedure(Func);
     if (Proc) {
       bool IsNew = SortedFuncs.emplace(Proc->getOffset(), &Func).second;

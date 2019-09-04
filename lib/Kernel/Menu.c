@@ -278,8 +278,10 @@ void KAddMenu(argList)
     RMenuItem *item = NULL;
     int        m, i, key;
     char       valStr[10];
-    char      *data;
+    char      *data, *argData;
     bool       newItem;
+
+    argData = strdup((char *)arg(2));
 
     // If we have no theMenuBar we init one.
     if (s_theMenuBar == NULL) {
@@ -293,7 +295,7 @@ void KAddMenu(argList)
             ++s_theMenuBar->pages;
 
             // Determine entries required.
-            data = (char *)arg(2);
+            data = argData;
             for (i = 1; *data != '\0'; data++) {
                 if (*data == ':') {
                     ++i;
@@ -308,7 +310,7 @@ void KAddMenu(argList)
 
             // Scan the definition string for item properties.
             i       = FIRST;
-            data    = (char *)arg(2);
+            data    = argData;
             newItem = true;
             while (*data != '\0') {
                 if (newItem) {

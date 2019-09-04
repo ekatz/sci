@@ -23,6 +23,7 @@ public:
 
   unsigned getId() const { return ID; }
   llvm::Module *getModule() const { return Mod.get(); }
+  std::unique_ptr<llvm::Module> takeModule() { return std::move(Mod); }
   llvm::GlobalVariable *getString(StringRef Str);
   llvm::GlobalVariable *getLocalString(unsigned Offset);
 

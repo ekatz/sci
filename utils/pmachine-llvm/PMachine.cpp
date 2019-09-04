@@ -365,7 +365,7 @@ PMachine::PfnOp PMachine::OpTable[] = {
 
 PMachine::PMachine(Script &S)
     : TheScript(S), Context(S.getModule()->getContext()),
-      SizeTy(GetWorld().getSizeType()) {
+      Int32Ty(Type::getInt32Ty(Context)), SizeTy(GetWorld().getSizeType()) {
   Intrinsic::Get(Intrinsic::push);
   Intrinsic::Get(Intrinsic::pop);
   Intrinsic::Get(Intrinsic::rest);
@@ -448,7 +448,7 @@ void PMachine::processBasicBlocks() {
   PAccAddr->setAlignment(SizeAlign);
   while (processNextInstruction())
     ;
-  assert(Rest == nullptr);
+  assert(!Rest);
 
   while (!WorkList.empty()) {
     Item = WorkList.back();
@@ -460,14 +460,14 @@ void PMachine::processBasicBlocks() {
     Acc = loadAcc();
     while (processNextInstruction())
       ;
-    assert(Rest == nullptr);
+    assert(!Rest);
   }
 }
 
 BasicBlock *PMachine::getBasicBlock(const uint8_t *Label, StringRef Name) {
   unsigned Offset = TheScript.getOffsetOf(Label);
   BasicBlock *&BB = Labels[Offset];
-  if (BB == nullptr) {
+  if (!BB) {
     std::string FullName = Name;
     FullName += '@';
     FullName += utohexstr(Offset, true);
@@ -478,12 +478,11 @@ BasicBlock *PMachine::getBasicBlock(const uint8_t *Label, StringRef Name) {
 }
 
 Function *PMachine::getCallIntrinsic() {
-  if (FuncCallIntrin == nullptr) {
-    Function *FuncCallIntrin = Intrinsic::Get(Intrinsic::call);
+  if (!FuncCallIntrin) {
+    Function *F = Intrinsic::Get(Intrinsic::call);
     FuncCallIntrin = cast<Function>(
         TheScript.getModule()
-            ->getOrInsertFunction(FuncCallIntrin->getName(),
-                                  FuncCallIntrin->getFunctionType())
+            ->getOrInsertFunction(F->getName(), F->getFunctionType())
             .getCallee());
   }
   return FuncCallIntrin;
@@ -534,7 +533,6 @@ void PMachine::emitCall(Function *Func, ArrayRef<Constant *> Constants) {
 
 Value *PMachine::getIndexedPropPtr(uint8_t Opcode) {
   unsigned Idx = getUInt(Opcode) / sizeof(uint16_t);
-  Type *Int32Ty = Type::getInt32Ty(Context);
 
   // Create indices into the Class Abstract Type.
   unsigned Sel;
@@ -618,8 +616,8 @@ Value *PMachine::getIndexedVariablePtr(uint8_t Opcode, unsigned Idx) {
 }
 
 bool PMachine::processNextInstruction() {
-  assert(PC != nullptr);
-  assert(CurrBlock != nullptr);
+  assert(PC);
+  assert(CurrBlock);
 
   uint8_t Opcode = getByte();
   if ((Opcode & 0x80) != 0) {
@@ -910,7 +908,7 @@ bool PMachine::calleOp(uint8_t Opcode) {
 }
 
 bool PMachine::retOp(uint8_t Opcode) {
-  if (Acc == nullptr) {
+  if (!Acc) {
     assert(!RetTy || RetTy->isVoidTy());
     if (!RetTy)
       RetTy = Type::getVoidTy(Context);
@@ -927,7 +925,7 @@ bool PMachine::retOp(uint8_t Opcode) {
       for (auto I = Labels.begin(), E = Labels.end(); I != E; ++I) {
         BasicBlock *BB = I->second;
         ReturnInst *RetInst = dyn_cast_or_null<ReturnInst>(BB->getTerminator());
-        if (RetInst != nullptr) {
+        if (RetInst) {
           Value *Val = RetInst->getReturnValue();
           RetInst->eraseFromParent();
           Val = castValueToSizeType(Val, BB);
@@ -942,7 +940,7 @@ bool PMachine::retOp(uint8_t Opcode) {
 }
 
 bool PMachine::sendOp(uint8_t Opcode) {
-  assert(Acc != nullptr);
+  assert(Acc);
   castAccToSizeType();
   emitSend(Acc);
   return true;
@@ -956,7 +954,7 @@ bool PMachine::classOp(uint8_t Opcode) {
 }
 
 bool PMachine::selfOp(uint8_t Opcode) {
-  assert(Self != nullptr);
+  assert(Self);
   emitSend(Self.get());
   return true;
 }
@@ -969,7 +967,7 @@ bool PMachine::superOp(uint8_t Opcode) {
 }
 
 bool PMachine::restOp(uint8_t Opcode) {
-  assert(Rest == nullptr);
+  assert(!Rest);
   unsigned ParamIndex = getUInt(Opcode);
   ConstantInt *C = ConstantInt::get(SizeTy, ParamIndex);
   Rest = RestInst::Create(C, CurrBlock);
@@ -1077,7 +1075,7 @@ bool PMachine::dpTosOp(uint8_t Opcode) {
 
 bool PMachine::lofsaOp(uint8_t Opcode) {
   Value *Val = getValueByOffset(Opcode);
-  assert(Val != nullptr);
+  assert(Val);
 
   Acc = Val;
   return true;
@@ -1085,7 +1083,7 @@ bool PMachine::lofsaOp(uint8_t Opcode) {
 
 bool PMachine::lofssOp(uint8_t Opcode) {
   Value *Val = getValueByOffset(Opcode);
-  assert(Val != nullptr);
+  assert(Val);
 
   callPush(Val);
   return true;

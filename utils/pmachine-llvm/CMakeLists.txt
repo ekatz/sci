@@ -1,11 +1,17 @@
 set(LLVM_LINK_COMPONENTS
+  BitWriter
   Core
-  Support
   )
   
-file(GLOB_RECURSE headers
-  *.hpp
-  Passes/*.hpp
+file(GLOB headers *.hpp)
+file(GLOB pass_headers Passes/*.hpp)
+set(pass_src
+  Passes/EmitScriptUtilitiesPass.cpp
+  Passes/FixCodePass.cpp
+  Passes/MutateCallIntrinsicsPass.cpp
+  Passes/SplitSendPass.cpp
+  Passes/StackReconstructionPass.cpp
+  Passes/TranslateClassIntrinsicPass.cpp
   )
 
 add_sci_executable(pmachine-llvm
@@ -21,16 +27,18 @@ add_sci_executable(pmachine-llvm
   Script.cpp
   SelectorTable.cpp
   World.cpp
-  Passes/EmitScriptUtilitiesPass.cpp
-  Passes/FixCodePass.cpp
-  Passes/MutateCallIntrinsicsPass.cpp
-  Passes/SplitSendPass.cpp
-  Passes/StackReconstructionPass.cpp
-  Passes/TranslateClassIntrinsicPass.cpp
+  ${pass_src}
   
   ADDITIONAL_HEADERS
   ${headers}
+  ${pass_headers}
   )
+
+if(MSVC_IDE)
+  source_group("Header Files\\Passes" FILES ${pass_headers})
+  source_group("Source Files\\Passes" FILES ${pass_src})
+endif()
+
 set_target_properties(pmachine-llvm PROPERTIES FOLDER "SCI utils")
 
 target_link_libraries(pmachine-llvm

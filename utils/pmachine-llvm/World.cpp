@@ -17,20 +17,12 @@
 #include "Passes/TranslateClassIntrinsicPass.hpp"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Debug.h"
 
 using namespace sci;
 using namespace llvm;
 
 static World TheWorld;
-
-static void DumpScriptModule(unsigned ScriptID) {
-  std::error_code EC;
-  Module *M = GetWorld().getScript(ScriptID)->getModule();
-  M->print(raw_fd_ostream(M->getName().str() + ".ll", EC, sys::fs::F_Text),
-           nullptr);
-}
 
 World &sci::GetWorld() { return TheWorld; }
 
@@ -51,21 +43,17 @@ World::~World() {
 ConstantInt *World::getConstantValue(int16_t Val) const {
   ConstantInt *C;
   if (isUnsignedValue(Val)) {
-    if (Val < 0 && (uint16_t)Val != 0x8000)
-      printf("unsigned = %X\n", (uint16_t)Val);
     C = ConstantInt::get(getSizeType(),
                          static_cast<uint64_t>(static_cast<uint16_t>(Val)),
                          false);
   } else {
-    if (Val < 0 && Val != -1)
-      printf("__signed = %X\n", (uint16_t)Val);
     C = ConstantInt::get(
         getSizeType(), static_cast<uint64_t>(static_cast<int16_t>(Val)), true);
   }
   return C;
 }
 
-void World::setDataLayout(const llvm::DataLayout &DL) {
+void World::setDataLayout(const DataLayout &DL) {
   this->DL = DL;
   SizeTy = Type::getIntNTy(Context, DL.getPointerSizeInBits());
   Type *Elems[] = {
@@ -75,10 +63,10 @@ void World::setDataLayout(const llvm::DataLayout &DL) {
   AbsClassTy = StructType::create(Context, Elems);
 }
 
-bool World::load() {
+std::unique_ptr<Module> World::load() {
   ResClassEntry *Res = (ResClassEntry *)ResLoad(RES_VOCAB, CLASSTBL_VOCAB);
   if (!Res)
-    return false;
+    return nullptr;
 
   Intrinsics.reset(new Intrinsic());
   ClassCount = ResHandleSize(Res) / sizeof(ResClassEntry);
@@ -96,28 +84,77 @@ bool World::load() {
     if (Script *S = acquireScript(I))
       S->load();
 
+  dbgs() << "Reconstructing stack\n";
   StackReconstructionPass().run();
-  printf("Finished stack reconstruction!\n");
 
+  dbgs() << "Splitting Send Message calls\n";
   SplitSendPass().run();
-  printf("Finished splitting Send Message calls!\n");
 
+  dbgs() << "Fixing code issues\n";
   FixCodePass().run();
-  printf("Finished fixing code issues!\n");
 
+  dbgs() << "Translating class intrinsic\n";
   TranslateClassIntrinsicPass().run();
-  printf("Finished translating class intrinsic!\n");
 
+  dbgs() << "Expanding KScriptID calls\n";
   EmitScriptUtilitiesPass().run();
-  printf("Finished expanding KScriptID calls!\n");
 
+  dbgs() << "Mutating Call intrinsics\n";
   MutateCallIntrinsicsPass().run();
-  printf("Finished mutating Call intrinsics!\n");
 
-  for (Script &S : scripts()) {
-    DumpScriptModule(S.getId());
+  dbgs() << "Linking SCI module\n";
+  return link();
+}
+
+static void migrateGlobals(Module &Src, Module &Dst) {
+  while (!Src.global_empty()) {
+    GlobalVariable *SrcGV = &*Src.global_begin();
+    GlobalVariable *DstGV = Dst.getNamedGlobal(SrcGV->getName());
+    if (!DstGV) {
+      SrcGV->removeFromParent();
+      Dst.getGlobalList().push_back(SrcGV);
+    } else if (SrcGV->hasInitializer() && !DstGV->hasInitializer()) {
+      DstGV->replaceAllUsesWith(SrcGV);
+      DstGV->eraseFromParent();
+      SrcGV->removeFromParent();
+      Dst.getGlobalList().push_back(SrcGV);
+    } else {
+      assert(!(DstGV->hasInitializer() && SrcGV->hasInitializer() &&
+               DstGV->getInitializer() != SrcGV->getInitializer()) &&
+             "Cannot merge two globals with different initializers");
+      SrcGV->replaceAllUsesWith(DstGV);
+      SrcGV->eraseFromParent();
+    }
   }
-  return true;
+}
+
+static void migrateFunctions(Module &Src, Module &Dst) {
+  while (!Src.empty()) {
+    Function *SrcFunc = &*Src.begin();
+    Function *DstFunc = Dst.getFunction(SrcFunc->getName());
+    if (!DstFunc) {
+      SrcFunc->removeFromParent();
+      Dst.getFunctionList().push_back(SrcFunc);
+    } else if (!SrcFunc->empty() && DstFunc->empty()) {
+      DstFunc->replaceAllUsesWith(SrcFunc);
+      DstFunc->eraseFromParent();
+      SrcFunc->removeFromParent();
+      Dst.getFunctionList().push_back(SrcFunc);
+    } else {
+      SrcFunc->replaceAllUsesWith(DstFunc);
+      SrcFunc->eraseFromParent();
+    }
+  }
+}
+
+std::unique_ptr<Module> World::link() {
+  auto Composite = std::make_unique<Module>("sci", Context);
+  for (Script &S : scripts()) {
+    std::unique_ptr<Module> M = getScript(S.getId())->takeModule();
+    migrateGlobals(*M, *Composite);
+    migrateFunctions(*M, *Composite);
+  }
+  return std::move(Composite);
 }
 
 Script *World::acquireScript(unsigned ScriptID) {

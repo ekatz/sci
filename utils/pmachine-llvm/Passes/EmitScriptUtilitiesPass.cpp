@@ -14,8 +14,6 @@
 using namespace sci;
 using namespace llvm;
 
-#define KORDINAL_ScriptID 2
-
 EmitScriptUtilitiesPass::EmitScriptUtilitiesPass() {}
 
 EmitScriptUtilitiesPass::~EmitScriptUtilitiesPass() {}
@@ -66,7 +64,12 @@ void EmitScriptUtilitiesPass::expandScriptID(CallKernelInst *Call) {
            "Non-constant Script ID is not supported without entry index 0!");
     Function *F = getOrCreateGetDispatchAddrFunction();
     F = getFunctionDecl(F, Call->getModule());
-    V = CallInst::Create(F, ScriptIDVal, "", Call);
+
+    IntegerType *Int32Ty = Type::getInt32Ty(W.getContext());
+    if (ScriptIDVal->getType() != Int32Ty)
+      ScriptIDVal = new TruncInst(ScriptIDVal, Int32Ty, "", Call);
+    V = CallInst::Create(F, {ScriptIDVal, Constant::getNullValue(Int32Ty)}, "",
+                         Call);
   }
 
   Call->replaceAllUsesWith(V);
@@ -154,15 +157,16 @@ EmitScriptUtilitiesPass::getOrCreateDisposeScriptNumFunction(Script *S) {
 Function *EmitScriptUtilitiesPass::getOrCreateGetDispatchAddrFunction() const {
   StringRef Name = "GetDispatchAddr";
   World &W = GetWorld();
-  LLVMContext &Ctx = W.getContext();
-  IntegerType *SizeTy = W.getSizeType();
   Module *MainModule = W.getScript(0)->getModule();
-
   Function *F = MainModule->getFunction(Name);
   if (F)
     return F;
 
-  FunctionType *FTy = FunctionType::get(SizeTy, SizeTy, false);
+  LLVMContext &Ctx = W.getContext();
+  IntegerType *SizeTy = W.getSizeType();
+  IntegerType *Int32Ty = Type::getInt32Ty(Ctx);
+
+  FunctionType *FTy = FunctionType::get(SizeTy, {Int32Ty, Int32Ty}, false);
   F = Function::Create(FTy, GlobalValue::InternalLinkage, Name, MainModule);
 
   BasicBlock *EntryBB = BasicBlock::Create(Ctx, "entry", F);
@@ -183,7 +187,7 @@ Function *EmitScriptUtilitiesPass::getOrCreateGetDispatchAddrFunction() const {
       Value *V = new PtrToIntInst(Var, SizeTy, "", CaseBB);
       ReturnInst::Create(Ctx, V, CaseBB);
 
-      SwitchScript->addCase(ConstantInt::get(SizeTy, S.getId()), CaseBB);
+      SwitchScript->addCase(ConstantInt::get(Int32Ty, S.getId()), CaseBB);
     }
   }
   return F;

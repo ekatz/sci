@@ -41,7 +41,7 @@ public:
   }
   unsigned getSizeTypeAlignment() const { return getTypeAlignment(SizeTy); }
 
-  bool load();
+  std::unique_ptr<llvm::Module> load();
 
   llvm::LLVMContext &getContext() { return Context; }
   llvm::IntegerType *getSizeType() const { return SizeTy; }
@@ -96,6 +96,7 @@ public:
 
 private:
   Script *acquireScript(unsigned ScriptID);
+  std::unique_ptr<llvm::Module> link();
 
   llvm::DataLayout DL;
   llvm::LLVMContext Context;

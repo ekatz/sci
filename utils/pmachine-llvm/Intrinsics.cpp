@@ -12,39 +12,45 @@ using namespace llvm;
 
 namespace sci {
 
+namespace {
+
+enum TypeKind : uint8_t { V, N, Z, P };
+
+static Type *parseType(TypeKind TK) {
+  switch (TK) {
+  case V:
+    return Type::getVoidTy(GetWorld().getContext());
+
+  case N:
+    return Type::getInt32Ty(GetWorld().getContext());
+
+  case Z:
+    return GetWorld().getSizeType();
+
+  case P:
+    return Type::getInt8PtrTy(GetWorld().getContext());
+
+  default:
+    return nullptr;
+  }
+}
+
 class IntrinsicFunction : public Function {
 public:
   struct Desc {
     Intrinsic::ID ID;
     const char *Name;
-    unsigned Argc;
+    SmallVector<TypeKind, 4> Args;
     bool IsVarArg;
-    uint8_t ReturnVal;
+    TypeKind ReturnVal;
   };
 
   static IntrinsicFunction *Create(const Desc &D) {
-    IntegerType *SizeTy = GetWorld().getSizeType();
+    SmallVector<Type *, 4> Params;
+    for (TypeKind TK : D.Args)
+      Params.push_back(parseType(TK));
 
-    SmallVector<Type *, 6> Params;
-    Params.resize(D.Argc, SizeTy);
-
-    Type *RetTy;
-    switch (D.ReturnVal) {
-    case Type::VoidTyID:
-      RetTy = Type::getVoidTy(SizeTy->getContext());
-      break;
-
-    case Type::IntegerTyID:
-      RetTy = SizeTy;
-      break;
-
-    case Type::PointerTyID:
-      RetTy = SizeTy->getPointerTo();
-      break;
-
-    default:
-      RetTy = nullptr;
-    }
+    Type *RetTy = parseType(D.ReturnVal);
 
     FunctionType *FTy = FunctionType::get(RetTy, Params, D.IsVarArg);
 
@@ -61,32 +67,34 @@ private:
   }
 };
 
+} // end anonymous namespace
+
 static const IntrinsicFunction::Desc Intrinsics[] = {
-    {Intrinsic::push, "push@SCI", 1, false, Type::VoidTyID},
-    {Intrinsic::pop, "pop@SCI", 0, false, Type::IntegerTyID},
-    {Intrinsic::rest, "rest@SCI", 1, false, Type::IntegerTyID},
+    {Intrinsic::push,  "push@SCI",     {Z    }, false, V},
+    {Intrinsic::pop,   "pop@SCI",      {     }, false, Z},
+    {Intrinsic::rest,  "rest@SCI",     {Z    }, false, Z},
 
-    {Intrinsic::clss, "class@SCI", 1, false, Type::IntegerTyID},
-    {Intrinsic::objc, "obj_cast@SCI", 3, true, Type::IntegerTyID},
+    {Intrinsic::clss,  "class@SCI",    {Z    }, false, Z},
+    {Intrinsic::objc,  "obj_cast@SCI", {Z,Z,Z}, true,  Z},
 
-    {Intrinsic::prop, "prop@SCI", 1, false, Type::PointerTyID},
-    {Intrinsic::send, "send@SCI", 3, true, Type::IntegerTyID},
-    {Intrinsic::call, "call@SCI", 2, true, Type::IntegerTyID},
-    {Intrinsic::calle, "calle@SCI", 3, true, Type::IntegerTyID},
-    {Intrinsic::callk, "callk@SCI", 2, true, Type::IntegerTyID},
+    {Intrinsic::prop,  "prop@SCI",     {Z    }, false, P},
+    {Intrinsic::send,  "send@SCI",     {Z,Z,Z}, true,  Z},
+    {Intrinsic::call,  "call@SCI",     {Z,Z  }, true,  Z},
+    {Intrinsic::calle, "calle@SCI",    {Z,Z,Z}, true,  Z},
+    {Intrinsic::callk, "callk@SCI",    {Z,Z  }, true,  Z},
 
-    {Intrinsic::callv, "callv@SCI", 1, true, Type::IntegerTyID}};
+    {Intrinsic::callv, "callv@SCI",    {Z    }, true,  Z}};
 
 static_assert(array_lengthof(Intrinsics) == Intrinsic::num_intrinsics,
               "Incorrect number of intrinsic descriptors.");
 
 Intrinsic::Intrinsic() {
-  for (unsigned I = 0, N = Intrinsic::num_intrinsics; I < N; ++I)
+  for (unsigned I = 0, E = Intrinsic::num_intrinsics; I < E; ++I)
     Funcs[I].reset(IntrinsicFunction::Create(Intrinsics[I]));
 }
 
 Intrinsic::~Intrinsic() {
-  for (unsigned I = 0, N = Intrinsic::num_intrinsics; I < N; ++I) {
+  for (unsigned I = 0, E = Intrinsic::num_intrinsics; I < E; ++I) {
     assert(!Funcs[I] || Funcs[I]->getNumUses() == 0);
   }
 }

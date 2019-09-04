@@ -20,132 +20,132 @@ using namespace llvm;
 #define MSG_TYPE_PROP_SET (1U << 2)
 #define MSG_TYPE_PROP (MSG_TYPE_PROP_GET | MSG_TYPE_PROP_SET)
 
-const char *MutateCallIntrinsicsPass::KernelNames[] = {"KLoad",
-                                                       "KUnLoad",
-                                                       "KScriptID",
-                                                       "KDisposeScript",
-                                                       "KClone",
-                                                       "KDisposeClone",
-                                                       "KIsObject",
-                                                       "KRespondsTo",
-                                                       "KDrawPic",
-                                                       "KShow",
-                                                       "KPicNotValid",
-                                                       "KAnimate",
-                                                       "KSetNowSeen",
-                                                       "KNumLoops",
-                                                       "KNumCels",
-                                                       "KCelWide",
-                                                       "KCelHigh",
-                                                       "KDrawCel",
-                                                       "KAddToPic",
-                                                       "KNewWindow",
-                                                       "KGetPort",
-                                                       "KSetPort",
-                                                       "KDisposeWindow",
-                                                       "KDrawControl",
-                                                       "KHiliteControl",
-                                                       "KEditControl",
-                                                       "KTextSize",
-                                                       "KDisplay",
-                                                       "KGetEvent",
-                                                       "KGlobalToLocal",
-                                                       "KLocalToGlobal",
-                                                       "KMapKeyToDir",
-                                                       "KDrawMenuBar",
-                                                       "KMenuSelect",
-                                                       "KAddMenu",
-                                                       "KDrawStatus",
-                                                       "KParse",
-                                                       "KSaid",
-                                                       "KSetSynonyms",
-                                                       "KHaveMouse",
-                                                       "KSetCursor",
-                                                       "KSaveGame",
-                                                       "KRestoreGame",
-                                                       "KRestartGame",
-                                                       "KGameIsRestarting",
-                                                       "KDoSound",
-                                                       "KNewList",
-                                                       "KDisposeList",
-                                                       "KNewNode",
-                                                       "KFirstNode",
-                                                       "KLastNode",
-                                                       "KEmptyList",
-                                                       "KNextNode",
-                                                       "KPrevNode",
-                                                       "KNodeValue",
-                                                       "KAddAfter",
-                                                       "KAddToFront",
-                                                       "KAddToEnd",
-                                                       "KFindKey",
-                                                       "KDeleteKey",
-                                                       "KRandom",
-                                                       "KAbs",
-                                                       "KSqrt",
-                                                       "KGetAngle",
-                                                       "KGetDistance",
-                                                       "KWait",
-                                                       "KGetTime",
-                                                       "KStrEnd",
-                                                       "KStrCat",
-                                                       "KStrCmp",
-                                                       "KStrLen",
-                                                       "KStrCpy",
-                                                       "KFormat",
-                                                       "KGetFarText",
-                                                       "KReadNumber",
-                                                       "KBaseSetter",
-                                                       "KDirLoop",
-                                                       "KCantBeHere",
-                                                       "KOnControl",
-                                                       "KInitBresen",
-                                                       "KDoBresen",
-                                                       "KDoAvoider",
-                                                       "KSetJump",
-                                                       "KSetDebug",
-                                                       "KInspectObj",
-                                                       "KShowSends",
-                                                       "KShowObjs",
-                                                       "KShowFree",
-                                                       "KMemoryInfo",
-                                                       "KStackUsage",
-                                                       "KProfiler",
-                                                       "KGetMenu",
-                                                       "KSetMenu",
-                                                       "KGetSaveFiles",
-                                                       "KGetCWD",
-                                                       "KCheckFreeSpace",
-                                                       "KValidPath",
-                                                       "KCoordPri",
-                                                       "KStrAt",
-                                                       "KDeviceInfo",
-                                                       "KGetSaveDir",
-                                                       "KCheckSaveGame",
-                                                       "KShakeScreen",
-                                                       "KFlushResources",
-                                                       "KSinMult",
-                                                       "KCosMult",
-                                                       "KSinDiv",
-                                                       "KCosDiv",
-                                                       "KGraph",
-                                                       "KJoystick",
-                                                       "KShiftScreen",
-                                                       "KPalette",
-                                                       "KMemorySegment",
-                                                       "KIntersections",
-                                                       "KMemory",
-                                                       "KListOps",
-                                                       "KFileIO",
-                                                       "KDoAudio",
-                                                       "KDoSync",
-                                                       "KAvoidPath",
-                                                       "KSort",
-                                                       "KATan",
-                                                       "KLock",
-                                                       "KStrSplit",
-                                                       "KMessage",
-                                                       "KIsItSkip"};
+StringRef MutateCallIntrinsicsPass::KernelNames[] = {"KLoad",
+                                                     "KUnLoad",
+                                                     "KScriptID",
+                                                     "KDisposeScript",
+                                                     "KClone",
+                                                     "KDisposeClone",
+                                                     "KIsObject",
+                                                     "KRespondsTo",
+                                                     "KDrawPic",
+                                                     "KShow",
+                                                     "KPicNotValid",
+                                                     "KAnimate",
+                                                     "KSetNowSeen",
+                                                     "KNumLoops",
+                                                     "KNumCels",
+                                                     "KCelWide",
+                                                     "KCelHigh",
+                                                     "KDrawCel",
+                                                     "KAddToPic",
+                                                     "KNewWindow",
+                                                     "KGetPort",
+                                                     "KSetPort",
+                                                     "KDisposeWindow",
+                                                     "KDrawControl",
+                                                     "KHiliteControl",
+                                                     "KEditControl",
+                                                     "KTextSize",
+                                                     "KDisplay",
+                                                     "KGetEvent",
+                                                     "KGlobalToLocal",
+                                                     "KLocalToGlobal",
+                                                     "KMapKeyToDir",
+                                                     "KDrawMenuBar",
+                                                     "KMenuSelect",
+                                                     "KAddMenu",
+                                                     "KDrawStatus",
+                                                     "KParse",
+                                                     "KSaid",
+                                                     "KSetSynonyms",
+                                                     "KHaveMouse",
+                                                     "KSetCursor",
+                                                     "KSaveGame",
+                                                     "KRestoreGame",
+                                                     "KRestartGame",
+                                                     "KGameIsRestarting",
+                                                     "KDoSound",
+                                                     "KNewList",
+                                                     "KDisposeList",
+                                                     "KNewNode",
+                                                     "KFirstNode",
+                                                     "KLastNode",
+                                                     "KEmptyList",
+                                                     "KNextNode",
+                                                     "KPrevNode",
+                                                     "KNodeValue",
+                                                     "KAddAfter",
+                                                     "KAddToFront",
+                                                     "KAddToEnd",
+                                                     "KFindKey",
+                                                     "KDeleteKey",
+                                                     "KRandom",
+                                                     "KAbs",
+                                                     "KSqrt",
+                                                     "KGetAngle",
+                                                     "KGetDistance",
+                                                     "KWait",
+                                                     "KGetTime",
+                                                     "KStrEnd",
+                                                     "KStrCat",
+                                                     "KStrCmp",
+                                                     "KStrLen",
+                                                     "KStrCpy",
+                                                     "KFormat",
+                                                     "KGetFarText",
+                                                     "KReadNumber",
+                                                     "KBaseSetter",
+                                                     "KDirLoop",
+                                                     "KCantBeHere",
+                                                     "KOnControl",
+                                                     "KInitBresen",
+                                                     "KDoBresen",
+                                                     "KDoAvoider",
+                                                     "KSetJump",
+                                                     "KSetDebug",
+                                                     "KInspectObj",
+                                                     "KShowSends",
+                                                     "KShowObjs",
+                                                     "KShowFree",
+                                                     "KMemoryInfo",
+                                                     "KStackUsage",
+                                                     "KProfiler",
+                                                     "KGetMenu",
+                                                     "KSetMenu",
+                                                     "KGetSaveFiles",
+                                                     "KGetCWD",
+                                                     "KCheckFreeSpace",
+                                                     "KValidPath",
+                                                     "KCoordPri",
+                                                     "KStrAt",
+                                                     "KDeviceInfo",
+                                                     "KGetSaveDir",
+                                                     "KCheckSaveGame",
+                                                     "KShakeScreen",
+                                                     "KFlushResources",
+                                                     "KSinMult",
+                                                     "KCosMult",
+                                                     "KSinDiv",
+                                                     "KCosDiv",
+                                                     "KGraph",
+                                                     "KJoystick",
+                                                     "KShiftScreen",
+                                                     "KPalette",
+                                                     "KMemorySegment",
+                                                     "KIntersections",
+                                                     "KMemory",
+                                                     "KListOps",
+                                                     "KFileIO",
+                                                     "KDoAudio",
+                                                     "KDoSync",
+                                                     "KAvoidPath",
+                                                     "KSort",
+                                                     "KATan",
+                                                     "KLock",
+                                                     "KStrSplit",
+                                                     "KMessage",
+                                                     "KIsItSkip"};
 
 static unsigned getPotentialMessageType(const SendMessageInst *SendMsg) {
   unsigned MsgType = MSG_TYPE_METHOD;
@@ -202,6 +202,7 @@ static unsigned getPotentialMessageType(const SendMessageInst *SendMsg) {
 
 MutateCallIntrinsicsPass::MutateCallIntrinsicsPass()
     : SizeTy(GetWorld().getSizeType()),
+      Int32Ty(Type::getInt32Ty(GetWorld().getContext())),
       SizeBytesVal(ConstantInt::get(SizeTy, SizeTy->getBitWidth() / 8)),
       SizeAlign(GetWorld().getSizeTypeAlignment()),
       Int8PtrTy(Type::getInt8PtrTy(GetWorld().getContext())),
@@ -367,6 +368,9 @@ CallInst *MutateCallIntrinsicsPass::createPropertyCall(SendMessageInst *SendMsg,
   Function *Func;
   unsigned Argc = 2;
   Value *Args[3] = {SendMsg->getObject(), SendMsg->getSelector()};
+
+  if (Args[1]->getType() != Int32Ty)
+    Args[1] = new TruncInst(Args[1], Int32Ty, "", SendMsg);
 
   if (IsGetter) {
     Func = getGetPropertyFunction(M);
@@ -569,12 +573,12 @@ Function *MutateCallIntrinsicsPass::getOrCreateDelegator(ConstantInt *ArgcVal,
 
 Function *MutateCallIntrinsicsPass::getSendMessageFunction(Module *M) {
   //
-  // uintptr_t SendMessage(uintptr_t self, uintptr_t sel, uintptr_t *args)
+  // uintptr_t SendMessageEx(uintptr_t self, uintptr_t sel, uintptr_t *args)
   //
 
-  StringRef Name = "SendMessage";
+  StringRef Name = "SendMessageEx";
   Function *Func = M->getFunction(Name);
-  if (Func == nullptr) {
+  if (!Func) {
     Type *Params[] = {
         SizeTy,                // self
         SizeTy,                // sel
@@ -588,15 +592,15 @@ Function *MutateCallIntrinsicsPass::getSendMessageFunction(Module *M) {
 
 Function *MutateCallIntrinsicsPass::getGetPropertyFunction(Module *M) {
   //
-  // uintptr_t GetProperty(uintptr_t self, uintptr_t sel)
+  // uintptr_t GetProperty(uintptr_t self, uint sel)
   //
 
   StringRef Name = "GetProperty";
   Function *Func = M->getFunction(Name);
-  if (Func == nullptr) {
+  if (!Func) {
     Type *Params[] = {
         SizeTy, // self
-        SizeTy  // sel
+        Int32Ty // sel
     };
     FunctionType *FTy = FunctionType::get(SizeTy, Params, false);
     Func = Function::Create(FTy, GlobalValue::ExternalLinkage, Name, M);
@@ -606,16 +610,16 @@ Function *MutateCallIntrinsicsPass::getGetPropertyFunction(Module *M) {
 
 Function *MutateCallIntrinsicsPass::getSetPropertyFunction(Module *M) {
   //
-  // uintptr_t SetProperty(uintptr_t self, uintptr_t sel, uintptr_t val)
+  // uintptr_t SetProperty(uintptr_t self, uint sel, uintptr_t val)
   //
 
   StringRef Name = "SetProperty";
   Function *Func = M->getFunction(Name);
-  if (Func == nullptr) {
+  if (!Func) {
     Type *Params[] = {
-        SizeTy, // self
-        SizeTy, // sel
-        SizeTy  // val
+        SizeTy,  // self
+        Int32Ty, // sel
+        SizeTy   // val
     };
     FunctionType *FTy = FunctionType::get(SizeTy, Params, false);
     Func = Function::Create(FTy, GlobalValue::ExternalLinkage, Name, M);
@@ -630,7 +634,7 @@ Function *MutateCallIntrinsicsPass::getCallMethodFunction(Module *M) {
 
   StringRef Name = "CallMethod";
   Function *Func = M->getFunction(Name);
-  if (Func == nullptr) {
+  if (!Func) {
     Type *Params[] = {
         SizeTy,                // self
         SizeTy,                // sel
@@ -644,17 +648,31 @@ Function *MutateCallIntrinsicsPass::getCallMethodFunction(Module *M) {
 
 Function *MutateCallIntrinsicsPass::getOrCreateKernelFunction(unsigned ID,
                                                               Module *M) {
-  if (ID >= array_lengthof(KernelNames)) {
+  if (ID >= array_lengthof(KernelNames))
     return nullptr;
-  }
 
-  Function *Func = M->getFunction(KernelNames[ID]);
-  if (Func == nullptr) {
-    FunctionType *FTy =
-        FunctionType::get(SizeTy, SizeTy->getPointerTo(), false);
-    Func =
+  SmallString<32> Name;
+  Name += '_';
+  Name += KernelNames[ID];
+  Function *Func = M->getFunction(Name);
+  if (!Func) {
+    LLVMContext &Ctx = M->getContext();
+    PointerType *SizePtrTy = SizeTy->getPointerTo();
+    FunctionType *FTy = FunctionType::get(SizeTy, SizePtrTy, false);
+    Func = Function::Create(FTy, GlobalValue::LinkOnceODRLinkage, Name, M);
+    Argument *Args = Func->arg_begin();
+    Args->setName("args");
+
+    FTy =
+        FunctionType::get(Type::getVoidTy(Ctx), {SizePtrTy, SizePtrTy}, false);
+    Function *KFunc =
         Function::Create(FTy, GlobalValue::ExternalLinkage, KernelNames[ID], M);
-    Func->arg_begin()->setName("args");
+
+    BasicBlock *BB = BasicBlock::Create(Ctx, "", Func);
+    Value *Acc = new AllocaInst(SizeTy, 0, "acc", BB);
+    CallInst::Create(KFunc, {Args, Acc}, "", BB);
+    Acc = new LoadInst(Acc, "", BB);
+    ReturnInst::Create(Ctx, Acc, BB);
   }
   return Func;
 }

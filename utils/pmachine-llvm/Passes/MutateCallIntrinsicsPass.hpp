@@ -50,6 +50,7 @@ private:
   llvm::Function *getOrCreateKernelFunction(unsigned ID, llvm::Module *M);
 
   llvm::IntegerType *SizeTy;
+  llvm::IntegerType *Int32Ty;
   llvm::ConstantInt *SizeBytesVal;
   unsigned SizeAlign;
 
@@ -65,7 +66,7 @@ private:
   llvm::Function *SetPropFunc;
   llvm::Function *CallMethodFunc;
 
-  static const char *KernelNames[];
+  static StringRef KernelNames[];
 };
 
 } // end namespace sci
